@@ -54,6 +54,13 @@ a{color:var(--green);}
 .gilt-link::after{content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--gilt); transform:scaleX(.3); transform-origin:left; transition:transform .3s;}
 .gilt-link:hover::after{transform:scaleX(1);}
 
+.masthead{display:flex; align-items:center; justify-content:space-between; padding-top:22px; padding-bottom:22px;}
+.seal-sm{width:40px; height:40px;}
+.nav{display:flex; gap:28px;}
+.nav-link{color:var(--soft); text-decoration:none; font:400 12px var(--serif); letter-spacing:3px; text-transform:uppercase; padding-bottom:4px; border-bottom:1px solid transparent; transition:.25s;}
+.nav-link:hover,.nav-link[aria-current="page"]{color:var(--green); border-bottom-color:var(--gilt);}
+#site-footer{margin-top:80px; padding:30px 0;}
+
 @media (prefers-reduced-motion: reduce){
   *{animation:none !important; transition:none !important;}
 }

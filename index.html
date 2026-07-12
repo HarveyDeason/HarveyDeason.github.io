@@ -7,6 +7,7 @@
   <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
+  <header id="site-header"></header>
   <div class="container" style="padding-top:60px;">
     <div class="frame" style="padding:40px; text-align:center;">
       <img class="seal" src="/assets/img/seal.svg" alt="HD monogram">
@@ -16,5 +17,10 @@
       <p class="label">Design system online</p>
     </div>
   </div>
+  <footer id="site-footer"></footer>
+  <script type="module">
+    import { mountLayout } from '/assets/js/layout.js';
+    mountLayout('home');
+  </script>
 </body>
 </html>
