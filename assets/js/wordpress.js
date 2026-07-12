@@ -23,7 +23,7 @@ export function normalizePost(o){
     id: o.id,
     slug: o.slug,
     dateISO: o.date,
-    title: decode(o.title?.rendered ?? ''),
+    title: stripTags(o.title?.rendered ?? ''),
     excerpt: stripTags(o.excerpt?.rendered ?? ''),
     cover: (media && media[0] && media[0].source_url) || null,
     html: o.content?.rendered ?? '',
@@ -64,16 +64,23 @@ export async function fetchPostBySlug(slug, fetchFn = fetch){
 // allowlist DOM sanitiser (browser)
 const ALLOWED = new Set(['P','BR','STRONG','EM','B','I','U','A','H2','H3','H4','BLOCKQUOTE','UL','OL','LI','IMG','FIGURE','FIGCAPTION','PRE','CODE','HR']);
 const ATTRS = { A:['href','title'], IMG:['src','alt'] };
+function safeUrl(v, kind){
+  v = (v||'').trim();
+  if(kind==='href') return /^(https?:|mailto:|#)/i.test(v) || (v.startsWith('/') && !v.startsWith('//'));
+  return /^https?:/i.test(v) || (v.startsWith('/') && !v.startsWith('//'));
+}
 export function sanitizeHtml(html){
   const tpl = document.createElement('template'); tpl.innerHTML = html;
-  (function walk(node){
+  (function clean(node){
     [...node.childNodes].forEach(n=>{
       if(n.nodeType===1){
-        if(!ALLOWED.has(n.tagName)){ n.replaceWith(...n.childNodes); return; }
-        [...n.attributes].forEach(a=>{ if(!(ATTRS[n.tagName]||[]).includes(a.name)) n.removeAttribute(a.name); });
-        if(n.tagName==='A'){ n.setAttribute('rel','noopener'); if(/^https?:/.test(n.getAttribute('href')||'')===false && !(n.getAttribute('href')||'').startsWith('/')) n.removeAttribute('href'); }
-        walk(n);
-      } else if(n.nodeType!==3){ n.remove(); }
+        const tag=n.tagName;
+        clean(n);                                 // clean descendants first
+        if(!ALLOWED.has(tag)){ n.replaceWith(...n.childNodes); return; }
+        [...n.attributes].forEach(a=>{ if(!(ATTRS[tag]||[]).includes(a.name)) n.removeAttribute(a.name); });
+        if(tag==='A'){ if(!safeUrl(n.getAttribute('href'),'href')) n.removeAttribute('href'); n.setAttribute('rel','noopener'); }
+        if(tag==='IMG'){ if(!safeUrl(n.getAttribute('src'),'src')) n.removeAttribute('src'); }
+      } else if(n.nodeType!==3){ n.remove(); }     // drop comments/others; keep text nodes
     });
   })(tpl.content);
   return tpl.innerHTML;
