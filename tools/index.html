@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instruments — Harvey Deason</title>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <link rel="icon" href="/assets/img/seal.svg">
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <section class="section" style="margin-top:40px;">
+      <div class="eyebrow" style="text-align:center;">The Instrument Cabinet</div>
+      <h1 class="section-title">Engineering Instruments</h1>
+      <p class="lead" style="text-align:center;margin:0 auto;max-width:520px;color:var(--soft);font-style:italic;">Self-serve tools that run in your browser. Nothing to install.</p>
+      <div id="tool-cabinet" class="cards-grid" style="margin-top:30px;">Loading…</div>
+    </section>
+  </main>
+  <footer id="site-footer"></footer>
+  <script type="module">
+    import { mountLayout } from '/assets/js/layout.js';
+    import { loadTools, mountTools } from '/assets/js/tools.js';
+    mountLayout('tools');
+    loadTools().then(t => mountTools('tool-cabinet', t))
+      .catch(() => { document.getElementById('tool-cabinet').innerHTML =
+        '<p class="label">The cabinet is momentarily unavailable.</p>'; });
+  </script>
+</body>
+</html>
