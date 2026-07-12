@@ -73,13 +73,14 @@ export function initGearTrain(canvas, opts = {}) {
   function size(){const r=canvas.getBoundingClientRect();canvas._w=r.width;canvas._h=r.height;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
   size(); window.addEventListener('resize', size);
 
-  let phi=0, vel=0, drag=false, lastX=0, mvx=0, mvy=0, tilt=0.62, viewY=0;
-  canvas.addEventListener('pointerdown',e=>{drag=true;lastX=e.clientX;canvas.setPointerCapture(e.pointerId);});
-  canvas.addEventListener('pointermove',e=>{ if(drag){vel+=(e.clientX-lastX)*0.0016;lastX=e.clientX;} const r=canvas.getBoundingClientRect(); mvx=(e.clientX-r.left)/r.width-.5; mvy=(e.clientY-r.top)/r.height-.5; });
+  let phi=0, vel=0, drag=false, lastX=0, mvx=0, mvy=0, tilt=0.62, viewY=0, running=true;
+  canvas.addEventListener('pointerdown',e=>{drag=true;lastX=e.clientX;canvas.setPointerCapture(e.pointerId);wake();});
+  canvas.addEventListener('pointermove',e=>{ if(drag){vel+=(e.clientX-lastX)*0.0016;lastX=e.clientX;wake();} const r=canvas.getBoundingClientRect(); mvx=(e.clientX-r.left)/r.width-.5; mvy=(e.clientY-r.top)/r.height-.5; });
   canvas.addEventListener('pointerup',()=>drag=false);
   canvas.addEventListener('pointercancel',()=>drag=false);
 
   const range=15.5;
+  function wake(){ if(!running){ running = true; requestAnimationFrame(frame); } }
   function frame(){
     const W=canvas._w,H=canvas._h,cx=W/2,cy=H/2,FOV=52,S=Math.min(W,H)/(2.5*range);
     vel*=0.94; phi += vel + (reduce?0:0.0045);
@@ -103,7 +104,9 @@ export function initGearTrain(canvas, opts = {}) {
       if(d>0.82){ctx.fillStyle='rgba(169,134,63,0.08)';ctx.beginPath();ctx.arc(p.sx,p.sy,rad*2.2,0,7);ctx.fill();}
       ctx.fillStyle=`rgba(${150+d*56},${116+d*42},${48+d*34},${0.32+d*0.6})`;
       ctx.beginPath();ctx.arc(p.sx,p.sy,rad,0,7);ctx.fill();}
-    if(!(reduce && Math.abs(vel)<1e-4)) requestAnimationFrame(frame);
+    const idle = reduce && !drag && Math.abs(vel) < 1e-4;
+    if (idle) { running = false; return; }   // settled still-frame under reduced motion: pause
+    requestAnimationFrame(frame);
   }
   frame();
 }
