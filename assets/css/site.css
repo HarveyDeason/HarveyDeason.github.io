@@ -1,0 +1,59 @@
+:root{
+  --paper:#eee6d0; --ink:#2a2620; --green:#1c3a2a;
+  --gilt:#a9863f; --gilt-lt:#cdae6b; --oxblood:#6d2a29; --soft:#5b5343;
+  --serif:Georgia,'Palatino Linotype','Iowan Old Style','Times New Roman',serif;
+  --mono:ui-monospace,'Consolas',monospace;
+  --maxw:1100px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:var(--paper); color:var(--ink); font-family:var(--serif);
+  line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:repeating-linear-gradient(0deg,rgba(120,100,60,.04) 0 1px,transparent 1px 5px);
+}
+a{color:var(--green);}
+.container{max-width:var(--maxw); margin:0 auto; padding:0 24px;}
+
+/* gilt double-rule frame wrapper for hero/plates */
+.frame{position:relative; border:1px solid var(--gilt);}
+.frame::before{content:""; position:absolute; inset:6px; border:1px solid rgba(28,58,42,.4); pointer-events:none;}
+
+/* monogram seal */
+.seal{width:56px; height:56px; display:inline-block;}
+
+/* ornamental rule */
+.rule{display:flex; align-items:center; gap:14px; color:var(--gilt); margin:26px 0;}
+.rule .ln{flex:1; height:1px; background:linear-gradient(90deg,transparent,var(--gilt),transparent);}
+.rule .di{width:7px; height:7px; background:var(--green); transform:rotate(45deg);}
+
+/* small-caps eyebrow / labels */
+.eyebrow{font:400 12px var(--serif); letter-spacing:5px; text-transform:uppercase; color:var(--oxblood);}
+.label{font:400 10px 'Segoe UI',sans-serif; letter-spacing:3px; text-transform:uppercase; color:var(--soft);}
+
+/* display wordmark */
+.wordmark{font:400 clamp(40px,7vw,92px)/.95 var(--serif); letter-spacing:1px; margin:.15em 0;}
+.wordmark em{font-style:italic; color:var(--green);}
+
+/* heritage card */
+.card{position:relative; background:rgba(255,252,244,.5); border:1px solid var(--gilt); padding:18px; text-decoration:none; color:inherit; display:block; transition:box-shadow .2s, transform .15s;}
+.card::before{content:""; position:absolute; inset:4px; border:1px solid rgba(28,58,42,.35); pointer-events:none;}
+.card:hover{box-shadow:0 8px 26px rgba(80,60,20,.18);}
+.card h3{margin:.2em 0; font-size:20px; color:var(--green); font-style:italic;}
+.card p{margin:0; color:var(--soft); font-size:14px;}
+
+/* title block (footer / contact) */
+.titleblock{border:1.6px solid var(--ink); display:grid; grid-template-columns:1fr auto; background:#fff;}
+.titleblock .tb-main{padding:10px 14px;}
+.titleblock .tb-name{font:800 18px var(--serif); letter-spacing:.3px;}
+.titleblock .tb-sub{font:600 9px var(--mono); letter-spacing:1px; color:var(--soft); margin-top:3px;}
+.titleblock .tb-logo{display:flex; align-items:center; justify-content:center; border-left:1.6px solid var(--ink); padding:0 12px;}
+
+/* gilt-underline link */
+.gilt-link{position:relative; text-decoration:none; color:var(--green); padding-bottom:3px;}
+.gilt-link::after{content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--gilt); transform:scaleX(.3); transform-origin:left; transition:transform .3s;}
+.gilt-link:hover::after{transform:scaleX(1);}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important;}
+}
