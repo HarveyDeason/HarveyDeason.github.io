@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Platform &amp; Access Checker</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='8' fill='%231f6bcc'/><text x='18' y='26' text-anchor='middle' font-size='20' fill='white'>⬡</text></svg>">
+<style>
+:root {
+  --mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', 'Consolas', 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+[data-theme="dark"] {
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2330;
+  --border:#30363d; --border2:#21262d;
+  --text:#e6edf3; --muted:#7d8590;
+  --accent:#2f81f7; --accent-dim:#1f6bcc;
+  --green:#3fb950; --green-dim:#196c2e;
+  --amber:#d29922; --amber-dim:#5a3e14;
+  --red:#f85149; --red-dim:#5c1c18;
+}
+[data-theme="light"] {
+  --bg:#f6f8fa; --surface:#ffffff; --surface2:#f0f2f5;
+  --border:#d0d7de; --border2:#e8ecf0;
+  --text:#1f2328; --muted:#656d76;
+  --accent:#0969da; --accent-dim:#0550ae;
+  --green:#1a7f37; --green-dim:#4ac26b;
+  --amber:#7a4f00; --amber-dim:#d4a72c;
+  --red:#cf222e; --red-dim:#fa7970;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.header-titles {
+  flex: 1;
+}
+
+.header-titles h1 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.header-titles p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#date-badge {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+}
+
+.btn-print {
+  font-size: 12px;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn-print:hover { border-color: var(--accent); background: rgba(47,129,247,0.08); }
+
+/* ── Project bar ── */
+.project-bar {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border2);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.project-bar label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-left: 10px;
+}
+.project-bar label:first-child { margin-left: 0; }
+
+.project-bar input {
+  font-size: 12px;
+  font-family: var(--sans);
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 2px 4px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.project-bar input:focus { border-color: var(--accent); }
+.project-bar input.wide  { width: 200px; }
+.project-bar input.medium{ width: 110px; }
+.project-bar input.narrow{ width: 60px; }
+
+/* ── Additional CSS rules ── */
+.container { padding: 20px 24px; max-width: 1100px; }
+
+.tool-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.tool-section h2 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.section-std { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+
+.input-grid {
+  display: flex; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px;
+}
+.input-grid label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.input-grid input, .input-grid select {
+  font-size: 12px; font-family: var(--sans); color: var(--text);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 4px 8px; outline: none; transition: border-color 0.15s;
+  min-width: 120px;
+}
+.input-grid input:focus, .input-grid select:focus { border-color: var(--accent); }
+.input-grid select option { background: var(--surface); }
+
+.results-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+.results-table th {
+  padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); background: var(--surface2); border-bottom: 1px solid var(--border);
+}
+.results-table td { padding: 6px 10px; border-bottom: 1px solid var(--border2); vertical-align: middle; }
+.results-table tbody tr:last-child td { border-bottom: none; }
+
+.tag { display:inline-flex; align-items:center; font-size:10px; font-family:var(--mono);
+  font-weight:600; padding:2px 7px; border-radius:20px; border:1px solid; white-space:nowrap; }
+.tag-ok   { color:var(--green); border-color:var(--green-dim); background:rgba(63,185,80,0.08); }
+.tag-warn { color:var(--amber); border-color:var(--amber-dim); background:rgba(210,153,34,0.08); }
+.tag-err  { color:var(--red);   border-color:var(--red-dim);   background:rgba(248,81,73,0.08); }
+
+.warning-banner {
+  background: rgba(210,153,34,0.1); border: 1px solid var(--amber-dim);
+  border-radius: 6px; padding: 8px 12px; margin-top: 8px;
+  font-size: 11px; color: var(--amber);
+}
+.info-banner {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;
+  font-size: 11px; color: var(--muted);
+}
+.table-note { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+.section-props { font-size: 11px; color: var(--muted); margin-top: 6px; font-family: var(--mono); }
+
+.access-toggle-label {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 600; padding: 8px 0; border-bottom: 1px solid var(--border2);
+  margin-bottom: 0;
+}
+.access-toggle-label input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; width: 15px; height: 15px; }
+.access-sub { padding-top: 14px; }
+
+.grp-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px; margin-bottom: 10px;
+}
+.grp-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.grp-card.card-ok  { border-color: var(--green-dim); }
+.grp-card.card-err { border-color: var(--red-dim); }
+
+footer { margin-top: 40px; padding: 16px 24px; border-top: 1px solid var(--border2);
+  font-size: 11px; color: var(--muted); text-align: center; }
+
+/* ── Workings modal ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.78); z-index: 1000;
+  overflow-y: auto; padding: 24px 16px;
+}
+.modal-overlay.open { display: flex; justify-content: center; align-items: flex-start; }
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; max-width: 740px; width: 100%;
+  padding: 28px 28px 24px; position: relative;
+}
+.modal-close {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: 1px solid var(--border);
+  color: var(--muted); border-radius: 4px;
+  padding: 3px 12px; cursor: pointer; font-size: 12px;
+}
+.modal-close:hover { border-color: var(--accent); color: var(--text); }
+.wk-header { font-size: 14px; font-weight: 600; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.wk-section { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border2); }
+.wk-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.wk-head { font-size: 10px; font-weight: 700; color: var(--accent); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+.wk-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.wk-std { font-size: 11px; color: var(--muted); }
+.wk-line { font-size: 12px; font-family: var(--mono); color: var(--muted); margin-bottom: 3px; }
+.wk-formula { font-size: 12px; font-family: var(--mono); margin-bottom: 5px; line-height: 1.5; }
+.wk-note { font-size: 11px; color: var(--amber); background: rgba(210,153,34,0.08); border-radius: 4px; padding: 10px 12px; border: 1px solid var(--amber-dim); }
+.btn-workings {
+  font-size: 11px; padding: 4px 12px; margin-top: 8px;
+  background: none; border: 1px solid var(--border);
+  border-radius: 4px; color: var(--muted); cursor: pointer;
+}
+.btn-workings:hover { border-color: var(--accent); color: var(--accent); }
+
+@media print {
+  body { background: #fff; color: #000; }
+  .btn-print { display: none !important; }
+  .modal-overlay { display: none !important; }
+  header { background: #fff; border-bottom: 1px solid #ccc; }
+  .project-bar { background: #f8f8f8; }
+  .tool-section { background: #fff !important; border: 1px solid #ccc !important; }
+  .results-table th { background: #f0f0f0; color: #333; }
+  .results-table td { color: #000; }
+  .tag-ok   { color: #1a6b2a; border-color: #1a6b2a; background: transparent; }
+  .tag-warn { color: #7a5800; border-color: #7a5800; background: transparent; }
+  .tag-err  { color: #c0392b; border-color: #c0392b; background: transparent; }
+  .input-grid input, .input-grid select { background: transparent; border: none; color: #000; }
+  .info-banner  { background: #f5f5f5 !important; }
+  .warning-banner { background: #fffbe6 !important; }
+  .grp-card     { background: #f8f8f8 !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="header-icon">⬡</div>
+  <div class="header-titles">
+    <h1>Platform &amp; Access Checker</h1>
+    <p>BS EN 1993-1-1:2005 &mdash; BS 4592-0:2006+A1:2012 &mdash; BS 6180:2011 &mdash; SCI P363</p>
+  </div>
+  <div class="header-right">
+    <span id="date-badge">—</span>
+    <button class="btn-print" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark">☀</button>
+    <button class="btn-print" onclick="window.print()">Print</button>
+  </div>
+</header>
+
+<!-- ── Project bar ── -->
+<div class="project-bar">
+  <label>Project <input id="proj-name" class="wide" type="text" placeholder="Project name" /></label>
+  <label>Reference <input id="proj-ref" class="medium" type="text" placeholder="Ref" /></label>
+  <label>Rev <input id="proj-rev" class="narrow" type="text" placeholder="A" /></label>
+  <label>Engineer <input id="proj-eng" class="narrow" type="text" placeholder="Initials" /></label>
+</div>
+
+<div class="container">
+
+  <!-- SECTION 1: PLATFORM BEAM CHECKER -->
+  <section class="tool-section" id="sec-beam">
+    <h2>1 — Platform Beam Checker</h2>
+    <p class="section-std">BS EN 1993-1-1:2005 (Eurocode 3) &middot; SCI P363 &middot; &gamma;M0 = &gamma;M1 = 1.0 (UK NA)</p>
+    <div style="display:flex;gap:16px;align-items:flex-start;">
+      <div style="flex:1;min-width:0;"><div id="beam-inputs"></div></div>
+      <div id="beam-diagram" style="width:190px;flex-shrink:0;background:#111;border:1px solid #1e2e1e;border-radius:6px;padding:8px;box-sizing:border-box;"></div>
+    </div>
+    <div id="beam-results"></div>
+  </section>
+
+  <!-- SECTION 2: GRATING & FLOORING SELECTOR -->
+  <section class="tool-section" id="sec-grating">
+    <h2>2 — Grating &amp; Flooring Selector</h2>
+    <p class="section-std">BS 4592-0:2006+A1:2012 &middot; Steelway Design Guide &middot; F.H. Brundle &middot; Lionweld Kennedy &middot; Evergrip</p>
+    <div id="grating-inputs"></div>
+    <div id="grating-results"></div>
+  </section>
+
+  <!-- SECTION 3: ACCESS COMPONENTS -->
+  <section class="tool-section" id="sec-access">
+    <h2>3 — Access Components</h2>
+    <p class="section-std">Toggle sub-sections as required</p>
+
+    <div class="access-subsection">
+      <label class="access-toggle-label">
+        <input type="checkbox" id="toggle-stairs" onchange="showSub('stairs',this.checked)">
+        3a — Staircase Geometry Check
+      </label>
+      <div id="sub-stairs" style="display:none;" class="access-sub">
+        <p class="section-std">BS 4592-0:2006+A1:2012 Cl.6.2 (p.12) &middot; Table 3 Notes 1&amp;2 (p.13) &middot; Steelway Design Guide pp.9–10</p>
+        <div id="stair-inputs"></div>
+        <div id="stair-results"></div>
+      </div>
+    </div>
+
+    <div class="access-subsection" style="margin-top:8px;">
+      <label class="access-toggle-label">
+        <input type="checkbox" id="toggle-handrail" onchange="showSub('handrail',this.checked)">
+        3b — Handrail Post Spacing
+      </label>
+      <div id="sub-handrail" style="display:none;" class="access-sub">
+        <p class="section-std">BS 6180:2011 Table 1 (p.7) &middot; Table 2 (pp.9–10) &middot; BS 4592-0:2006+A1:2012 Cl.5.5 &middot; Steelway Design Guide p.13</p>
+        <div id="hr-inputs"></div>
+        <div id="hr-results"></div>
+      </div>
+    </div>
+
+    <div class="access-subsection" style="margin-top:8px;">
+      <label class="access-toggle-label">
+        <input type="checkbox" id="toggle-ladder" onchange="showSub('ladder',this.checked)">
+        3c — Ladder
+      </label>
+      <div id="sub-ladder" style="display:none;" class="access-sub">
+        <p class="section-std">Steelway Design Guide p.7</p>
+        <div id="ladder-inputs"></div>
+        <div id="ladder-results"></div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /.container -->
+
+<footer>Platform &amp; Access Checker &mdash; Eliquo Hydrok / Wessex Water AMP8 &mdash; All calculations to be verified by a competent engineer</footer>
+
+<script>
+  // Set date badge
+  document.getElementById('date-badge').textContent = new Date().toLocaleDateString('en-GB');
+
+  // Theme toggle
+  function toggleTheme() {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('pac-theme', next);
+    document.getElementById('theme-toggle').textContent = next === 'dark' ? '☀' : '🌙';
+  }
+  const _t = localStorage.getItem('pac-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', _t);
+  document.getElementById('theme-toggle').textContent = _t === 'dark' ? '☀' : '🌙';
+
+  function showSub(id, show) {
+    document.getElementById('sub-' + id).style.display = show ? '' : 'none';
+    if (show && id === 'stairs'   && !document.getElementById('s-H'))       buildStairInputs();
+    if (show && id === 'handrail' && !document.getElementById('hr-height')) buildHRInputs();
+    if (show && id === 'ladder'   && !document.getElementById('l-H'))       buildLadderInputs();
+  }
+
+  // ── Steel section data — SCI P363 (2009, amended 2011) ──
+  // Properties: d=designation, kg=mass/m, h=depth(mm), b=width(mm),
+  //   tf=flange thickness(mm), tw=web thickness(mm), r=root radius(mm),
+  //   A=area(cm²), Iy=second moment of area y-y(cm⁴),
+  //   Wel_y=elastic section modulus(cm³), Wpl_y=plastic section modulus(cm³),
+  //   c275=section class bending S275, c355=section class bending S355
+  // For SHS/RHS: t=wall thickness(mm), ri=internal corner radius(mm) used instead of tf/tw/r
+
+  const SECTIONS = {
+
+    UB: [
+      // ── 1016 series ──
+      {d:'1016x305x487', kg:487, h:1036.1, b:308.5, tf:54.1, tw:30.0, r:30, A:620,  Iy:2150000, Wel_y:41500, Wpl_y:47500, c275:1, c355:1},
+      {d:'1016x305x437', kg:437, h:1026.1, b:305.4, tf:49.0, tw:26.9, r:30, A:557,  Iy:1870000, Wel_y:36500, Wpl_y:41600, c275:1, c355:1},
+      {d:'1016x305x393', kg:393, h:1016.0, b:303.0, tf:43.9, tw:24.4, r:30, A:500,  Iy:1640000, Wel_y:32200, Wpl_y:36700, c275:1, c355:1},
+      {d:'1016x305x349', kg:349, h:1008.1, b:302.0, tf:40.0, tw:21.1, r:30, A:445,  Iy:1460000, Wel_y:28900, Wpl_y:32800, c275:1, c355:1},
+      {d:'1016x305x314', kg:314, h:1000.0, b:300.0, tf:35.9, tw:19.1, r:30, A:400,  Iy:1280000, Wel_y:25600, Wpl_y:29100, c275:1, c355:1},
+      {d:'1016x305x272', kg:272, h:990.1,  b:300.0, tf:31.0, tw:16.5, r:30, A:347,  Iy:1100000, Wel_y:22200, Wpl_y:25100, c275:1, c355:1},
+      {d:'1016x305x249', kg:249, h:980.2,  b:300.0, tf:26.0, tw:16.5, r:30, A:317,  Iy:986000,  Wel_y:20100, Wpl_y:22900, c275:1, c355:1},
+      {d:'1016x305x222', kg:222, h:970.3,  b:300.0, tf:21.1, tw:16.0, r:30, A:283,  Iy:868000,  Wel_y:17900, Wpl_y:20500, c275:1, c355:1},
+      // ── 914 series ──
+      {d:'914x419x388',  kg:388, h:921.0,  b:420.5, tf:36.6, tw:21.4, r:24.1, A:494, Iy:718000, Wel_y:15600, Wpl_y:17700, c275:1, c355:1},
+      {d:'914x419x343',  kg:343, h:911.8,  b:418.5, tf:32.0, tw:19.4, r:24.1, A:437, Iy:625000, Wel_y:13700, Wpl_y:15500, c275:1, c355:1},
+      {d:'914x305x289',  kg:289, h:926.6,  b:307.7, tf:32.0, tw:19.5, r:19.1, A:368, Iy:504000, Wel_y:10900, Wpl_y:12600, c275:1, c355:1},
+      {d:'914x305x253',  kg:253, h:918.4,  b:305.5, tf:27.9, tw:17.3, r:19.1, A:323, Iy:436000, Wel_y:9500,  Wpl_y:10900, c275:1, c355:1},
+      {d:'914x305x224',  kg:224, h:910.4,  b:304.1, tf:23.9, tw:15.9, r:19.1, A:285, Iy:376000, Wel_y:8270,  Wpl_y:9530,  c275:1, c355:1},
+      {d:'914x305x201',  kg:201, h:903.0,  b:303.3, tf:20.2, tw:15.1, r:19.1, A:256, Iy:325000, Wel_y:7200,  Wpl_y:8350,  c275:1, c355:1},
+      // ── 838 series ──
+      {d:'838x292x226',  kg:226, h:850.9,  b:293.8, tf:26.8, tw:16.1, r:17.8, A:288, Iy:340000, Wel_y:7990,  Wpl_y:9160,  c275:1, c355:1},
+      {d:'838x292x194',  kg:194, h:840.7,  b:292.4, tf:21.7, tw:14.7, r:17.8, A:247, Iy:279000, Wel_y:6640,  Wpl_y:7640,  c275:1, c355:1},
+      {d:'838x292x176',  kg:176, h:834.9,  b:291.7, tf:18.8, tw:14.0, r:17.8, A:224, Iy:246000, Wel_y:5900,  Wpl_y:6810,  c275:1, c355:1},
+      // ── 762 series ──
+      {d:'762x267x197',  kg:197, h:769.8,  b:268.0, tf:25.4, tw:15.6, r:16.5, A:251, Iy:240000, Wel_y:6230,  Wpl_y:7170,  c275:1, c355:1},
+      {d:'762x267x173',  kg:173, h:762.2,  b:266.7, tf:21.6, tw:14.3, r:16.5, A:220, Iy:205000, Wel_y:5390,  Wpl_y:6200,  c275:1, c355:1},
+      {d:'762x267x147',  kg:147, h:754.0,  b:265.2, tf:17.5, tw:12.8, r:16.5, A:187, Iy:169000, Wel_y:4480,  Wpl_y:5170,  c275:1, c355:1},
+      {d:'762x267x134',  kg:134, h:750.0,  b:264.4, tf:15.5, tw:12.0, r:16.5, A:171, Iy:151000, Wel_y:4020,  Wpl_y:4640,  c275:1, c355:1},
+      // ── 686 series ──
+      {d:'686x254x170',  kg:170, h:692.9,  b:255.8, tf:23.7, tw:14.5, r:15.2, A:217, Iy:170000, Wel_y:4910,  Wpl_y:5630,  c275:1, c355:1},
+      {d:'686x254x152',  kg:152, h:687.5,  b:254.5, tf:21.0, tw:13.2, r:15.2, A:194, Iy:150000, Wel_y:4370,  Wpl_y:5000,  c275:1, c355:1},
+      {d:'686x254x140',  kg:140, h:683.5,  b:253.7, tf:19.0, tw:12.4, r:15.2, A:178, Iy:136000, Wel_y:3990,  Wpl_y:4560,  c275:1, c355:1},
+      {d:'686x254x125',  kg:125, h:677.9,  b:253.0, tf:16.2, tw:11.7, r:15.2, A:159, Iy:118000, Wel_y:3480,  Wpl_y:3990,  c275:1, c355:1},
+      // ── 610x305 series ──
+      {d:'610x305x238',  kg:238, h:635.8,  b:311.4, tf:31.4, tw:18.4, r:16.5, A:303, Iy:209000, Wel_y:6570,  Wpl_y:7490,  c275:1, c355:1},
+      {d:'610x305x179',  kg:179, h:620.2,  b:307.1, tf:23.6, tw:14.1, r:16.5, A:228, Iy:153000, Wel_y:4940,  Wpl_y:5550,  c275:1, c355:1},
+      {d:'610x305x149',  kg:149, h:612.4,  b:304.8, tf:19.7, tw:11.8, r:16.5, A:190, Iy:126000, Wel_y:4110,  Wpl_y:4590,  c275:1, c355:1},
+      // ── 610x229 series ──
+      {d:'610x229x140',  kg:140, h:617.2,  b:230.2, tf:22.1, tw:13.1, r:12.7, A:178, Iy:112000, Wel_y:3630,  Wpl_y:4150,  c275:1, c355:1},
+      {d:'610x229x125',  kg:125, h:612.2,  b:229.0, tf:19.6, tw:11.9, r:12.7, A:159, Iy:98600,  Wel_y:3220,  Wpl_y:3680,  c275:1, c355:1},
+      {d:'610x229x113',  kg:113, h:607.6,  b:228.2, tf:17.3, tw:11.1, r:12.7, A:144, Iy:87500,  Wel_y:2880,  Wpl_y:3280,  c275:1, c355:1},
+      {d:'610x229x101',  kg:101, h:602.6,  b:227.6, tf:14.8, tw:10.5, r:12.7, A:129, Iy:75800,  Wel_y:2520,  Wpl_y:2880,  c275:1, c355:1},
+      // ── 610x178 series ──
+      {d:'610x178x100',  kg:100, h:607.4,  b:179.0, tf:17.2, tw:11.1, r:12.7, A:127, Iy:72300,  Wel_y:2380,  Wpl_y:2780,  c275:1, c355:1},
+      {d:'610x178x92',   kg:92,  h:603.0,  b:179.0, tf:14.7, tw:10.9, r:12.7, A:117, Iy:64600,  Wel_y:2145,  Wpl_y:2520,  c275:1, c355:1},
+      {d:'610x178x82',   kg:82,  h:599.0,  b:177.9, tf:12.8, tw:10.0, r:12.7, A:104, Iy:55900,  Wel_y:1870,  Wpl_y:2200,  c275:1, c355:1},
+      // ── 533x312 series ──
+      {d:'533x312x273',  kg:273, h:577.1,  b:320.2, tf:37.6, tw:21.1, r:12.7, A:348, Iy:199000, Wel_y:6900,  Wpl_y:7930,  c275:1, c355:1},
+      {d:'533x312x219',  kg:219, h:560.3,  b:317.4, tf:29.2, tw:18.3, r:12.7, A:279, Iy:151000, Wel_y:5400,  Wpl_y:6160,  c275:1, c355:1},
+      {d:'533x312x182',  kg:182, h:550.5,  b:314.6, tf:24.4, tw:15.6, r:12.7, A:232, Iy:122000, Wel_y:4430,  Wpl_y:5020,  c275:1, c355:1},
+      {d:'533x312x151',  kg:151, h:542.5,  b:312.5, tf:20.3, tw:13.5, r:12.7, A:192, Iy:99000,  Wel_y:3650,  Wpl_y:4110,  c275:1, c355:1},
+      // ── 533x210 series ──
+      {d:'533x210x138',  kg:138, h:549.1,  b:213.9, tf:23.6, tw:14.7, r:12.7, A:176, Iy:86300,  Wel_y:3140,  Wpl_y:3610,  c275:1, c355:1},
+      {d:'533x210x122',  kg:122, h:544.5,  b:211.9, tf:21.3, tw:12.7, r:12.7, A:155, Iy:76000,  Wel_y:2790,  Wpl_y:3200,  c275:1, c355:1},
+      {d:'533x210x109',  kg:109, h:539.5,  b:210.8, tf:18.8, tw:11.6, r:12.7, A:139, Iy:66800,  Wel_y:2480,  Wpl_y:2830,  c275:1, c355:1},
+      {d:'533x210x101',  kg:101, h:536.7,  b:210.0, tf:17.4, tw:10.8, r:12.7, A:129, Iy:61600,  Wel_y:2290,  Wpl_y:2620,  c275:1, c355:1},
+      {d:'533x210x92',   kg:92,  h:533.1,  b:209.3, tf:15.6, tw:10.1, r:12.7, A:117, Iy:55200,  Wel_y:2070,  Wpl_y:2360,  c275:1, c355:1},
+      {d:'533x210x82',   kg:82,  h:528.3,  b:208.8, tf:13.2, tw:9.6,  r:12.7, A:104, Iy:47500,  Wel_y:1800,  Wpl_y:2060,  c275:1, c355:1},
+      // ── 533x165 series ──
+      {d:'533x165x85',   kg:85,  h:534.9,  b:166.5, tf:16.5, tw:10.3, r:12.7, A:108, Iy:48500,  Wel_y:1815,  Wpl_y:2080,  c275:1, c355:1},
+      {d:'533x165x75',   kg:75,  h:528.3,  b:165.9, tf:13.6, tw:9.7,  r:12.7, A:95.2,Iy:41700,  Wel_y:1580,  Wpl_y:1810,  c275:1, c355:1},
+      {d:'533x165x66',   kg:66,  h:524.7,  b:165.1, tf:11.4, tw:8.9,  r:12.7, A:84.0,Iy:35100,  Wel_y:1340,  Wpl_y:1540,  c275:1, c355:1},
+      // ── 457x191 series ──
+      {d:'457x191x161',  kg:161, h:492.0,  b:199.4, tf:32.0, tw:18.0, r:10.2, A:205, Iy:79700,  Wel_y:3240,  Wpl_y:3720,  c275:1, c355:1},
+      {d:'457x191x133',  kg:133, h:480.6,  b:196.7, tf:26.3, tw:15.3, r:10.2, A:170, Iy:63800,  Wel_y:2660,  Wpl_y:3040,  c275:1, c355:1},
+      {d:'457x191x106',  kg:106, h:469.2,  b:194.1, tf:20.6, tw:12.7, r:10.2, A:135, Iy:48900,  Wel_y:2090,  Wpl_y:2390,  c275:1, c355:1},
+      {d:'457x191x98',   kg:98,  h:467.2,  b:192.8, tf:19.6, tw:11.4, r:10.2, A:125, Iy:45700,  Wel_y:1960,  Wpl_y:2230,  c275:1, c355:1},
+      {d:'457x191x89',   kg:89,  h:463.4,  b:192.0, tf:17.7, tw:10.5, r:10.2, A:114, Iy:41000,  Wel_y:1770,  Wpl_y:2010,  c275:1, c355:1},
+      {d:'457x191x82',   kg:82,  h:460.0,  b:191.3, tf:16.0, tw:9.9,  r:10.2, A:104, Iy:37100,  Wel_y:1610,  Wpl_y:1830,  c275:1, c355:1},
+      {d:'457x191x74',   kg:74,  h:457.0,  b:190.4, tf:14.5, tw:9.0,  r:10.2, A:94.6,Iy:33300,  Wel_y:1460,  Wpl_y:1650,  c275:1, c355:1},
+      {d:'457x191x67',   kg:67,  h:453.4,  b:189.9, tf:12.7, tw:8.5,  r:10.2, A:85.5,Iy:29400,  Wel_y:1300,  Wpl_y:1470,  c275:1, c355:1},
+      // ── 457x152 series ──
+      {d:'457x152x82',   kg:82,  h:465.8,  b:155.3, tf:18.9, tw:10.5, r:10.2, A:104, Iy:36600,  Wel_y:1570,  Wpl_y:1810,  c275:1, c355:1},
+      {d:'457x152x74',   kg:74,  h:462.0,  b:154.4, tf:17.0, tw:9.6,  r:10.2, A:94.5,Iy:32700,  Wel_y:1420,  Wpl_y:1630,  c275:1, c355:1},
+      {d:'457x152x67',   kg:67,  h:458.0,  b:153.8, tf:15.0, tw:9.0,  r:10.2, A:85.4,Iy:28900,  Wel_y:1260,  Wpl_y:1440,  c275:1, c355:1},
+      {d:'457x152x60',   kg:60,  h:454.6,  b:152.9, tf:13.3, tw:8.1,  r:10.2, A:76.2,Iy:25500,  Wel_y:1120,  Wpl_y:1280,  c275:1, c355:1},
+      {d:'457x152x52',   kg:52,  h:449.8,  b:152.4, tf:10.9, tw:7.6,  r:10.2, A:66.6,Iy:21400,  Wel_y:950,   Wpl_y:1100,  c275:1, c355:1},
+      // ── 406x178 series ──
+      {d:'406x178x85',   kg:85,  h:417.2,  b:181.9, tf:18.2, tw:10.9, r:10.2, A:109, Iy:31700,  Wel_y:1520,  Wpl_y:1730,  c275:1, c355:1},
+      {d:'406x178x74',   kg:74,  h:412.8,  b:179.5, tf:16.0, tw:9.5,  r:10.2, A:94.5,Iy:27300,  Wel_y:1320,  Wpl_y:1500,  c275:1, c355:1},
+      {d:'406x178x67',   kg:67,  h:409.4,  b:178.8, tf:14.3, tw:8.8,  r:10.2, A:85.5,Iy:24300,  Wel_y:1190,  Wpl_y:1350,  c275:1, c355:1},
+      {d:'406x178x60',   kg:60,  h:406.4,  b:177.9, tf:12.8, tw:7.9,  r:10.2, A:76.5,Iy:21600,  Wel_y:1060,  Wpl_y:1200,  c275:1, c355:1},
+      {d:'406x178x54',   kg:54,  h:402.6,  b:177.7, tf:10.9, tw:7.7,  r:10.2, A:68.4,Iy:18700,  Wel_y:930,   Wpl_y:1050,  c275:1, c355:1},
+      // ── 406x140 series ──
+      {d:'406x140x53',   kg:53,  h:406.6,  b:143.3, tf:12.9, tw:7.9,  r:10.2, A:67.9,Iy:18300,  Wel_y:901,   Wpl_y:1040,  c275:1, c355:1},
+      {d:'406x140x46',   kg:46,  h:402.3,  b:142.2, tf:11.2, tw:6.8,  r:10.2, A:59.0,Iy:15700,  Wel_y:781,   Wpl_y:888,   c275:1, c355:1},
+      {d:'406x140x39',   kg:39,  h:397.3,  b:141.8, tf:8.6,  tw:6.4,  r:10.2, A:49.4,Iy:12500,  Wel_y:630,   Wpl_y:724,   c275:1, c355:1},
+      // ── 356x171 series ──
+      {d:'356x171x67',   kg:67,  h:363.4,  b:173.2, tf:15.7, tw:9.1,  r:10.2, A:85.5,Iy:19500,  Wel_y:1070,  Wpl_y:1210,  c275:1, c355:1},
+      {d:'356x171x57',   kg:57,  h:358.0,  b:172.2, tf:13.0, tw:8.1,  r:10.2, A:72.6,Iy:16000,  Wel_y:895,   Wpl_y:1010,  c275:1, c355:1},
+      {d:'356x171x51',   kg:51,  h:355.0,  b:171.5, tf:11.5, tw:7.4,  r:10.2, A:64.9,Iy:14100,  Wel_y:796,   Wpl_y:897,   c275:1, c355:1},
+      {d:'356x171x45',   kg:45,  h:351.4,  b:171.1, tf:9.7,  tw:7.0,  r:10.2, A:57.3,Iy:12100,  Wel_y:687,   Wpl_y:775,   c275:1, c355:1},
+      // ── 356x127 series ──
+      {d:'356x127x39',   kg:39,  h:353.4,  b:126.0, tf:10.7, tw:6.6,  r:10.2, A:49.8,Iy:10200,  Wel_y:577,   Wpl_y:659,   c275:1, c355:1},
+      {d:'356x127x33',   kg:33,  h:349.0,  b:125.4, tf:8.5,  tw:6.0,  r:10.2, A:41.8,Iy:8200,   Wel_y:470,   Wpl_y:543,   c275:1, c355:1},
+      // ── 305x165 series ──
+      {d:'305x165x54',   kg:54,  h:310.4,  b:166.9, tf:13.7, tw:7.9,  r:8.9,  A:68.8,Iy:11700,  Wel_y:754,   Wpl_y:846,   c275:1, c355:1},
+      {d:'305x165x46',   kg:46,  h:306.6,  b:165.7, tf:11.8, tw:6.7,  r:8.9,  A:58.7,Iy:9900,   Wel_y:646,   Wpl_y:720,   c275:1, c355:1},
+      {d:'305x165x40',   kg:40,  h:303.4,  b:165.0, tf:10.2, tw:6.0,  r:8.9,  A:51.5,Iy:8500,   Wel_y:560,   Wpl_y:623,   c275:1, c355:1},
+      // ── 305x127 series ──
+      {d:'305x127x48',   kg:48,  h:311.0,  b:125.3, tf:14.0, tw:9.0,  r:8.9,  A:60.8,Iy:9580,   Wel_y:616,   Wpl_y:711,   c275:1, c355:1},
+      {d:'305x127x42',   kg:42,  h:307.2,  b:124.3, tf:12.1, tw:8.0,  r:8.9,  A:53.4,Iy:8200,   Wel_y:533,   Wpl_y:614,   c275:1, c355:1},
+      {d:'305x127x37',   kg:37,  h:304.4,  b:123.4, tf:10.7, tw:7.1,  r:8.9,  A:47.5,Iy:7170,   Wel_y:471,   Wpl_y:539,   c275:1, c355:1},
+      // ── 305x102 series ──
+      {d:'305x102x33',   kg:33,  h:312.7,  b:102.4, tf:10.8, tw:6.6,  r:7.6,  A:41.8,Iy:6500,   Wel_y:415,   Wpl_y:481,   c275:1, c355:1},
+      {d:'305x102x28',   kg:28,  h:308.7,  b:101.8, tf:8.8,  tw:6.0,  r:7.6,  A:36.3,Iy:5370,   Wel_y:348,   Wpl_y:403,   c275:1, c355:1},
+      {d:'305x102x25',   kg:25,  h:304.8,  b:101.6, tf:7.0,  tw:5.8,  r:7.6,  A:31.6,Iy:4460,   Wel_y:293,   Wpl_y:342,   c275:1, c355:1},
+      // ── 254x146 series ──
+      {d:'254x146x43',   kg:43,  h:259.6,  b:147.3, tf:12.7, tw:7.2,  r:7.6,  A:54.8,Iy:6540,   Wel_y:504,   Wpl_y:566,   c275:1, c355:1},
+      {d:'254x146x37',   kg:37,  h:256.0,  b:146.4, tf:10.9, tw:6.3,  r:7.6,  A:47.2,Iy:5540,   Wel_y:433,   Wpl_y:483,   c275:1, c355:1},
+      {d:'254x146x31',   kg:31,  h:251.4,  b:146.1, tf:8.6,  tw:6.0,  r:7.6,  A:39.7,Iy:4410,   Wel_y:351,   Wpl_y:393,   c275:1, c355:1},
+      // ── 254x102 series ──
+      {d:'254x102x28',   kg:28,  h:260.4,  b:102.2, tf:10.0, tw:6.3,  r:7.6,  A:36.2,Iy:4000,   Wel_y:308,   Wpl_y:353,   c275:1, c355:1},
+      {d:'254x102x25',   kg:25,  h:257.2,  b:101.9, tf:8.4,  tw:6.0,  r:7.6,  A:32.0,Iy:3420,   Wel_y:266,   Wpl_y:306,   c275:1, c355:1},
+      {d:'254x102x22',   kg:22,  h:254.0,  b:101.6, tf:6.8,  tw:5.8,  r:7.6,  A:28.0,Iy:2840,   Wel_y:224,   Wpl_y:259,   c275:1, c355:1},
+      // ── 203x133 series ──
+      {d:'203x133x30',   kg:30,  h:206.8,  b:133.9, tf:9.6,  tw:6.4,  r:7.6,  A:38.2,Iy:2900,   Wel_y:280,   Wpl_y:314,   c275:1, c355:1},
+      {d:'203x133x25',   kg:25,  h:203.2,  b:133.2, tf:7.8,  tw:5.8,  r:7.6,  A:32.0,Iy:2340,   Wel_y:230,   Wpl_y:258,   c275:1, c355:1},
+      // ── 203x102 series ──
+      {d:'203x102x23',   kg:23,  h:203.2,  b:101.8, tf:9.3,  tw:5.4,  r:7.6,  A:29.4,Iy:2100,   Wel_y:207,   Wpl_y:234,   c275:1, c355:1},
+      // ── 178x102 series ──
+      {d:'178x102x19',   kg:19,  h:177.8,  b:101.2, tf:7.9,  tw:4.8,  r:7.6,  A:24.3,Iy:1360,   Wel_y:153,   Wpl_y:171,   c275:1, c355:1},
+      // ── 152x89 series ──
+      {d:'152x89x16',    kg:16,  h:152.4,  b:88.7,  tf:7.7,  tw:4.5,  r:7.6,  A:20.3,Iy:834,    Wel_y:109,   Wpl_y:123,   c275:1, c355:1},
+      // ── 127x76 series ──
+      {d:'127x76x13',    kg:13,  h:127.0,  b:76.0,  tf:7.6,  tw:4.0,  r:7.6,  A:16.5,Iy:473,    Wel_y:74.6,  Wpl_y:84.2,  c275:1, c355:1},
+    ],
+
+    UC: [
+      // ── 356x406 series ──
+      {d:'356x406x634', kg:634, h:474.6, b:424.0, tf:77.0, tw:47.6, r:15.2, A:808, Iy:275000, Wel_y:11600, Wpl_y:14200, c275:1, c355:1},
+      {d:'356x406x551', kg:551, h:455.6, b:418.5, tf:67.5, tw:42.1, r:15.2, A:702, Iy:227000, Wel_y:9960,  Wpl_y:12100, c275:1, c355:1},
+      {d:'356x406x467', kg:467, h:436.6, b:412.2, tf:58.0, tw:35.8, r:15.2, A:595, Iy:183000, Wel_y:8380,  Wpl_y:10000, c275:1, c355:1},
+      {d:'356x406x393', kg:393, h:419.0, b:407.0, tf:49.2, tw:30.6, r:15.2, A:501, Iy:147000, Wel_y:7000,  Wpl_y:8220,  c275:1, c355:1},
+      {d:'356x406x340', kg:340, h:406.4, b:403.0, tf:42.9, tw:26.6, r:15.2, A:433, Iy:123000, Wel_y:6030,  Wpl_y:7000,  c275:1, c355:1},
+      {d:'356x406x287', kg:287, h:393.6, b:399.0, tf:36.5, tw:22.6, r:15.2, A:366, Iy:99900,  Wel_y:5070,  Wpl_y:5810,  c275:1, c355:1},
+      {d:'356x406x235', kg:235, h:381.0, b:394.8, tf:30.2, tw:18.4, r:15.2, A:299, Iy:79100,  Wel_y:4150,  Wpl_y:4690,  c275:1, c355:1},
+      // ── 356x368 series ──
+      {d:'356x368x202', kg:202, h:374.6, b:374.7, tf:27.0, tw:16.5, r:15.2, A:257, Iy:66300,  Wel_y:3540,  Wpl_y:3970,  c275:1, c355:1},
+      {d:'356x368x177', kg:177, h:368.2, b:372.6, tf:23.8, tw:14.4, r:15.2, A:226, Iy:57100,  Wel_y:3100,  Wpl_y:3460,  c275:1, c355:1},
+      {d:'356x368x153', kg:153, h:362.0, b:370.5, tf:20.7, tw:12.3, r:15.2, A:195, Iy:48600,  Wel_y:2680,  Wpl_y:2960,  c275:1, c355:2},
+      {d:'356x368x129', kg:129, h:355.6, b:368.6, tf:17.5, tw:10.4, r:15.2, A:164, Iy:40200,  Wel_y:2260,  Wpl_y:2480,  c275:1, c355:3},
+      // ── 305x305 series ──
+      {d:'305x305x283', kg:283, h:365.3, b:322.2, tf:44.1, tw:26.8, r:15.2, A:360, Iy:78900,  Wel_y:4320,  Wpl_y:5110,  c275:1, c355:1},
+      {d:'305x305x240', kg:240, h:352.5, b:318.4, tf:37.7, tw:23.0, r:15.2, A:306, Iy:64200,  Wel_y:3640,  Wpl_y:4250,  c275:1, c355:1},
+      {d:'305x305x198', kg:198, h:339.9, b:314.5, tf:31.4, tw:19.1, r:15.2, A:252, Iy:50900,  Wel_y:3000,  Wpl_y:3440,  c275:1, c355:1},
+      {d:'305x305x158', kg:158, h:327.1, b:311.2, tf:25.0, tw:15.8, r:15.2, A:201, Iy:38700,  Wel_y:2370,  Wpl_y:2680,  c275:1, c355:1},
+      {d:'305x305x137', kg:137, h:320.5, b:309.2, tf:21.7, tw:13.8, r:15.2, A:174, Iy:32800,  Wel_y:2050,  Wpl_y:2300,  c275:1, c355:1},
+      {d:'305x305x118', kg:118, h:314.5, b:307.4, tf:18.7, tw:12.0, r:15.2, A:150, Iy:27700,  Wel_y:1760,  Wpl_y:1960,  c275:1, c355:1},
+      {d:'305x305x97',  kg:97,  h:307.9, b:305.3, tf:15.4, tw:9.9,  r:15.2, A:123, Iy:22200,  Wel_y:1440,  Wpl_y:1590,  c275:1, c355:3},
+      // ── 254x254 series ──
+      {d:'254x254x167', kg:167, h:289.1, b:265.2, tf:31.7, tw:19.2, r:12.7, A:213, Iy:30000,  Wel_y:2080,  Wpl_y:2420,  c275:1, c355:1},
+      {d:'254x254x132', kg:132, h:276.3, b:261.3, tf:25.3, tw:15.3, r:12.7, A:168, Iy:22500,  Wel_y:1630,  Wpl_y:1870,  c275:1, c355:1},
+      {d:'254x254x107', kg:107, h:266.7, b:258.8, tf:20.5, tw:13.0, r:12.7, A:136, Iy:17500,  Wel_y:1310,  Wpl_y:1480,  c275:1, c355:1},
+      {d:'254x254x89',  kg:89,  h:260.3, b:256.3, tf:17.3, tw:10.3, r:12.7, A:113, Iy:14300,  Wel_y:1100,  Wpl_y:1220,  c275:1, c355:2},
+      {d:'254x254x73',  kg:73,  h:254.1, b:254.6, tf:14.2, tw:8.6,  r:12.7, A:93.1,Iy:11400,  Wel_y:898,   Wpl_y:992,   c275:1, c355:2},
+      // ── 203x203 series ──
+      {d:'203x203x127', kg:127, h:241.4, b:213.9, tf:30.1, tw:18.1, r:10.2, A:162, Iy:15400,  Wel_y:1280,  Wpl_y:1520,  c275:1, c355:1},
+      {d:'203x203x113', kg:113, h:235.1, b:212.1, tf:26.9, tw:16.3, r:10.2, A:145, Iy:13300,  Wel_y:1130,  Wpl_y:1330,  c275:1, c355:1},
+      {d:'203x203x100', kg:100, h:228.6, b:210.3, tf:23.7, tw:14.5, r:10.2, A:127, Iy:11300,  Wel_y:988,   Wpl_y:1150,  c275:1, c355:1},
+      {d:'203x203x86',  kg:86,  h:222.2, b:209.1, tf:20.5, tw:12.7, r:10.2, A:110, Iy:9450,   Wel_y:850,   Wpl_y:977,   c275:1, c355:1},
+      {d:'203x203x71',  kg:71,  h:215.9, b:206.4, tf:17.3, tw:10.0, r:10.2, A:90.4,Iy:7620,   Wel_y:706,   Wpl_y:799,   c275:1, c355:1},
+      {d:'203x203x60',  kg:60,  h:209.6, b:205.8, tf:14.2, tw:9.4,  r:10.2, A:76.4,Iy:6120,   Wel_y:584,   Wpl_y:656,   c275:1, c355:1},
+      {d:'203x203x52',  kg:52,  h:206.2, b:204.3, tf:12.5, tw:7.9,  r:10.2, A:66.3,Iy:5260,   Wel_y:510,   Wpl_y:567,   c275:1, c355:1},
+      {d:'203x203x46',  kg:46,  h:203.2, b:203.6, tf:11.0, tw:7.2,  r:10.2, A:58.7,Iy:4570,   Wel_y:450,   Wpl_y:497,   c275:1, c355:2},
+      // ── 152x152 series ──
+      {d:'152x152x51',  kg:51,  h:170.2, b:157.4, tf:15.7, tw:11.0, r:7.6,  A:65.2,Iy:3230,   Wel_y:379,   Wpl_y:438,   c275:1, c355:1},
+      {d:'152x152x44',  kg:44,  h:166.0, b:155.9, tf:13.6, tw:9.5,  r:7.6,  A:56.1,Iy:2700,   Wel_y:326,   Wpl_y:372,   c275:1, c355:1},
+      {d:'152x152x37',  kg:37,  h:161.8, b:154.4, tf:11.5, tw:8.0,  r:7.6,  A:47.1,Iy:2210,   Wel_y:273,   Wpl_y:309,   c275:1, c355:1},
+      {d:'152x152x30',  kg:30,  h:157.6, b:152.9, tf:9.4,  tw:6.5,  r:7.6,  A:38.3,Iy:1750,   Wel_y:222,   Wpl_y:248,   c275:1, c355:1},
+      {d:'152x152x23',  kg:23,  h:152.4, b:152.2, tf:6.8,  tw:5.8,  r:7.6,  A:29.2,Iy:1250,   Wel_y:164,   Wpl_y:182,   c275:1, c355:3},
+    ],
+
+    PFC: [
+      {d:'430x100x64', kg:64, h:430, b:100, tf:19.0, tw:11.0, r:15, A:82.1, Iy:21900, Wel_y:1020, Wpl_y:1220, c275:1, c355:1},
+      {d:'380x100x54', kg:54, h:380, b:100, tf:17.5, tw:9.5,  r:15, A:68.7, Iy:15000, Wel_y:791,  Wpl_y:933,  c275:1, c355:1},
+      {d:'300x100x46', kg:46, h:300, b:100, tf:16.5, tw:9.0,  r:15, A:58.0, Iy:8230,  Wel_y:549,  Wpl_y:641,  c275:1, c355:1},
+      {d:'300x90x41',  kg:41, h:300, b:90,  tf:15.5, tw:9.0,  r:12, A:52.7, Iy:7220,  Wel_y:481,  Wpl_y:568,  c275:1, c355:1},
+      {d:'260x90x35',  kg:35, h:260, b:90,  tf:14.0, tw:8.0,  r:12, A:44.4, Iy:4730,  Wel_y:364,  Wpl_y:425,  c275:1, c355:1},
+      {d:'260x75x28',  kg:28, h:260, b:75,  tf:12.0, tw:7.0,  r:12, A:35.1, Iy:3620,  Wel_y:278,  Wpl_y:328,  c275:1, c355:1},
+      {d:'230x90x32',  kg:32, h:230, b:90,  tf:14.0, tw:7.5,  r:12, A:41.0, Iy:3520,  Wel_y:306,  Wpl_y:355,  c275:1, c355:1},
+      {d:'230x75x26',  kg:26, h:230, b:75,  tf:12.5, tw:6.5,  r:12, A:32.7, Iy:2750,  Wel_y:239,  Wpl_y:278,  c275:1, c355:1},
+      {d:'200x90x30',  kg:30, h:200, b:90,  tf:14.0, tw:7.0,  r:12, A:37.9, Iy:2520,  Wel_y:252,  Wpl_y:291,  c275:1, c355:1},
+      {d:'200x75x23',  kg:23, h:200, b:75,  tf:12.5, tw:6.0,  r:12, A:29.9, Iy:1960,  Wel_y:196,  Wpl_y:227,  c275:1, c355:1},
+      {d:'180x90x26',  kg:26, h:180, b:90,  tf:12.5, tw:6.5,  r:12, A:33.2, Iy:1820,  Wel_y:202,  Wpl_y:232,  c275:1, c355:1},
+      {d:'180x75x20',  kg:20, h:180, b:75,  tf:10.5, tw:6.0,  r:12, A:25.9, Iy:1370,  Wel_y:152,  Wpl_y:176,  c275:1, c355:1},
+      {d:'150x90x24',  kg:24, h:150, b:90,  tf:12.0, tw:6.5,  r:12, A:30.4, Iy:1160,  Wel_y:155,  Wpl_y:179,  c275:1, c355:1},
+      {d:'150x75x18',  kg:18, h:150, b:75,  tf:10.0, tw:5.5,  r:12, A:22.8, Iy:861,   Wel_y:115,  Wpl_y:132,  c275:1, c355:1},
+      {d:'125x65x15',  kg:15, h:125, b:65,  tf:9.5,  tw:5.5,  r:12, A:18.8, Iy:483,   Wel_y:77.3, Wpl_y:89.9, c275:1, c355:1},
+      {d:'100x50x10',  kg:10, h:100, b:50,  tf:8.5,  tw:5.0,  r:9,  A:13.0, Iy:208,   Wel_y:41.5, Wpl_y:48.9, c275:1, c355:1},
+    ],
+
+    SHS: [
+      // ── 40x40 ──
+      {d:'40x40x3.0',  kg:3.41, t:3.0, ri:4.5,  A:4.34,  Iy:9.78,  Wel_y:4.89,  Wpl_y:5.97,  c275:1, c355:1},
+      {d:'40x40x3.2',  kg:3.61, t:3.2, ri:4.8,  A:4.60,  Iy:10.2,  Wel_y:5.11,  Wpl_y:6.28,  c275:1, c355:1},
+      {d:'40x40x4.0',  kg:4.39, t:4.0, ri:6.0,  A:5.59,  Iy:11.8,  Wel_y:5.91,  Wpl_y:7.44,  c275:1, c355:1},
+      {d:'40x40x5.0',  kg:5.28, t:5.0, ri:7.5,  A:6.73,  Iy:13.4,  Wel_y:6.68,  Wpl_y:8.66,  c275:1, c355:1},
+      // ── 50x50 ──
+      {d:'50x50x3.0',  kg:4.35, t:3.0, ri:4.5,  A:5.54,  Iy:20.2,  Wel_y:8.08,  Wpl_y:9.70,  c275:1, c355:1},
+      {d:'50x50x3.2',  kg:4.62, t:3.2, ri:4.8,  A:5.88,  Iy:21.2,  Wel_y:8.49,  Wpl_y:10.2,  c275:1, c355:1},
+      {d:'50x50x4.0',  kg:5.64, t:4.0, ri:6.0,  A:7.19,  Iy:25.0,  Wel_y:9.99,  Wpl_y:12.3,  c275:1, c355:1},
+      {d:'50x50x5.0',  kg:6.85, t:5.0, ri:7.5,  A:8.73,  Iy:28.9,  Wel_y:11.6,  Wpl_y:14.5,  c275:1, c355:1},
+      {d:'50x50x6.3',  kg:8.31, t:6.3, ri:9.45, A:10.6,  Iy:32.8,  Wel_y:13.1,  Wpl_y:17.0,  c275:1, c355:1},
+      // ── 60x60 ──
+      {d:'60x60x3.0',  kg:5.29, t:3.0, ri:4.5,  A:6.74,  Iy:36.2,  Wel_y:12.1,  Wpl_y:14.3,  c275:1, c355:1},
+      {d:'60x60x3.2',  kg:5.62, t:3.2, ri:4.8,  A:7.16,  Iy:38.2,  Wel_y:12.7,  Wpl_y:15.2,  c275:1, c355:1},
+      {d:'60x60x4.0',  kg:6.90, t:4.0, ri:6.0,  A:8.79,  Iy:45.4,  Wel_y:15.1,  Wpl_y:18.3,  c275:1, c355:1},
+      {d:'60x60x5.0',  kg:8.42, t:5.0, ri:7.5,  A:10.7,  Iy:53.3,  Wel_y:17.8,  Wpl_y:21.9,  c275:1, c355:1},
+      {d:'60x60x6.3',  kg:10.3, t:6.3, ri:9.45, A:13.1,  Iy:61.6,  Wel_y:20.5,  Wpl_y:26.0,  c275:1, c355:1},
+      {d:'60x60x8.0',  kg:12.5, t:8.0, ri:12.0, A:16.0,  Iy:69.7,  Wel_y:23.2,  Wpl_y:30.4,  c275:1, c355:1},
+      // ── 70x70 ──
+      {d:'70x70x3.6',  kg:7.40, t:3.6, ri:5.4,  A:9.42,  Iy:68.6,  Wel_y:19.6,  Wpl_y:23.3,  c275:1, c355:1},
+      {d:'70x70x5.0',  kg:9.99, t:5.0, ri:7.5,  A:12.7,  Iy:88.5,  Wel_y:25.3,  Wpl_y:30.8,  c275:1, c355:1},
+      {d:'70x70x6.3',  kg:12.3, t:6.3, ri:9.45, A:15.6,  Iy:104,   Wel_y:29.7,  Wpl_y:36.9,  c275:1, c355:1},
+      {d:'70x70x8.0',  kg:15.0, t:8.0, ri:12.0, A:19.2,  Iy:120,   Wel_y:34.2,  Wpl_y:43.8,  c275:1, c355:1},
+      // ── 80x80 ──
+      {d:'80x80x3.6',  kg:8.53, t:3.6, ri:5.4,  A:10.9,  Iy:105,   Wel_y:26.2,  Wpl_y:31.0,  c275:1, c355:1},
+      {d:'80x80x4.0',  kg:9.41, t:4.0, ri:6.0,  A:12.0,  Iy:114,   Wel_y:28.6,  Wpl_y:34.0,  c275:1, c355:1},
+      {d:'80x80x5.0',  kg:11.6, t:5.0, ri:7.5,  A:14.7,  Iy:137,   Wel_y:34.2,  Wpl_y:41.1,  c275:1, c355:1},
+      {d:'80x80x6.3',  kg:14.2, t:6.3, ri:9.45, A:18.1,  Iy:162,   Wel_y:40.5,  Wpl_y:49.7,  c275:1, c355:1},
+      {d:'80x80x8.0',  kg:17.5, t:8.0, ri:12.0, A:22.4,  Iy:189,   Wel_y:47.3,  Wpl_y:59.5,  c275:1, c355:1},
+      // ── 90x90 ──
+      {d:'90x90x3.6',  kg:9.66, t:3.6, ri:5.4,  A:12.3,  Iy:152,   Wel_y:33.8,  Wpl_y:39.7,  c275:1, c355:1},
+      {d:'90x90x4.0',  kg:10.7, t:4.0, ri:6.0,  A:13.6,  Iy:166,   Wel_y:37.0,  Wpl_y:43.6,  c275:1, c355:1},
+      {d:'90x90x5.0',  kg:13.1, t:5.0, ri:7.5,  A:16.7,  Iy:200,   Wel_y:44.4,  Wpl_y:53.0,  c275:1, c355:1},
+      {d:'90x90x6.3',  kg:16.2, t:6.3, ri:9.45, A:20.7,  Iy:238,   Wel_y:53.0,  Wpl_y:64.3,  c275:1, c355:1},
+      {d:'90x90x8.0',  kg:20.1, t:8.0, ri:12.0, A:25.6,  Iy:281,   Wel_y:62.6,  Wpl_y:77.6,  c275:1, c355:1},
+      // ── 100x100 ──
+      {d:'100x100x4.0', kg:11.9, t:4.0, ri:6.0,  A:15.2,  Iy:232,   Wel_y:46.4,  Wpl_y:54.4,  c275:1, c355:1},
+      {d:'100x100x5.0', kg:14.7, t:5.0, ri:7.5,  A:18.7,  Iy:279,   Wel_y:55.9,  Wpl_y:66.4,  c275:1, c355:1},
+      {d:'100x100x6.3', kg:18.2, t:6.3, ri:9.45, A:23.2,  Iy:336,   Wel_y:67.1,  Wpl_y:80.9,  c275:1, c355:1},
+      {d:'100x100x8.0', kg:22.6, t:8.0, ri:12.0, A:28.8,  Iy:400,   Wel_y:79.9,  Wpl_y:98.2,  c275:1, c355:1},
+      {d:'100x100x10',  kg:27.4, t:10.0,ri:15.0, A:34.9,  Iy:462,   Wel_y:92.4,  Wpl_y:116,   c275:1, c355:1},
+      // ── 120x120 ──
+      {d:'120x120x5.0', kg:17.8, t:5.0, ri:7.5,  A:22.7,  Iy:498,   Wel_y:83.0,  Wpl_y:97.6,  c275:1, c355:1},
+      {d:'120x120x6.3', kg:22.2, t:6.3, ri:9.45, A:28.2,  Iy:603,   Wel_y:100,   Wpl_y:120,   c275:1, c355:1},
+      {d:'120x120x8.0', kg:27.6, t:8.0, ri:12.0, A:35.2,  Iy:726,   Wel_y:121,   Wpl_y:146,   c275:1, c355:1},
+      {d:'120x120x10',  kg:33.7, t:10.0,ri:15.0, A:42.9,  Iy:852,   Wel_y:142,   Wpl_y:175,   c275:1, c355:1},
+      {d:'120x120x12.5',kg:40.9, t:12.5,ri:18.75,A:52.1,  Iy:982,   Wel_y:164,   Wpl_y:207,   c275:1, c355:1},
+      // ── 140x140 ──
+      {d:'140x140x5.0', kg:21.0, t:5.0, ri:7.5,  A:26.7,  Iy:807,   Wel_y:115,   Wpl_y:135,   c275:1, c355:1},
+      {d:'140x140x6.3', kg:26.1, t:6.3, ri:9.45, A:33.3,  Iy:984,   Wel_y:141,   Wpl_y:166,   c275:1, c355:1},
+      {d:'140x140x8.0', kg:32.6, t:8.0, ri:12.0, A:41.6,  Iy:1200,  Wel_y:171,   Wpl_y:204,   c275:1, c355:1},
+      {d:'140x140x10',  kg:40.0, t:10.0,ri:15.0, A:50.9,  Iy:1420,  Wel_y:202,   Wpl_y:246,   c275:1, c355:1},
+      {d:'140x140x12.5',kg:48.7, t:12.5,ri:18.75,A:62.1,  Iy:1650,  Wel_y:236,   Wpl_y:293,   c275:1, c355:1},
+      // ── 150x150 ──
+      {d:'150x150x5.0', kg:22.6, t:5.0, ri:7.5,  A:28.7,  Iy:1000,  Wel_y:134,   Wpl_y:156,   c275:1, c355:2},
+      {d:'150x150x6.3', kg:28.1, t:6.3, ri:9.45, A:35.8,  Iy:1220,  Wel_y:163,   Wpl_y:192,   c275:1, c355:1},
+      {d:'150x150x8.0', kg:35.1, t:8.0, ri:12.0, A:44.8,  Iy:1490,  Wel_y:199,   Wpl_y:237,   c275:1, c355:1},
+      {d:'150x150x10',  kg:43.1, t:10.0,ri:15.0, A:54.9,  Iy:1770,  Wel_y:236,   Wpl_y:286,   c275:1, c355:1},
+      {d:'150x150x12.5',kg:52.7, t:12.5,ri:18.75,A:67.1,  Iy:2080,  Wel_y:277,   Wpl_y:342,   c275:1, c355:1},
+      // ── 160x160 ──
+      {d:'160x160x5.0', kg:24.1, t:5.0, ri:7.5,  A:30.7,  Iy:1230,  Wel_y:153,   Wpl_y:178,   c275:1, c355:2},
+      {d:'160x160x6.3', kg:30.1, t:6.3, ri:9.45, A:38.3,  Iy:1500,  Wel_y:187,   Wpl_y:220,   c275:1, c355:1},
+      {d:'160x160x8.0', kg:37.6, t:8.0, ri:12.0, A:48.0,  Iy:1830,  Wel_y:229,   Wpl_y:272,   c275:1, c355:1},
+      {d:'160x160x10',  kg:46.3, t:10.0,ri:15.0, A:58.9,  Iy:2190,  Wel_y:273,   Wpl_y:329,   c275:1, c355:1},
+      {d:'160x160x12.5',kg:56.6, t:12.5,ri:18.75,A:72.1,  Iy:2580,  Wel_y:322,   Wpl_y:395,   c275:1, c355:1},
+      {d:'160x160x14.2',kg:63.3, t:14.2,ri:21.3, A:80.7,  Iy:2810,  Wel_y:351,   Wpl_y:436,   c275:1, c355:1},
+      // ── 180x180 ──
+      {d:'180x180x6.3', kg:34.0, t:6.3, ri:9.45, A:43.3,  Iy:2170,  Wel_y:241,   Wpl_y:281,   c275:1, c355:1},
+      {d:'180x180x8.0', kg:42.7, t:8.0, ri:12.0, A:54.4,  Iy:2660,  Wel_y:296,   Wpl_y:349,   c275:1, c355:1},
+      {d:'180x180x10',  kg:52.5, t:10.0,ri:15.0, A:66.9,  Iy:3190,  Wel_y:355,   Wpl_y:424,   c275:1, c355:1},
+      {d:'180x180x12.5',kg:64.4, t:12.5,ri:18.75,A:82.1,  Iy:3790,  Wel_y:421,   Wpl_y:511,   c275:1, c355:1},
+      {d:'180x180x14.2',kg:72.2, t:14.2,ri:21.3, A:92.0,  Iy:4150,  Wel_y:462,   Wpl_y:567,   c275:1, c355:1},
+      {d:'180x180x16',  kg:80.2, t:16.0,ri:24.0, A:102,   Iy:4500,  Wel_y:500,   Wpl_y:621,   c275:1, c355:1},
+      // ── 200x200 ──
+      {d:'200x200x5.0', kg:30.4, t:5.0, ri:7.5,  A:38.7,  Iy:2450,  Wel_y:245,   Wpl_y:283,   c275:3, c355:4},
+      {d:'200x200x6.3', kg:38.0, t:6.3, ri:9.45, A:48.4,  Iy:3010,  Wel_y:301,   Wpl_y:350,   c275:1, c355:2},
+      {d:'200x200x8.0', kg:47.7, t:8.0, ri:12.0, A:60.8,  Iy:3710,  Wel_y:371,   Wpl_y:436,   c275:1, c355:1},
+      {d:'200x200x10',  kg:58.8, t:10.0,ri:15.0, A:74.9,  Iy:4470,  Wel_y:447,   Wpl_y:531,   c275:1, c355:1},
+      {d:'200x200x12.5',kg:72.3, t:12.5,ri:18.75,A:92.1,  Iy:5340,  Wel_y:534,   Wpl_y:643,   c275:1, c355:1},
+      {d:'200x200x14.2',kg:81.1, t:14.2,ri:21.3, A:103,   Iy:5870,  Wel_y:587,   Wpl_y:714,   c275:1, c355:1},
+      {d:'200x200x16',  kg:90.3, t:16.0,ri:24.0, A:115,   Iy:6390,  Wel_y:639,   Wpl_y:785,   c275:1, c355:1},
+      // ── 250x250 ──
+      {d:'250x250x6.3', kg:47.9, t:6.3, ri:9.45, A:61.0,  Iy:6010,  Wel_y:481,   Wpl_y:556,   c275:3, c355:4},
+      {d:'250x250x8.0', kg:60.3, t:8.0, ri:12.0, A:76.8,  Iy:7460,  Wel_y:596,   Wpl_y:694,   c275:1, c355:2},
+      {d:'250x250x10',  kg:74.5, t:10.0,ri:15.0, A:94.9,  Iy:9060,  Wel_y:724,   Wpl_y:851,   c275:1, c355:1},
+      {d:'250x250x12.5',kg:91.9, t:12.5,ri:18.75,A:117,   Iy:10900, Wel_y:873,   Wpl_y:1040,  c275:1, c355:1},
+      {d:'250x250x14.2',kg:103,  t:14.2,ri:21.3, A:132,   Iy:12100, Wel_y:967,   Wpl_y:1160,  c275:1, c355:1},
+      {d:'250x250x16',  kg:115,  t:16.0,ri:24.0, A:147,   Iy:13300, Wel_y:1060,  Wpl_y:1280,  c275:1, c355:1},
+      // ── 260x260 ──
+      {d:'260x260x6.3', kg:49.9, t:6.3, ri:9.45, A:63.5,  Iy:6790,  Wel_y:522,   Wpl_y:603,   c275:3, c355:4},
+      {d:'260x260x8.0', kg:62.8, t:8.0, ri:12.0, A:80.0,  Iy:8420,  Wel_y:648,   Wpl_y:753,   c275:1, c355:2},
+      {d:'260x260x10',  kg:77.7, t:10.0,ri:15.0, A:98.9,  Iy:10200, Wel_y:788,   Wpl_y:924,   c275:1, c355:1},
+      {d:'260x260x12.5',kg:95.8, t:12.5,ri:18.75,A:122,   Iy:12400, Wel_y:951,   Wpl_y:1130,  c275:1, c355:1},
+      {d:'260x260x14.2',kg:108,  t:14.2,ri:21.3, A:137,   Iy:13700, Wel_y:1060,  Wpl_y:1260,  c275:1, c355:1},
+      {d:'260x260x16',  kg:120,  t:16.0,ri:24.0, A:153,   Iy:15100, Wel_y:1160,  Wpl_y:1390,  c275:1, c355:1},
+      // ── 300x300 ──
+      {d:'300x300x6.3', kg:57.8, t:6.3, ri:9.45, A:73.6,  Iy:10500, Wel_y:703,   Wpl_y:809,   c275:4, c355:4},
+      {d:'300x300x8.0', kg:72.8, t:8.0, ri:12.0, A:92.8,  Iy:13100, Wel_y:875,   Wpl_y:1010,  c275:2, c355:4},
+      {d:'300x300x10',  kg:90.2, t:10.0,ri:15.0, A:115,   Iy:16000, Wel_y:1070,  Wpl_y:1250,  c275:1, c355:2},
+      {d:'300x300x12.5',kg:112,  t:12.5,ri:18.75,A:142,   Iy:19400, Wel_y:1300,  Wpl_y:1530,  c275:1, c355:1},
+      {d:'300x300x14.2',kg:126,  t:14.2,ri:21.3, A:160,   Iy:21600, Wel_y:1440,  Wpl_y:1710,  c275:1, c355:1},
+      {d:'300x300x16',  kg:141,  t:16.0,ri:24.0, A:179,   Iy:23900, Wel_y:1590,  Wpl_y:1900,  c275:1, c355:1},
+      // ── 350x350 ──
+      {d:'350x350x8.0', kg:85.4, t:8.0, ri:12.0, A:109,   Iy:21100, Wel_y:1210,  Wpl_y:1390,  c275:4, c355:4},
+      {d:'350x350x10',  kg:106,  t:10.0,ri:15.0, A:135,   Iy:25900, Wel_y:1480,  Wpl_y:1720,  c275:2, c355:3},
+      {d:'350x350x12.5',kg:131,  t:12.5,ri:18.75,A:167,   Iy:31500, Wel_y:1800,  Wpl_y:2110,  c275:1, c355:1},
+      {d:'350x350x14.2',kg:148,  t:14.2,ri:21.3, A:189,   Iy:35200, Wel_y:2010,  Wpl_y:2360,  c275:1, c355:1},
+      {d:'350x350x16',  kg:166,  t:16.0,ri:24.0, A:211,   Iy:38900, Wel_y:2230,  Wpl_y:2630,  c275:1, c355:1},
+      // ── 400x400 ──
+      {d:'400x400x10',  kg:122,  t:10.0,ri:15.0, A:155,   Iy:39100, Wel_y:1960,  Wpl_y:2260,  c275:3, c355:4},
+      {d:'400x400x12.5',kg:151,  t:12.5,ri:18.75,A:192,   Iy:47800, Wel_y:2390,  Wpl_y:2780,  c275:1, c355:2},
+      {d:'400x400x14.2',kg:170,  t:14.2,ri:21.3, A:217,   Iy:53500, Wel_y:2680,  Wpl_y:3130,  c275:1, c355:1},
+      {d:'400x400x16',  kg:191,  t:16.0,ri:24.0, A:243,   Iy:59300, Wel_y:2970,  Wpl_y:3480,  c275:1, c355:1},
+      {d:'400x400x20',  kg:235,  t:20.0,ri:30.0, A:300,   Iy:71500, Wel_y:3580,  Wpl_y:4250,  c275:1, c355:1},
+    ],
+
+    RHS: [
+      // ── 50x30 ──
+      {d:'50x30x3.2',   kg:3.10, t:3.2, ri:4.8,  A:3.95,  Iy:9.78,  Wel_y:3.91,  Wpl_y:5.03,  c275:1, c355:1},
+      {d:'50x30x4.0',   kg:3.77, t:4.0, ri:6.0,  A:4.80,  Iy:11.3,  Wel_y:4.50,  Wpl_y:5.90,  c275:1, c355:1},
+      {d:'50x30x5.0',   kg:4.54, t:5.0, ri:7.5,  A:5.78,  Iy:12.9,  Wel_y:5.14,  Wpl_y:6.93,  c275:1, c355:1},
+      // ── 60x40 ──
+      {d:'60x40x3.2',   kg:4.14, t:3.2, ri:4.8,  A:5.27,  Iy:24.0,  Wel_y:7.99,  Wpl_y:10.0,  c275:1, c355:1},
+      {d:'60x40x4.0',   kg:5.07, t:4.0, ri:6.0,  A:6.46,  Iy:28.5,  Wel_y:9.50,  Wpl_y:12.1,  c275:1, c355:1},
+      {d:'60x40x5.0',   kg:6.17, t:5.0, ri:7.5,  A:7.86,  Iy:33.2,  Wel_y:11.1,  Wpl_y:14.4,  c275:1, c355:1},
+      {d:'60x40x6.3',   kg:7.51, t:6.3, ri:9.45, A:9.56,  Iy:37.8,  Wel_y:12.6,  Wpl_y:16.9,  c275:1, c355:1},
+      // ── 76.2x38.1 (3"x1.5") ──
+      {d:'76.2x38.1x3.2',kg:4.97,t:3.2,ri:4.8,   A:6.33,  Iy:44.7,  Wel_y:11.7,  Wpl_y:15.0,  c275:1, c355:1},
+      {d:'76.2x38.1x4.0',kg:6.10,t:4.0,ri:6.0,   A:7.77,  Iy:52.5,  Wel_y:13.8,  Wpl_y:17.9,  c275:1, c355:1},
+      {d:'76.2x38.1x5.0',kg:7.46,t:5.0,ri:7.5,   A:9.50,  Iy:60.8,  Wel_y:16.0,  Wpl_y:21.1,  c275:1, c355:1},
+      // ── 80x40 ──
+      {d:'80x40x3.2',   kg:4.97, t:3.2, ri:4.8,  A:6.33,  Iy:44.7,  Wel_y:11.2,  Wpl_y:14.2,  c275:1, c355:1},
+      {d:'80x40x4.0',   kg:6.10, t:4.0, ri:6.0,  A:7.77,  Iy:52.4,  Wel_y:13.1,  Wpl_y:16.8,  c275:1, c355:1},
+      {d:'80x40x5.0',   kg:7.46, t:5.0, ri:7.5,  A:9.50,  Iy:60.7,  Wel_y:15.2,  Wpl_y:19.8,  c275:1, c355:1},
+      {d:'80x40x6.3',   kg:9.17, t:6.3, ri:9.45, A:11.7,  Iy:70.3,  Wel_y:17.6,  Wpl_y:23.4,  c275:1, c355:1},
+      // ── 90x50 ──
+      {d:'90x50x3.6',   kg:6.28, t:3.6, ri:5.4,  A:8.00,  Iy:76.4,  Wel_y:17.0,  Wpl_y:21.2,  c275:1, c355:1},
+      {d:'90x50x4.0',   kg:6.95, t:4.0, ri:6.0,  A:8.85,  Iy:83.3,  Wel_y:18.5,  Wpl_y:23.2,  c275:1, c355:1},
+      {d:'90x50x5.0',   kg:8.54, t:5.0, ri:7.5,  A:10.9,  Iy:99.0,  Wel_y:22.0,  Wpl_y:27.9,  c275:1, c355:1},
+      {d:'90x50x6.3',   kg:10.5, t:6.3, ri:9.45, A:13.4,  Iy:116,   Wel_y:25.8,  Wpl_y:33.3,  c275:1, c355:1},
+      // ── 100x50 ──
+      {d:'100x50x3.6',  kg:6.97, t:3.6, ri:5.4,  A:8.88,  Iy:107,   Wel_y:21.4,  Wpl_y:26.5,  c275:1, c355:1},
+      {d:'100x50x4.0',  kg:7.72, t:4.0, ri:6.0,  A:9.83,  Iy:117,   Wel_y:23.4,  Wpl_y:29.1,  c275:1, c355:1},
+      {d:'100x50x5.0',  kg:9.49, t:5.0, ri:7.5,  A:12.1,  Iy:140,   Wel_y:28.0,  Wpl_y:35.3,  c275:1, c355:1},
+      {d:'100x50x6.3',  kg:11.7, t:6.3, ri:9.45, A:14.9,  Iy:165,   Wel_y:33.1,  Wpl_y:42.4,  c275:1, c355:1},
+      {d:'100x50x8.0',  kg:14.4, t:8.0, ri:12.0, A:18.4,  Iy:191,   Wel_y:38.2,  Wpl_y:50.3,  c275:1, c355:1},
+      // ── 100x60 ──
+      {d:'100x60x4.0',  kg:8.49, t:4.0, ri:6.0,  A:10.8,  Iy:135,   Wel_y:27.0,  Wpl_y:33.2,  c275:1, c355:1},
+      {d:'100x60x5.0',  kg:10.4, t:5.0, ri:7.5,  A:13.2,  Iy:161,   Wel_y:32.3,  Wpl_y:40.1,  c275:1, c355:1},
+      {d:'100x60x6.3',  kg:12.8, t:6.3, ri:9.45, A:16.3,  Iy:192,   Wel_y:38.4,  Wpl_y:48.4,  c275:1, c355:1},
+      {d:'100x60x8.0',  kg:15.8, t:8.0, ri:12.0, A:20.1,  Iy:225,   Wel_y:45.0,  Wpl_y:57.9,  c275:1, c355:1},
+      // ── 120x60 ──
+      {d:'120x60x4.0',  kg:9.64, t:4.0, ri:6.0,  A:12.3,  Iy:223,   Wel_y:37.2,  Wpl_y:46.2,  c275:1, c355:1},
+      {d:'120x60x5.0',  kg:11.9, t:5.0, ri:7.5,  A:15.1,  Iy:270,   Wel_y:45.0,  Wpl_y:56.4,  c275:1, c355:1},
+      {d:'120x60x6.3',  kg:14.7, t:6.3, ri:9.45, A:18.7,  Iy:322,   Wel_y:53.7,  Wpl_y:68.2,  c275:1, c355:1},
+      {d:'120x60x8.0',  kg:18.3, t:8.0, ri:12.0, A:23.3,  Iy:381,   Wel_y:63.5,  Wpl_y:82.3,  c275:1, c355:1},
+      {d:'120x60x10',   kg:22.2, t:10.0,ri:15.0, A:28.3,  Iy:431,   Wel_y:71.9,  Wpl_y:95.2,  c275:1, c355:1},
+      // ── 120x80 ──
+      {d:'120x80x4.0',  kg:10.4, t:4.0, ri:6.0,  A:13.3,  Iy:271,   Wel_y:45.2,  Wpl_y:55.2,  c275:1, c355:1},
+      {d:'120x80x5.0',  kg:12.8, t:5.0, ri:7.5,  A:16.3,  Iy:328,   Wel_y:54.7,  Wpl_y:67.4,  c275:1, c355:1},
+      {d:'120x80x6.3',  kg:15.9, t:6.3, ri:9.45, A:20.2,  Iy:393,   Wel_y:65.5,  Wpl_y:81.7,  c275:1, c355:1},
+      {d:'120x80x8.0',  kg:19.8, t:8.0, ri:12.0, A:25.2,  Iy:469,   Wel_y:78.2,  Wpl_y:98.8,  c275:1, c355:1},
+      {d:'120x80x10',   kg:24.0, t:10.0,ri:15.0, A:30.6,  Iy:541,   Wel_y:90.2,  Wpl_y:116,   c275:1, c355:1},
+      // ── 150x100 ──
+      {d:'150x100x4.0', kg:13.6, t:4.0, ri:6.0,  A:17.3,  Iy:579,   Wel_y:77.2,  Wpl_y:93.7,  c275:1, c355:1},
+      {d:'150x100x5.0', kg:16.8, t:5.0, ri:7.5,  A:21.4,  Iy:706,   Wel_y:94.1,  Wpl_y:115,   c275:1, c355:1},
+      {d:'150x100x6.3', kg:20.8, t:6.3, ri:9.45, A:26.5,  Iy:854,   Wel_y:114,   Wpl_y:140,   c275:1, c355:1},
+      {d:'150x100x8.0', kg:26.0, t:8.0, ri:12.0, A:33.1,  Iy:1030,  Wel_y:137,   Wpl_y:171,   c275:1, c355:1},
+      {d:'150x100x10',  kg:31.9, t:10.0,ri:15.0, A:40.6,  Iy:1210,  Wel_y:161,   Wpl_y:204,   c275:1, c355:1},
+      {d:'150x100x12.5',kg:38.7, t:12.5,ri:18.75,A:49.3,  Iy:1390,  Wel_y:185,   Wpl_y:239,   c275:1, c355:1},
+      // ── 160x80 ──
+      {d:'160x80x4.0',  kg:12.2, t:4.0, ri:6.0,  A:15.5,  Iy:519,   Wel_y:64.9,  Wpl_y:81.5,  c275:3, c355:4},
+      {d:'160x80x5.0',  kg:15.0, t:5.0, ri:7.5,  A:19.1,  Iy:633,   Wel_y:79.2,  Wpl_y:100,   c275:1, c355:2},
+      {d:'160x80x6.3',  kg:18.6, t:6.3, ri:9.45, A:23.7,  Iy:761,   Wel_y:95.1,  Wpl_y:122,   c275:1, c355:1},
+      {d:'160x80x8.0',  kg:23.0, t:8.0, ri:12.0, A:29.3,  Iy:910,   Wel_y:114,   Wpl_y:148,   c275:1, c355:1},
+      {d:'160x80x10',   kg:28.1, t:10.0,ri:15.0, A:35.8,  Iy:1060,  Wel_y:133,   Wpl_y:175,   c275:1, c355:1},
+      // ── 200x100 ──
+      {d:'200x100x5.0', kg:20.7, t:5.0, ri:7.5,  A:26.4,  Iy:1260,  Wel_y:126,   Wpl_y:159,   c275:3, c355:4},
+      {d:'200x100x6.3', kg:25.7, t:6.3, ri:9.45, A:32.7,  Iy:1530,  Wel_y:153,   Wpl_y:195,   c275:1, c355:2},
+      {d:'200x100x8.0', kg:32.0, t:8.0, ri:12.0, A:40.8,  Iy:1870,  Wel_y:187,   Wpl_y:241,   c275:1, c355:1},
+      {d:'200x100x10',  kg:39.5, t:10.0,ri:15.0, A:50.3,  Iy:2230,  Wel_y:223,   Wpl_y:291,   c275:1, c355:1},
+      {d:'200x100x12.5',kg:48.1, t:12.5,ri:18.75,A:61.3,  Iy:2620,  Wel_y:262,   Wpl_y:349,   c275:1, c355:1},
+      // ── 200x120 ──
+      {d:'200x120x5.0', kg:22.3, t:5.0, ri:7.5,  A:28.4,  Iy:1430,  Wel_y:143,   Wpl_y:177,   c275:3, c355:4},
+      {d:'200x120x6.3', kg:27.6, t:6.3, ri:9.45, A:35.2,  Iy:1740,  Wel_y:174,   Wpl_y:216,   c275:1, c355:2},
+      {d:'200x120x8.0', kg:34.5, t:8.0, ri:12.0, A:43.9,  Iy:2130,  Wel_y:213,   Wpl_y:267,   c275:1, c355:1},
+      {d:'200x120x10',  kg:42.6, t:10.0,ri:15.0, A:54.3,  Iy:2560,  Wel_y:256,   Wpl_y:323,   c275:1, c355:1},
+      {d:'200x120x12.5',kg:52.1, t:12.5,ri:18.75,A:66.4,  Iy:3030,  Wel_y:303,   Wpl_y:389,   c275:1, c355:1},
+      // ── 250x150 ──
+      {d:'250x150x5.0', kg:28.9, t:5.0, ri:7.5,  A:36.8,  Iy:2990,  Wel_y:239,   Wpl_y:293,   c275:4, c355:4},
+      {d:'250x150x6.3', kg:35.9, t:6.3, ri:9.45, A:45.7,  Iy:3650,  Wel_y:292,   Wpl_y:360,   c275:3, c355:4},
+      {d:'250x150x8.0', kg:44.9, t:8.0, ri:12.0, A:57.2,  Iy:4480,  Wel_y:358,   Wpl_y:446,   c275:1, c355:2},
+      {d:'250x150x10',  kg:55.7, t:10.0,ri:15.0, A:71.0,  Iy:5430,  Wel_y:434,   Wpl_y:545,   c275:1, c355:1},
+      {d:'250x150x12.5',kg:68.4, t:12.5,ri:18.75,A:87.1,  Iy:6480,  Wel_y:518,   Wpl_y:661,   c275:1, c355:1},
+      {d:'250x150x16',  kg:85.4, t:16.0,ri:24.0, A:109,   Iy:7810,  Wel_y:625,   Wpl_y:814,   c275:1, c355:1},
+      // ── 300x200 ──
+      {d:'300x200x6.3', kg:47.0, t:6.3, ri:9.45, A:59.9,  Iy:8210,  Wel_y:547,   Wpl_y:667,   c275:4, c355:4},
+      {d:'300x200x8.0', kg:58.9, t:8.0, ri:12.0, A:75.1,  Iy:10100, Wel_y:675,   Wpl_y:828,   c275:2, c355:4},
+      {d:'300x200x10',  kg:73.5, t:10.0,ri:15.0, A:93.7,  Iy:12400, Wel_y:823,   Wpl_y:1020,  c275:1, c355:2},
+      {d:'300x200x12.5',kg:90.7, t:12.5,ri:18.75,A:116,   Iy:15000, Wel_y:997,   Wpl_y:1250,  c275:1, c355:1},
+      {d:'300x200x16',  kg:114,  t:16.0,ri:24.0, A:145,   Iy:18300, Wel_y:1220,  Wpl_y:1560,  c275:1, c355:1},
+      // ── 400x200 ──
+      {d:'400x200x8.0', kg:73.7, t:8.0, ri:12.0, A:93.9,  Iy:24700, Wel_y:1240,  Wpl_y:1570,  c275:4, c355:4},
+      {d:'400x200x10',  kg:92.5, t:10.0,ri:15.0, A:118,   Iy:30500, Wel_y:1520,  Wpl_y:1940,  c275:3, c355:4},
+      {d:'400x200x12.5',kg:114,  t:12.5,ri:18.75,A:146,   Iy:37100, Wel_y:1860,  Wpl_y:2400,  c275:1, c355:2},
+      {d:'400x200x16',  kg:144,  t:16.0,ri:24.0, A:184,   Iy:46000, Wel_y:2300,  Wpl_y:3010,  c275:1, c355:1},
+      // ── 500x300 ──
+      {d:'500x300x10',  kg:123,  t:10.0,ri:15.0, A:157,   Iy:73600, Wel_y:2940,  Wpl_y:3640,  c275:4, c355:4},
+      {d:'500x300x12.5',kg:153,  t:12.5,ri:18.75,A:195,   Iy:90400, Wel_y:3620,  Wpl_y:4510,  c275:3, c355:4},
+      {d:'500x300x16',  kg:194,  t:16.0,ri:24.0, A:247,   Iy:113000,Wel_y:4510,  Wpl_y:5670,  c275:1, c355:2},
+    ],
+
+  }; // end SECTIONS
+
+  // ── Grating data — Section 2 ──
+
+  // Source: Steelway Design Guide p.3 — "Safe Load Tables for Mild Steel Diamond Pattern Flooring"
+  // Stress limit: 140 N/mm² (plain bars). Deflection: span/200 or 10mm — BS 4592-0:2006+A1:2012 Cl.5.3.2
+  const DIAMOND = {
+    spans_m: [0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4],
+    rows: [
+      {ref:'FL20L', depth:20, bar:'20×3 (20×3)', mass:28.8, udl:[20.5,14.9,10.0,7.0,5.1,3.3,null,null,null,null,null,null]},
+      {ref:'FL25L', depth:25, bar:'25×3 (20×3)', mass:32.4, udl:[32.5,23.9,18.3,13.5,9.8,5.7,3.6,2.3,null,null,null,null]},
+      {ref:'FL25H', depth:25, bar:'25×5 (20×3)', mass:41.0, udl:[48.1,35.3,27.0,20.1,14.7,8.5,5.4,3.6,2.0,1.0,null,null]},
+      {ref:'FL35L', depth:35, bar:'35×3 (25×3)', mass:43.1, udl:[61.6,45.3,34.7,27.4,22.2,15.0,9.4,6.3,4.4,2.2,1.2,1.0]},
+      {ref:'FL35H', depth:35, bar:'35×5 (25×3)', mass:55.2, udl:[92.2,67.7,51.9,41.0,33.2,27.7,14.3,9.6,6.7,4.9,2.0,1.9]},
+      {ref:'FL40H', depth:40, bar:'40×5 (25×3)', mass:60.8, udl:[118,86.6,66.3,52.4,42.5,29.5,20.9,14.0,9.8,7.2,4.9,4.9]},
+      {ref:'FL45H', depth:45, bar:'45×5 (25×3)', mass:66.3, udl:[147,108,82.7,65.4,53.0,36.8,27.0,19.7,13.8,10.1,6.9,6.6]},
+      {ref:'FL50H', depth:50, bar:'50×5 (25×3)', mass:71.8, udl:[180,132,101,79.9,64.7,44.9,33.0,25.3,18.8,13.7,9.4,null]},
+    ]
+  };
+
+  // Source: Steelway Design Guide pp.5–6 — "Safe Load Tables Rectangular Pattern Mild Steel Flooring"
+  // Stress limit: 165 N/mm². Deflection: span/200 or 10mm.
+  // Serrated bar correction — multiply tabulated UDL by serrated_factor[depth]:
+  //   ×0.75 for 25–30mm deep sections; ×0.80 for 35mm+ deep sections
+  // 41/50 and 30/50 mass = /100 variant mass + 1.8 kg/m² (additional transverse bars)
+  const RECT = {
+    spans_m: [0.600,0.750,0.900,1.050,1.200,1.350,1.500,1.650,1.800,1.950,2.100,2.250,2.400],
+    serrated_factor: {20:0.75,25:0.75,30:0.75,35:0.80,40:0.80,50:0.80,60:0.80},
+    subtypes: {
+      '41/100': [
+        {bar:'20×3', depth:20, mass:14.8, udl:[17.4,9.1,5.2,3.3,null,null,null,null,null,null,null,null,null]},
+        {bar:'25×3', depth:25, mass:18.0, udl:[27.2,17.4,10.2,6.5,4.3,null,null,null,null,null,null,null,null]},
+        {bar:'25×5', depth:25, mass:27.8, udl:[45.4,29.0,17.1,10.8,7.2,5.1,3.7,null,null,null,null,null,null]},
+        {bar:'30×3', depth:30, mass:21.0, udl:[39.2,25.1,17.4,11.2,7.5,5.2,3.8,null,null,null,null,null,null]},
+        {bar:'30×5', depth:30, mass:33.0, udl:[65.0,41.8,29.0,18.6,12.5,8.5,6.4,4.8,null,null,null,null,null]},
+        {bar:'35×3', depth:35, mass:23.8, udl:[53.0,34.0,23.7,17.4,11.9,8.3,6.0,4.6,null,null,null,null,null]},
+        {bar:'35×5', depth:35, mass:37.8, udl:[89.0,57.0,39.5,29.0,19.8,13.9,10.1,7.7,5.9,4.6,null,null,null]},
+        {bar:'40×3', depth:40, mass:26.8, udl:[70.0,44.6,31.0,22.8,17.4,12.6,9.1,6.8,5.2,4.2,null,null,null]},
+        {bar:'40×5', depth:40, mass:43.0, udl:[116,74.0,52.0,37.9,29.0,20.8,15.2,11.4,8.79,6.9,5.3,4.0,null]},
+        {bar:'50×5', depth:50, mass:52.8, udl:[181,116,81.0,59.0,45.4,35.8,29.0,22.9,17.2,13.5,10.3,7.8,5.9]},
+        {bar:'60×5', depth:60, mass:63.0, udl:[261,167,110,85.0,65.0,52.0,41.8,34.6,28.5,23.1,17.7,13.4,10.3]},
+      ],
+      '41/50': [
+        {bar:'20×3', depth:20, mass:16.6, udl:[17.4,9.1,5.2,3.3,null,null,null,null,null,null,null,null,null]},
+        {bar:'25×3', depth:25, mass:19.8, udl:[27.2,17.4,10.2,6.5,4.3,null,null,null,null,null,null,null,null]},
+        {bar:'25×5', depth:25, mass:29.6, udl:[45.4,29.0,17.1,10.8,7.2,5.1,3.7,null,null,null,null,null,null]},
+        {bar:'30×3', depth:30, mass:22.8, udl:[39.2,25.1,17.4,11.2,7.5,5.2,3.8,null,null,null,null,null,null]},
+        {bar:'30×5', depth:30, mass:34.8, udl:[65.0,41.8,29.0,18.6,12.5,8.5,6.4,4.8,null,null,null,null,null]},
+        {bar:'35×3', depth:35, mass:25.6, udl:[53.0,34.0,23.7,17.4,11.9,8.3,6.0,4.6,null,null,null,null,null]},
+        {bar:'35×5', depth:35, mass:39.6, udl:[89.0,57.0,39.5,29.0,19.8,13.9,10.1,7.7,5.9,4.6,null,null,null]},
+        {bar:'40×3', depth:40, mass:28.6, udl:[70.0,44.6,31.0,22.8,17.4,12.6,9.1,6.8,5.2,4.2,null,null,null]},
+        {bar:'40×5', depth:40, mass:44.8, udl:[116,74.0,52.0,37.9,29.0,20.8,15.2,11.4,8.79,6.9,5.3,4.0,null]},
+        {bar:'50×5', depth:50, mass:54.6, udl:[181,116,81.0,59.0,45.4,35.8,29.0,22.9,17.2,13.5,10.3,7.8,5.9]},
+        {bar:'60×5', depth:60, mass:64.8, udl:[261,167,110,85.0,65.0,52.0,41.8,34.6,28.5,23.1,17.7,13.4,10.3]},
+      ],
+      '30/100': [
+        {bar:'20×3', depth:20, mass:17.7, udl:[23.0,11.9,6.9,4.4,null,null,null,null,null,null,null,null,null]},
+        {bar:'25×3', depth:25, mass:21.7, udl:[35.9,23.0,13.6,8.5,5.7,3.9,null,null,null,null,null,null,null]},
+        {bar:'25×5', depth:25, mass:33.8, udl:[60.0,38.3,22.5,14.3,9.6,6.7,4.9,null,null,null,null,null,null]},
+        {bar:'30×3', depth:30, mass:25.4, udl:[52.0,33.1,23.0,14.8,9.9,6.8,5.0,3.8,null,null,null,null,null]},
+        {bar:'30×5', depth:30, mass:40.3, udl:[86.0,55.2,38.3,24.6,16.6,11.6,8.4,6.3,4.9,null,null,null,null]},
+        {bar:'35×3', depth:35, mass:28.8, udl:[70.0,45.1,31.3,23.0,15.7,11.0,8.0,6.0,4.6,null,null,null,null]},
+        {bar:'35×5', depth:35, mass:46.2, udl:[117,75.0,52.0,38.3,26.2,18.4,13.4,10.0,7.7,6.1,4.6,null,null]},
+        {bar:'40×3', depth:40, mass:32.6, udl:[92.0,59.0,40.9,30.0,23.0,16.6,11.9,9.0,6.9,5.4,4.1,null,null]},
+        {bar:'40×5', depth:40, mass:52.7, udl:[153,98.0,68.0,50.0,38.3,27.6,19.9,15.0,11.6,9.1,6.9,5.3,4.0]},
+        {bar:'50×5', depth:50, mass:64.8, udl:[239,153,106,78.0,60.0,47.3,38.3,29.2,22.6,17.8,13.6,10.3,7.9]},
+        {bar:'60×5', depth:60, mass:77.5, udl:[345,221,153,113,86.0,68.0,55.0,45.6,37.8,30.6,23.5,17.7,13.7]},
+      ],
+      '30/50': [
+        {bar:'20×3', depth:20, mass:19.5, udl:[23.0,11.9,6.9,4.4,null,null,null,null,null,null,null,null,null]},
+        {bar:'25×3', depth:25, mass:23.5, udl:[35.9,23.0,13.6,8.5,5.7,3.9,null,null,null,null,null,null,null]},
+        {bar:'25×5', depth:25, mass:35.6, udl:[60.0,38.3,22.5,14.3,9.6,6.7,4.9,null,null,null,null,null,null]},
+        {bar:'30×3', depth:30, mass:27.2, udl:[52.0,33.1,23.0,14.8,9.9,6.8,5.0,3.8,null,null,null,null,null]},
+        {bar:'30×5', depth:30, mass:42.1, udl:[86.0,55.2,38.3,24.6,16.6,11.6,8.4,6.3,4.9,null,null,null,null]},
+        {bar:'35×3', depth:35, mass:30.6, udl:[70.0,45.1,31.3,23.0,15.7,11.0,8.0,6.0,4.6,null,null,null,null]},
+        {bar:'35×5', depth:35, mass:48.0, udl:[117,75.0,52.0,38.3,26.2,18.4,13.4,10.0,7.7,6.1,4.6,null,null]},
+        {bar:'40×3', depth:40, mass:34.4, udl:[92.0,59.0,40.9,30.0,23.0,16.6,11.9,9.0,6.9,5.4,4.1,null,null]},
+        {bar:'40×5', depth:40, mass:54.5, udl:[153,98.0,68.0,50.0,38.3,27.6,19.9,15.0,11.6,9.1,6.9,5.3,4.0]},
+        {bar:'50×5', depth:50, mass:66.6, udl:[239,153,106,78.0,60.0,47.3,38.3,29.2,22.6,17.8,13.6,10.3,7.9]},
+        {bar:'60×5', depth:60, mass:79.3, udl:[345,221,153,113,86.0,68.0,55.0,45.6,37.8,30.6,23.5,17.7,13.7]},
+      ],
+    }
+  };
+
+  // Source: F.H. Brundle 20mm Ball Proof Grating datasheet (Feb 2021)
+  // Requirement: BS 4592-0:2006+A1:2012 Cl.5.1 — max 20mm sphere through grating where above working area
+  // Material: BS EN 10025 Grade S275JR. Deflection criterion: span/200 or 10mm, whichever is lesser
+  const BALLPROOF = {
+    loads: [5.0, 7.5],
+    rows: [
+      {bar:'25×3', mesh:'Mesh 21.5/100 (3mm)',  mass: 30.49, span4mm:{5.0:1075,7.5:1055}, spanL200:{5.0:1300,7.5:1155}},
+      {bar:'30×3', mesh:'Mesh 21.5/100 (3mm)',  mass: 36.03, span4mm:{5.0:1305,7.5:1210}, spanL200:{5.0:1580,7.5:1390}},
+      {bar:'35×3', mesh:'Mesh 21.5/100 (3mm)',  mass: 41.56, span4mm:{5.0:1535,7.5:1355}, spanL200:{5.0:1840,7.5:1620}},
+      {bar:'40×3', mesh:'Mesh 21.5/100 (3mm)',  mass: 47.09, span4mm:{5.0:1655,7.5:1505}, spanL200:{5.0:2080,7.5:1855}},
+      {bar:'25×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 45.01, span4mm:{5.0:1290,7.5:1180}, spanL200:{5.0:1525,7.5:1340}},
+      {bar:'30×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 53.45, span4mm:{5.0:1485,7.5:1350}, spanL200:{5.0:1825,7.5:1610}},
+      {bar:'35×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 61.89, span4mm:{5.0:1665,7.5:1515}, spanL200:{5.0:2090,7.5:1880}},
+      {bar:'40×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 70.33, span4mm:{5.0:1830,7.5:1675}, spanL200:{5.0:2305,7.5:2105}},
+      {bar:'45×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 78.77, span4mm:{5.0:2005,7.5:1830}, spanL200:{5.0:2525,7.5:2305}},
+      {bar:'50×5', mesh:'Mesh 23.5/100 (5mm)',  mass: 87.21, span4mm:{5.0:2160,7.5:1975}, spanL200:{5.0:2715,7.5:2485}},
+      {bar:'60×5', mesh:'Mesh 23.5/100 (5mm)',  mass:104.09, span4mm:{5.0:2460,7.5:2255}, spanL200:{5.0:3095,7.5:2835}},
+    ]
+  };
+
+  // Source: Lionweld Kennedy Flowgrate datasheets (38mm, 50mm)
+  // Standard: BS 4592-0:2012. maxSpan values in mm.
+  const GRP_FLOWGRATE = [
+    { name:'Flowgrate 38mm', bar:'38×7mm tapered', pitch_mm:38, mass:18.6,
+      material:'Isophthalic Polyester', fire:'ASTM E84 class 1 <25',
+      panels:['2000×1000','3000×1000','4000×1000','3660×1220'],
+      maxSpan:{3.0:1052, 5.0:887, 7.5:775} },
+    { name:'Flowgrate 50mm', bar:'50×9mm tapered', pitch_mm:50, mass:23.4,
+      material:'Isophthalic Polyester', fire:'ASTM E84 class 1 <25',
+      panels:['3000×1000','3660×1220'],
+      maxSpan:{3.0:1334, 5.0:1125, 7.5:983} },
+  ];
+
+  // Source: Evergrip GRP Moulded Grating Specification (Nov 2013), p.4 — Grating Resin Types
+  // No span/load tables available — resin selection guidance only
+  const EVERGRIP_RESINS = [
+    {env:'Water/wastewater, light industrial',             resin:'Orthophthalic polyester', code:'Type O'},
+    {env:'Aggressive chemicals, inorganic acid/alkali',    resin:'Isophthalic polyester',   code:'Type I'},
+    {env:'Aggressive chemicals, flame resistance required',resin:'Vinyl ester',             code:'Type V'},
+    {env:'Fire critical, low smoke',                       resin:'Phenolic resin',          code:'Type P'},
+    {env:'Food / drinking water',                          resin:'Food grade polyester',    code:'Type F'},
+  ];
+
+// ── Section 1: Beam checker ──
+
+function buildBeamInputs() {
+  document.getElementById('beam-inputs').innerHTML = `
+    <div class="input-grid">
+      <label>Span (m)
+        <input id="b-span" type="number" value="3.0" min="0.1" step="0.1" style="width:90px">
+      </label>
+      <label>Support
+        <select id="b-support">
+          <option value="ss">Simply supported</option>
+          <option value="cant">Cantilever</option>
+        </select>
+      </label>
+      <label>Load type
+        <select id="b-loadtype">
+          <option value="udl">UDL (kN/m)</option>
+          <option value="point">Point load (kN)</option>
+        </select>
+      </label>
+      <label>Load value
+        <input id="b-load" type="number" value="5.0" min="0" step="0.5" style="width:90px">
+      </label>
+      <label id="b-pos-lbl" style="display:none">Point position
+        <select id="b-pos">
+          <option value="mid">Mid-span</option>
+          <option value="third">Third-point (L/3)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <label id="b-custom-lbl" style="display:none">Position a (m)
+        <input id="b-custom-a" type="number" value="1.0" min="0" step="0.1" style="width:80px">
+      </label>
+      <label>Deflection limit
+        <select id="b-deflim">
+          <option value="200">L/200</option>
+          <option value="360">L/360</option>
+        </select>
+      </label>
+    </div>
+    <div class="input-grid">
+      <label>Grade
+        <select id="b-grade">
+          <option value="S275">S275</option>
+          <option value="S355">S355</option>
+        </select>
+      </label>
+      <label>Member type
+        <select id="b-type">
+          <option value="UB">UB</option>
+          <option value="UC">UC</option>
+          <option value="PFC">PFC</option>
+          <option value="SHS">SHS (hot-finished)</option>
+          <option value="RHS">RHS (hot-finished)</option>
+        </select>
+      </label>
+      <label>Size
+        <select id="b-size" style="min-width:200px"></select>
+      </label>
+    </div>`;
+
+  // Event wiring
+  document.getElementById('b-loadtype').addEventListener('change', function() {
+    const pt = this.value === 'point';
+    document.getElementById('b-pos-lbl').style.display = pt ? '' : 'none';
+    document.getElementById('b-custom-lbl').style.display =
+      (pt && document.getElementById('b-pos').value === 'custom') ? '' : 'none';
+    runBeamCalc();
+  });
+  document.getElementById('b-pos').addEventListener('change', function() {
+    document.getElementById('b-custom-lbl').style.display = this.value === 'custom' ? '' : 'none';
+    runBeamCalc();
+  });
+  document.getElementById('b-type').addEventListener('change', populateBeamSizes);
+  ['b-span','b-load','b-support','b-grade','b-size','b-deflim','b-custom-a']
+    .forEach(id => document.getElementById(id).addEventListener('change', runBeamCalc));
+
+  populateBeamSizes();
+}
+
+function populateBeamSizes() {
+  const type = document.getElementById('b-type').value;
+  const sel = document.getElementById('b-size');
+  sel.innerHTML = SECTIONS[type].map((s, i) =>
+    `<option value="${i}">${s.d}  (${s.kg} kg/m)</option>`).join('');
+  runBeamCalc();
+}
+
+// ── Section 1: Calculation engine ──
+
+// SCI P363, Section 5.2, p.A-12 (citing BS EN 10025-2:2004)
+// γM0 = γM1 = 1.0 per UK National Annex (SCI P363 Section 5.1, p.A-12)
+const GAMMA_M0 = 1.0;
+const E_STEEL  = 210000; // N/mm² — SCI P363 Section 3.2.5, p.A-5
+
+function fy(grade, t_mm) {
+  if (grade === 'S275') {
+    if (t_mm <= 16) return 275; if (t_mm <= 40) return 265;
+    if (t_mm <= 63) return 255; return 245;
+  } else {
+    if (t_mm <= 16) return 355; if (t_mm <= 40) return 345;
+    if (t_mm <= 63) return 335; return 325;
+  }
+}
+
+// Returns {MEd_kNm, VEd_kN}
+function calcActions(L_m, support, loadType, w, pos, a_m) {
+  const L = L_m;
+  let M = 0, V = 0;
+  if (support === 'cant') {
+    M = loadType === 'udl' ? w*L*L/2 : w*L;
+    V = loadType === 'udl' ? w*L     : w;
+  } else {
+    if (loadType === 'udl') {
+      M = w*L*L/8;  V = w*L/2;
+    } else {
+      const a = pos==='mid' ? L/2 : pos==='third' ? L/3 : Math.min(Math.max(a_m,0),L);
+      const b = L - a;
+      M = w*a*b/L;
+      V = Math.max(w*b/L, w*a/L);
+    }
+  }
+  return { MEd_kNm: M, VEd_kN: V };
+}
+
+// BS EN 1993-1-1:2005 Cl.6.2.5(2); SCI P363 Section 8.1(a), p.A-22
+function McRd_kNm(s, grade, type) {
+  const t = (type==='SHS'||type==='RHS') ? s.t : Math.max(s.tf, s.tw);
+  const f = fy(grade, t);
+  const cls = grade==='S275' ? s.c275 : s.c355;
+  return (cls <= 2 ? s.Wpl_y : s.Wel_y) * f / 1e3 / GAMMA_M0;
+}
+
+// BS EN 1993-1-1:2005 Cl.6.2.6(2); SCI P363 Section 9.1(a), p.A-27
+function VcRd_kN(s, grade, type) {
+  const t = (type==='SHS'||type==='RHS') ? s.t : Math.max(s.tf, s.tw);
+  const f = fy(grade, t);
+  const A_mm2 = s.A * 100;
+  let Av;
+  if (type==='UB'||type==='UC') {
+    const AvCalc = A_mm2 - 2*s.b*s.tf + (s.tw+2*s.r)*s.tf;
+    const hw = s.h - 2*s.tf;
+    Av = Math.max(AvCalc, 1.0*hw*s.tw);
+  } else if (type==='PFC') {
+    Av = A_mm2 - 2*s.b*s.tf + (s.tw+s.r)*s.tf;
+  } else {
+    // SHS/RHS: Av = A·h/(b+h)
+    const parts = s.d.split('x');
+    const h = parseFloat(parts[0]);
+    const b = parseFloat(parts[1]);
+    Av = A_mm2 * h / (b + h);
+  }
+  return Av * (f / Math.sqrt(3)) / 1e3 / GAMMA_M0;
+}
+
+// Standard beam theory deflection
+function deflection_mm(L_m, support, loadType, w, pos, a_m, Iy_cm4) {
+  const L = L_m * 1000;
+  const I = Iy_cm4 * 1e4;
+  const EI = E_STEEL * I;
+  if (support === 'cant') {
+    if (loadType === 'udl') return w * Math.pow(L,4) / (8*EI);
+    const Pc = w * 1e3;
+    const ac = pos==='mid' ? L/2 : pos==='third' ? L/3 : Math.min(Math.max(a_m*1000, 0), L);
+    return Pc * ac*ac * (3*L - ac) / (6*EI);
+  }
+  if (loadType === 'udl') return 5*w*Math.pow(L,4) / (384*EI);
+  const P = w * 1e3;
+  const a = (pos==='mid' ? L/2 : pos==='third' ? L/3 : a_m*1000);
+  const b = L - a;
+  if (pos === 'mid') return P*Math.pow(L,3) / (48*EI);
+  const [aa, bb] = a <= L/2 ? [a, b] : [b, a];
+  return P*bb*Math.pow(L*L - bb*bb, 1.5) / (9*Math.sqrt(3)*EI*L);
+}
+
+function tag(util) {
+  if (util <= 0.85) return `<span class="tag tag-ok">PASS ${(util*100).toFixed(0)}%</span>`;
+  if (util <= 1.00) return `<span class="tag tag-warn">PASS ${(util*100).toFixed(0)}%</span>`;
+  return `<span class="tag tag-err">FAIL ${(util*100).toFixed(0)}%</span>`;
+}
+function passTag(pass) {
+  return pass ? '<span class="tag tag-ok">PASS</span>' : '<span class="tag tag-err">FAIL</span>';
+}
+
+function drawBeamDiagram() {
+  const el = document.getElementById('beam-diagram');
+  if (!el) return;
+  const supp  = document.getElementById('b-support').value;
+  const ltype = document.getElementById('b-loadtype').value;
+  const L     = parseFloat(document.getElementById('b-span').value) || 1;
+  const w     = parseFloat(document.getElementById('b-load').value) || 0;
+  const pos   = document.getElementById('b-pos')?.value || 'mid';
+  const a_m   = parseFloat(document.getElementById('b-custom-a')?.value) || 0;
+
+  const isCant = supp === 'cant';
+  const isUDL  = ltype === 'udl';
+
+  const bx1 = isCant ? 12 : 14;
+  const bx2 = isCant ? 160 : 156;
+  const bw  = bx2 - bx1;
+  const by = 27, bh = 7;
+
+  let aFrac = 0.5;
+  if (!isUDL) {
+    if (pos === 'mid')        aFrac = 0.5;
+    else if (pos === 'third') aFrac = 1/3;
+    else                      aFrac = Math.min(Math.max(a_m / L, 0), 1);
+  }
+  const ax = (bx1 + bw * aFrac).toFixed(1);
+
+  let s = `<svg viewBox="0 0 170 80" width="100%" height="80" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="bd-arr" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
+  <path d="M0,0 L5,2.5 L0,5 Z" fill="#60a5fa"/>
+</marker></defs>`;
+
+  if (isCant) {
+    s += `<rect x="2" y="10" width="10" height="44" fill="#2a2a2a" stroke="#444" stroke-width="0.5"/>`;
+    for (let y = 10; y <= 46; y += 8) {
+      s += `<line x1="2" y1="${y}" x2="12" y2="${Math.min(y+8,54)}" stroke="#555" stroke-width="1"/>`;
+    }
+    s += `<line x1="${bx2}" y1="${by-4}" x2="${bx2}" y2="${by+bh+4}" stroke="#555" stroke-width="1.5"/>`;
+  } else {
+    s += `<polygon points="${bx1},${by+bh} ${bx1-8},${by+bh+16} ${bx1+8},${by+bh+16}" fill="none" stroke="#888" stroke-width="1.2"/>`;
+    s += `<line x1="${bx1-10}" y1="${by+bh+16}" x2="${bx1+10}" y2="${by+bh+16}" stroke="#888" stroke-width="1"/>`;
+    s += `<polygon points="${bx2},${by+bh} ${bx2-8},${by+bh+16} ${bx2+8},${by+bh+16}" fill="none" stroke="#888" stroke-width="1.2"/>`;
+    s += `<circle cx="${bx2-5}" cy="${by+bh+18}" r="2" fill="none" stroke="#888" stroke-width="1"/>`;
+    s += `<circle cx="${bx2+1}" cy="${by+bh+18}" r="2" fill="none" stroke="#888" stroke-width="1"/>`;
+    s += `<line x1="${bx2-10}" y1="${by+bh+21}" x2="${bx2+10}" y2="${by+bh+21}" stroke="#888" stroke-width="1"/>`;
+  }
+
+  s += `<rect x="${bx1}" y="${by}" width="${bw}" height="${bh}" fill="#4ade80" opacity="0.75" rx="1"/>`;
+
+  if (isUDL) {
+    const uy = by - 14;
+    s += `<line x1="${bx1}" y1="${uy}" x2="${bx2}" y2="${uy}" stroke="#60a5fa" stroke-width="1.5"/>`;
+    for (let i = 0; i < 7; i++) {
+      const x = (bx1 + bw * (i + 0.5) / 7).toFixed(1);
+      s += `<line x1="${x}" y1="${uy}" x2="${x}" y2="${by}" stroke="#60a5fa" stroke-width="1.2" marker-end="url(#bd-arr)"/>`;
+    }
+    s += `<text x="85" y="78" fill="#444" font-size="7" text-anchor="middle" font-family="monospace">L = ${L.toFixed(1)} m  w = ${w} kN/m</text>`;
+  } else {
+    s += `<line x1="${ax}" y1="8" x2="${ax}" y2="${by}" stroke="#60a5fa" stroke-width="2" marker-end="url(#bd-arr)"/>`;
+    s += `<text x="${ax}" y="5" fill="#60a5fa" font-size="8" text-anchor="middle" font-family="monospace" font-weight="bold">P</text>`;
+    const aLabel = pos==='mid' ? `L/2 = ${(L/2).toFixed(1)} m` : pos==='third' ? `L/3 = ${(L/3).toFixed(2)} m` : `a = ${a_m.toFixed(1)} m`;
+    if (isCant) {
+      const dy = by + bh + 10;
+      s += `<line x1="${bx1}" y1="${dy}" x2="${ax}" y2="${dy}" stroke="#3a3a3a" stroke-width="0.8"/>`;
+      s += `<line x1="${bx1}" y1="${dy-3}" x2="${bx1}" y2="${dy+3}" stroke="#3a3a3a" stroke-width="0.8"/>`;
+      s += `<line x1="${ax}" y1="${dy-3}" x2="${ax}" y2="${dy+3}" stroke="#3a3a3a" stroke-width="0.8"/>`;
+      s += `<text x="${((bx1 + parseFloat(ax))/2).toFixed(1)}" y="${dy+10}" fill="#555" font-size="7" text-anchor="middle" font-family="monospace">${aLabel}</text>`;
+      s += `<text x="85" y="78" fill="#444" font-size="7" text-anchor="middle" font-family="monospace">L = ${L.toFixed(1)} m</text>`;
+    } else {
+      s += `<text x="85" y="78" fill="#555" font-size="7" text-anchor="middle" font-family="monospace">${aLabel}  L = ${L.toFixed(1)} m</text>`;
+    }
+  }
+
+  s += `</svg>`;
+  el.innerHTML = s;
+}
+
+function runBeamCalc() {
+  drawBeamDiagram();
+  const L     = parseFloat(document.getElementById('b-span').value) || 1;
+  const supp  = document.getElementById('b-support').value;
+  const ltype = document.getElementById('b-loadtype').value;
+  const w     = parseFloat(document.getElementById('b-load').value) || 0;
+  const pos   = document.getElementById('b-pos')?.value || 'mid';
+  const a_m   = parseFloat(document.getElementById('b-custom-a')?.value) || 0;
+  const grade = document.getElementById('b-grade').value;
+  const type  = document.getElementById('b-type').value;
+  const idx   = parseInt(document.getElementById('b-size').value) || 0;
+  const deflN = parseInt(document.getElementById('b-deflim').value) || 200;
+  const s     = SECTIONS[type][idx];
+  if (!s) return;
+
+  const { MEd_kNm, VEd_kN } = calcActions(L, supp, ltype, w, pos, a_m);
+  const Mc = McRd_kNm(s, grade, type);
+  const Vc = VcRd_kN(s,  grade, type);
+  const df = deflection_mm(L, supp, ltype, w, pos, a_m, s.Iy);
+  const beamDlim = L * 1000 / deflN;
+  const deflPass = df <= beamDlim;
+
+  // Class 4 warning
+  const cls = grade==='S275' ? s.c275 : s.c355;
+  if (cls >= 4) {
+    document.getElementById('beam-results').innerHTML = `
+      <div class="warning-banner">
+        ⚠ ${s.d} is Class 4 (slender) in ${grade}. Effective section properties required per
+        BS EN 1993-1-5. This tool does not support Class 4 sections — select a thicker wall or lower grade.
+      </div>`;
+    return;
+  }
+
+  document.getElementById('beam-results').innerHTML = `
+    <table class="results-table">
+      <thead><tr><th>Check</th><th>Applied (Ed)</th><th>Capacity (Rd)</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Bending M<sub>c,y,Rd</sub> <span style="color:var(--muted);font-size:10px">Cl.6.2.5</span></td>
+          <td>${MEd_kNm.toFixed(2)} kNm</td>
+          <td>${Mc.toFixed(2)} kNm</td>
+          <td>${tag(MEd_kNm/Mc)}</td>
+        </tr>
+        <tr>
+          <td>Shear V<sub>c,Rd</sub> <span style="color:var(--muted);font-size:10px">Cl.6.2.6</span></td>
+          <td>${VEd_kN.toFixed(2)} kN</td>
+          <td>${Vc.toFixed(2)} kN</td>
+          <td>${tag(VEd_kN/Vc)}</td>
+        </tr>
+        <tr>
+          <td>Deflection (L/${deflN})</td>
+          <td>${df.toFixed(1)} mm</td>
+          <td>${beamDlim.toFixed(1)} mm</td>
+          <td>${passTag(deflPass)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="section-props">
+      ${s.d} ${type} &middot; ${s.kg} kg/m &middot; I<sub>y</sub> = ${s.Iy} cm&sup4;
+      &middot; W<sub>pl,y</sub> = ${s.Wpl_y} cm&sup3; &middot; Class ${cls} (${grade})
+      &middot; f<sub>y</sub> = ${fy(grade, (type==='SHS'||type==='RHS')?s.t:Math.max(s.tf,s.tw))} N/mm&sup2;
+    </div>
+    ${(type==='UB'||type==='UC')?`<div class="warning-banner">
+      ⚠ LTB not checked. Verify M<sub>b,Rd</sub> using SCI P363 bending tables
+      (pp.C-60/D-60 for UB, pp.C-74/D-74 for UC) when compression flange is unrestrained.
+    </div>`:''}
+    <p class="table-note">BS EN 1993-1-1:2005 &middot; &gamma;M0 = 1.0 (UK NA) &middot; SCI P363 (SCI/BCSA 2009/2011)</p>
+    <button class="btn-workings" onclick="beamWorkings()">Show workings</button>`;
+}
+
+// ── Section 2: Grating selector ──
+
+function safeUDLAtSpan(spans_m, udl_arr, span_mm) {
+  const s = span_mm / 1000;
+  if (s > Math.max(...spans_m)) return null;
+  for (let i = 0; i < spans_m.length; i++) {
+    if (spans_m[i] >= s) return udl_arr[i];
+  }
+  return null;
+}
+
+function buildGratingInputs() {
+  document.getElementById('grating-inputs').innerHTML = `
+    <div class="input-grid">
+      <label>Panel span (mm)
+        <input id="g-span" type="number" value="1000" min="100" step="50" style="width:100px">
+      </label>
+      <label>Panel width (mm)
+        <input id="g-width" type="number" value="1000" min="100" step="50" style="width:100px">
+      </label>
+      <label>Load category
+        <select id="g-load">
+          <option value="5.0">5.0 kN/m² — General (BS 4592-0 Table 1)</option>
+          <option value="7.5">7.5 kN/m² — Heavy duty (BS 4592-0 Table 1)</option>
+        </select>
+      </label>
+      <label>Grating type
+        <select id="g-type">
+          <option value="diamond">Steel — Diamond pattern</option>
+          <option value="rect">Steel — Rectangular pattern</option>
+          <option value="ballproof">Steel — 20mm Ball-proof</option>
+          <option value="flowgrate">GRP — Flowgrate</option>
+          <option value="evergrip">GRP — Evergrip (spec only)</option>
+        </select>
+      </label>
+      <label id="g-sub-lbl" style="display:none">Sub-type
+        <select id="g-sub"></select>
+      </label>
+    </div>
+    <div id="g-opening-note" class="info-banner">
+      Opening limit: max 35mm sphere (general) · max 20mm sphere where above working area
+      — BS 4592-0:2006+A1:2012, Cl.5.1 (p.3)
+    </div>`;
+
+  document.getElementById('g-type').addEventListener('change', function() {
+    const isRect = this.value === 'rect';
+    document.getElementById('g-sub-lbl').style.display = isRect ? '' : 'none';
+    if (isRect) {
+      document.getElementById('g-sub').innerHTML =
+        Object.keys(RECT.subtypes).map(k => `<option value="${k}">${k}</option>`).join('');
+    }
+    runGratingFilter();
+  });
+  document.getElementById('g-sub').addEventListener('change', runGratingFilter);
+  ['g-span', 'g-width', 'g-load'].forEach(id =>
+    document.getElementById(id).addEventListener('input', runGratingFilter));
+  runGratingFilter();
+}
+
+function runGratingFilter() {
+  const span = parseInt(document.getElementById('g-span').value) || 0;
+  const load = parseFloat(document.getElementById('g-load').value);
+  const type = document.getElementById('g-type').value;
+  const sub  = document.getElementById('g-sub').value;
+  const div  = document.getElementById('grating-results');
+
+  if (type === 'diamond')        renderDiamond(div, span, load);
+  else if (type === 'rect')      renderRect(div, span, load, sub);
+  else if (type === 'ballproof') renderBallproof(div, span, load);
+  else if (type === 'flowgrate') renderFlowgrate(div, span, load);
+  else                           renderEvergrip(div);
+}
+
+function renderDiamond(div, span_mm, load) {
+  let rows = '';
+  for (const r of DIAMOND.rows) {
+    const safe = safeUDLAtSpan(DIAMOND.spans_m, r.udl, span_mm);
+    const pass = safe !== null && safe >= load;
+    const cls  = safe === null ? 'tag-err' : pass ? 'tag-ok' : 'tag-err';
+    const lbl  = safe === null ? 'SPAN EXCEEDED' : pass ? `PASS (${safe} kN/m²)` : `FAIL (${safe} kN/m²)`;
+    rows += `<tr>
+      <td>${r.ref}</td><td>${r.depth}mm</td><td>${r.bar}</td><td>${r.mass}</td>
+      <td><span class="tag ${cls}">${lbl}</span></td></tr>`;
+  }
+  div.innerHTML = `
+    <table class="results-table">
+      <thead><tr><th>Section</th><th>Depth</th><th>Bar</th><th>Mass (kg/m²)</th>
+        <th>Status at ${span_mm}mm / ${load} kN/m²</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="table-note">Source: Steelway Design Guide p.3 · Max stress 140 N/mm²</p>`;
+}
+
+function renderRect(div, span_mm, load, subtype) {
+  const rows_data = RECT.subtypes[subtype] || [];
+  let rows = '';
+  for (const r of rows_data) {
+    const safe = safeUDLAtSpan(RECT.spans_m, r.udl, span_mm);
+    const pass = safe !== null && safe >= load;
+    const cls  = safe === null ? 'tag-err' : pass ? 'tag-ok' : 'tag-err';
+    const lbl  = safe === null ? 'SPAN EXCEEDED' : pass ? `PASS (${safe} kN/m²)` : `FAIL (${safe} kN/m²)`;
+    rows += `<tr>
+      <td>${r.bar}</td><td>${r.depth}mm</td><td>${r.mass} kg/m²</td>
+      <td><span class="tag ${cls}">${lbl}</span></td></tr>`;
+  }
+  div.innerHTML = `
+    <table class="results-table">
+      <thead><tr><th>Bar</th><th>Depth</th><th>Mass (kg/m²)</th>
+        <th>Status at ${span_mm}mm / ${load} kN/m²</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="table-note">Source: Steelway Design Guide pp.5–6 · Sub-type: ${subtype} · Max stress 165 N/mm²</p>
+    <p class="table-note">Serrated bar correction: ×0.75 for 25–30mm depth; ×0.80 for ≥35mm depth (Steelway Design Guide p.5)</p>`;
+}
+
+function renderBallproof(div, span_mm, load) {
+  let rows = '';
+  for (const r of BALLPROOF.rows) {
+    const s4  = r.span4mm[load];
+    const sL  = r.spanL200[load];
+    const gov = Math.min(s4 || Infinity, sL || Infinity);
+    const pass = gov !== Infinity && span_mm <= gov;
+    rows += `<tr>
+      <td>${r.bar}</td><td>${r.mesh}</td><td>${r.mass}</td>
+      <td>${s4 || '—'} mm</td><td>${sL || '—'} mm</td>
+      <td><span class="tag ${pass ? 'tag-ok' : 'tag-err'}">${pass ? 'PASS' : 'FAIL'}</span></td></tr>`;
+  }
+  div.innerHTML = `
+    <div class="info-banner">ℹ 20mm ball-proof required by BS 4592-0:2006+A1:2012, Cl.5.1 (p.3) where platform is <strong>above a place where people are working</strong>.</div>
+    <table class="results-table">
+      <thead><tr><th>Bar</th><th>Mesh type</th><th>Mass (kg/m²)</th>
+        <th>Max span (4mm deflection)</th><th>Max span (L/200 or 10mm)</th>
+        <th>Status at ${span_mm}mm</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="table-note">Source: F.H. Brundle 20mm Ball Proof Grating datasheet (Feb 2021) · Material: BS EN 10025 S275JR</p>`;
+}
+
+function renderFlowgrate(div, span_mm, load) {
+  let html = `<p class="table-note" style="margin-bottom:8px">Note: 3 kN/m² is manufacturer-only data. Load categories 5 and 7.5 kN/m² per BS 4592-0:2006+A1:2012, Cl.5.3.1, Table 1 (p.5).</p>`;
+  for (const g of GRP_FLOWGRATE) {
+    const ms   = g.maxSpan[load];
+    const pass = ms && span_mm <= ms;
+    html += `<div class="grp-card ${pass ? 'card-ok' : 'card-err'}">
+      <h3>${g.name} — <span class="tag ${pass ? 'tag-ok' : 'tag-err'}">${pass ? 'PASS' : 'FAIL'}</span></h3>
+      <table class="results-table">
+        <tr><td>Load bearing bar</td><td>${g.bar}</td></tr>
+        <tr><td>Panel weight</td><td>${g.mass} kg/m²</td></tr>
+        <tr><td>Material</td><td>${g.material}</td></tr>
+        <tr><td>Fire rating</td><td>${g.fire}</td></tr>
+        <tr><td>Max clear span at ${load} kN/m²</td><td>${ms ? ms + ' mm' : '—'}</td></tr>
+        <tr><td>Input span</td><td>${span_mm} mm ${pass ? '✓' : '✗'}</td></tr>
+        <tr><td>Stock panel sizes (mm)</td><td>${g.panels.join(', ')}</td></tr>
+      </table>
+    </div>`;
+  }
+  div.innerHTML = html;
+}
+
+function renderEvergrip(div) {
+  const rows = EVERGRIP_RESINS.map(r =>
+    `<tr><td>${r.env}</td><td>${r.resin}</td><td style="font-family:var(--mono)">${r.code}</td></tr>`).join('');
+  div.innerHTML = `
+    <div class="info-banner">Evergrip Moulded GRP — Specification summary only. No span/load tables available in the provided datasheet.</div>
+    <h4 style="margin:10px 0 6px;font-size:12px">Resin type guide (Evergrip GRP Moulded Grating Specification, Nov 2013, p.4)</h4>
+    <table class="results-table">
+      <thead><tr><th>Environment</th><th>Resin</th><th>Code</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="table-note">Fixing: J-clip or M-clip onto rolled section edge · Self-drilling screws for 1.5–5mm and 5–12.5mm steel thickness (Evergrip Grating Panel Fixing Options sheet)</p>`;
+}
+
+// ── Workings modal ──
+
+function showModal(html) {
+  document.getElementById('wk-modal-body').innerHTML = html;
+  document.getElementById('wk-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('wk-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function beamWorkings() {
+  const L     = parseFloat(document.getElementById('b-span').value) || 1;
+  const supp  = document.getElementById('b-support').value;
+  const ltype = document.getElementById('b-loadtype').value;
+  const w     = parseFloat(document.getElementById('b-load').value) || 0;
+  const pos   = document.getElementById('b-pos')?.value || 'mid';
+  const a_m   = parseFloat(document.getElementById('b-custom-a')?.value) || 0;
+  const grade = document.getElementById('b-grade').value;
+  const type  = document.getElementById('b-type').value;
+  const idx   = parseInt(document.getElementById('b-size').value) || 0;
+  const deflN = parseInt(document.getElementById('b-deflim').value) || 200;
+  const s     = SECTIONS[type][idx];
+  if (!s) return;
+
+  const cls   = grade === 'S275' ? s.c275 : s.c355;
+  const A_mm2 = s.A * 100;
+  const t_fy  = (type==='SHS'||type==='RHS') ? s.t : Math.max(s.tf, s.tw);
+  const f     = fy(grade, t_fy);
+  const { MEd_kNm, VEd_kN } = calcActions(L, supp, ltype, w, pos, a_m);
+  const Mc    = McRd_kNm(s, grade, type);
+  const Vc    = VcRd_kN(s, grade, type);
+  const df    = deflection_mm(L, supp, ltype, w, pos, a_m, s.Iy);
+  const dlim  = L * 1000 / deflN;
+  const Lmm   = L * 1000;
+  const EI    = E_STEEL * s.Iy * 1e4;
+
+  const n2 = v => v.toFixed(2);
+  const n1 = v => v.toFixed(1);
+  const passHtml = util => {
+    const pct = (util*100).toFixed(0);
+    const col = util <= 0.85 ? 'var(--green)' : util <= 1.0 ? 'var(--amber)' : 'var(--red)';
+    return `<span style="color:${col};font-weight:600">${util<=1.0?'✓ PASS':'✗ FAIL'} (${pct}%)</span>`;
+  };
+
+  // ── 0. Header ──
+  let h = `<div class="wk-header">${s.d} ${type} &middot; ${grade} &middot; ${supp==='ss'?'Simply supported':'Cantilever'} &middot; L = ${L} m</div>`;
+
+  // ── 1. Section properties ──
+  const fyBand = t_fy<=16 ? '≤ 16 mm' : t_fy<=40 ? '16 &lt; t ≤ 40 mm' : t_fy<=63 ? '40 &lt; t ≤ 63 mm' : 't &gt; 63 mm';
+  const W_used = cls<=2 ? 'W<sub>pl,y</sub>' : 'W<sub>el,y</sub>';
+  const W_val  = cls<=2 ? s.Wpl_y : s.Wel_y;
+  const W_note = cls<=2 ? `Class ${cls} → plastic modulus` : `Class ${cls} → elastic modulus`;
+  let propLines = `<div class="wk-line">A = ${n1(A_mm2)} mm² &nbsp; I<sub>y</sub> = ${s.Iy} cm⁴ &nbsp; W<sub>pl,y</sub> = ${s.Wpl_y} cm³ &nbsp; W<sub>el,y</sub> = ${s.Wel_y} cm³</div>`;
+  if (type==='UB'||type==='UC'||type==='PFC') {
+    propLines += `<div class="wk-line">b = ${s.b} mm &nbsp; t<sub>f</sub> = ${s.tf} mm &nbsp; t<sub>w</sub> = ${s.tw} mm &nbsp; r = ${s.r} mm &nbsp; h = ${s.h} mm</div>`;
+  } else {
+    propLines += `<div class="wk-line">t = ${s.t} mm (wall thickness)</div>`;
+  }
+  propLines += `<div class="wk-line">Section class: <strong>${cls}</strong> (${grade}) &rarr; ${W_note}</div>
+    <div class="wk-line">f<sub>y</sub>: ${type==='SHS'||type==='RHS'?'t':'t<sub>f</sub>'} = ${t_fy} mm &nbsp; (${fyBand}) &rarr; <strong>f<sub>y</sub> = ${f} N/mm²</strong> per BS EN 10025-2:2004, Table 7</div>`;
+  h += `<div class="wk-section"><div class="wk-head">1 — Section Properties</div>${propLines}</div>`;
+
+  // ── 2. Applied actions ──
+  const suppLabel = supp==='ss' ? 'Simply supported' : 'Cantilever';
+  let actLines = '';
+  if (supp === 'cant') {
+    if (ltype === 'udl') {
+      actLines = `<div class="wk-formula">M<sub>Ed</sub> = wL²/2 = ${w} × ${L}² / 2 = <strong>${n2(MEd_kNm)} kNm</strong></div>
+      <div class="wk-formula">V<sub>Ed</sub> = wL &nbsp; = ${w} × ${L} = <strong>${n2(VEd_kN)} kN</strong></div>`;
+    } else {
+      actLines = `<div class="wk-formula">M<sub>Ed</sub> = PL = ${w} × ${L} = <strong>${n2(MEd_kNm)} kNm</strong></div>
+      <div class="wk-formula">V<sub>Ed</sub> = P = <strong>${n2(VEd_kN)} kN</strong></div>`;
+    }
+  } else {
+    if (ltype === 'udl') {
+      actLines = `<div class="wk-formula">M<sub>Ed</sub> = wL²/8 = ${w} × ${L}² / 8 = <strong>${n2(MEd_kNm)} kNm</strong></div>
+      <div class="wk-formula">V<sub>Ed</sub> = wL/2 = ${w} × ${L} / 2 = <strong>${n2(VEd_kN)} kN</strong></div>`;
+    } else {
+      const a = pos==='mid' ? L/2 : pos==='third' ? L/3 : Math.min(Math.max(a_m,0),L);
+      const b = L - a;
+      if (pos === 'mid') {
+        actLines = `<div class="wk-formula">M<sub>Ed</sub> = PL/4 = ${w} × ${L} / 4 = <strong>${n2(MEd_kNm)} kNm</strong></div>
+        <div class="wk-formula">V<sub>Ed</sub> = P/2 = ${w} / 2 = <strong>${n2(VEd_kN)} kN</strong></div>`;
+      } else {
+        actLines = `<div class="wk-formula">a = ${n2(a)} m, &nbsp; b = L − a = ${L} − ${n2(a)} = ${n2(b)} m</div>
+        <div class="wk-formula">M<sub>Ed</sub> = Pab/L = ${w} × ${n2(a)} × ${n2(b)} / ${L} = <strong>${n2(MEd_kNm)} kNm</strong></div>
+        <div class="wk-formula">R<sub>A</sub> = Pb/L = ${w} × ${n2(b)} / ${L} = ${n2(w*b/L)} kN</div>
+        <div class="wk-formula">R<sub>B</sub> = Pa/L = ${w} × ${n2(a)} / ${L} = ${n2(w*a/L)} kN</div>
+        <div class="wk-formula">V<sub>Ed</sub> = max(R<sub>A</sub>, R<sub>B</sub>) = <strong>${n2(VEd_kN)} kN</strong></div>`;
+      }
+    }
+  }
+  const loadDesc = ltype==='udl' ? `UDL w = ${w} kN/m` : `Point load P = ${w} kN`;
+  h += `<div class="wk-section"><div class="wk-head">2 — Applied Actions &mdash; ${suppLabel}, ${loadDesc}, L = ${L} m</div>${actLines}</div>`;
+
+  // ── 3. Bending ──
+  h += `<div class="wk-section">
+    <div class="wk-head">3 — Bending Resistance &mdash; BS EN 1993-1-1:2005 Cl.6.2.5(2)</div>
+    <div class="wk-formula">Section class ${cls} &rarr; use ${W_used} = ${W_val} cm³</div>
+    <div class="wk-formula">M<sub>c,y,Rd</sub> = ${W_used} × f<sub>y</sub> / &gamma;M0
+    = ${W_val} × 10³ mm³ × ${f} N/mm² / (1.0 × 10⁶)
+    = <strong>${n2(Mc)} kNm</strong></div>
+    <div class="wk-formula">M<sub>Ed</sub> / M<sub>c,y,Rd</sub> = ${n2(MEd_kNm)} / ${n2(Mc)} = ${(MEd_kNm/Mc).toFixed(3)} &nbsp; ${passHtml(MEd_kNm/Mc)}</div>
+  </div>`;
+
+  // ── 4. Shear ──
+  let avLines = '', Av_mm2 = 0;
+  if (type==='UB'||type==='UC') {
+    const AvCalc = A_mm2 - 2*s.b*s.tf + (s.tw+2*s.r)*s.tf;
+    const hw = s.h - 2*s.tf;
+    const hwTw = hw * s.tw;
+    Av_mm2 = Math.max(AvCalc, hwTw);
+    avLines = `<div class="wk-formula">A<sub>v</sub> = A − 2b·t<sub>f</sub> + (t<sub>w</sub> + 2r)·t<sub>f</sub> &nbsp; [EC3 Cl.6.2.6(3)a]</div>
+    <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp; = ${n1(A_mm2)} − 2×${s.b}×${s.tf} + (${s.tw} + 2×${s.r})×${s.tf}</div>
+    <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp; = ${n1(A_mm2)} − ${n1(2*s.b*s.tf)} + ${n1((s.tw+2*s.r)*s.tf)} = ${n1(AvCalc)} mm²</div>
+    <div class="wk-formula">h<sub>w</sub>·t<sub>w</sub> = (${s.h}−2×${s.tf})×${s.tw} = ${n1(hwTw)} mm² &nbsp; → use max = <strong>${n1(Av_mm2)} mm²</strong></div>`;
+  } else if (type==='PFC') {
+    Av_mm2 = A_mm2 - 2*s.b*s.tf + (s.tw+s.r)*s.tf;
+    avLines = `<div class="wk-formula">A<sub>v</sub> = A − 2b·t<sub>f</sub> + (t<sub>w</sub> + r)·t<sub>f</sub> &nbsp; [PFC single web, EC3 Cl.6.2.6(3)b]</div>
+    <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp; = ${n1(A_mm2)} − 2×${s.b}×${s.tf} + (${s.tw}+${s.r})×${s.tf}</div>
+    <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp; = <strong>${n1(Av_mm2)} mm²</strong></div>`;
+  } else {
+    const parts = s.d.split('x');
+    const hh = parseFloat(parts[0]), bb = parseFloat(parts[1]);
+    Av_mm2 = A_mm2 * hh / (bb + hh);
+    avLines = `<div class="wk-formula">A<sub>v</sub> = A·h / (b + h) &nbsp; [SHS/RHS, EC3 Cl.6.2.6(3)f]</div>
+    <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp; = ${n1(A_mm2)} × ${hh} / (${bb} + ${hh}) = <strong>${n1(Av_mm2)} mm²</strong></div>`;
+  }
+  h += `<div class="wk-section">
+    <div class="wk-head">4 — Shear Resistance &mdash; BS EN 1993-1-1:2005 Cl.6.2.6(2)</div>
+    ${avLines}
+    <div class="wk-formula">V<sub>c,Rd</sub> = A<sub>v</sub> × (f<sub>y</sub> / √3) / &gamma;M0
+    = ${n1(Av_mm2)} × (${f} / 1.732) / 1.0 / 1000 = <strong>${n2(Vc)} kN</strong></div>
+    <div class="wk-formula">V<sub>Ed</sub> / V<sub>c,Rd</sub> = ${n2(VEd_kN)} / ${n2(Vc)} = ${(VEd_kN/Vc).toFixed(3)} &nbsp; ${passHtml(VEd_kN/Vc)}</div>
+  </div>`;
+
+  // ── 5. Deflection ──
+  const EI_val = (EI/1e12).toFixed(4);
+  let dfFormula = `<div class="wk-formula">EI = ${E_STEEL} N/mm² × ${s.Iy}×10⁴ mm⁴ = ${EI_val}×10¹² N·mm²</div>`;
+  if (supp === 'cant') {
+    if (ltype === 'udl') {
+      dfFormula += `<div class="wk-formula">&delta; = wL⁴ / (8EI) &nbsp; [cantilever, UDL; 1 kN/m = 1 N/mm]</div>
+      <div class="wk-formula">&nbsp;&nbsp;&nbsp; = ${w} × ${Lmm}⁴ / (8 × ${EI_val}×10¹²) = <strong>${n2(df)} mm</strong></div>`;
+    } else {
+      const ac_mm = pos==='mid' ? Lmm/2 : pos==='third' ? Lmm/3 : Math.min(Math.max(a_m*1000, 0), Lmm);
+      dfFormula += `<div class="wk-formula">&delta; = Pa²(3L&minus;a) / (6EI) &nbsp; [cantilever, point load at a = ${n1(ac_mm)} mm from fixed end]</div>
+      <div class="wk-formula">&nbsp;&nbsp;&nbsp; = ${w*1000} &times; ${n1(ac_mm)}² &times; (3&times;${Lmm}&minus;${n1(ac_mm)}) / (6 &times; ${EI_val}&times;10¹²) = <strong>${n2(df)} mm</strong></div>`;
+    }
+  } else {
+    if (ltype === 'udl') {
+      dfFormula += `<div class="wk-formula">&delta; = 5wL⁴ / (384EI) &nbsp; [SS, UDL; 1 kN/m = 1 N/mm]</div>
+      <div class="wk-formula">&nbsp;&nbsp;&nbsp; = 5 × ${w} × ${Lmm}⁴ / (384 × ${EI_val}×10¹²) = <strong>${n2(df)} mm</strong></div>`;
+    } else {
+      const a_mm = pos==='mid' ? Lmm/2 : pos==='third' ? Lmm/3 : a_m*1000;
+      const b_mm = Lmm - a_mm;
+      if (pos === 'mid') {
+        dfFormula += `<div class="wk-formula">&delta; = PL³ / (48EI) &nbsp; [SS, mid-span point load]</div>
+        <div class="wk-formula">&nbsp;&nbsp;&nbsp; = ${w*1000} × ${Lmm}³ / (48 × ${EI_val}×10¹²) = <strong>${n2(df)} mm</strong></div>`;
+      } else {
+        const bb = a_mm <= Lmm/2 ? b_mm : a_mm;
+        dfFormula += `<div class="wk-formula">&delta;<sub>max</sub> = Pb·(L²−b²)<sup>1.5</sup> / (9√3·EI·L) &nbsp; [SS, off-centre; b = longer segment = ${n1(bb)} mm]</div>
+        <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = ${w*1000} × ${n1(bb)} × (${Lmm}²−${n1(bb)}²)<sup>1.5</sup> / (9×1.732 × ${EI_val}×10¹² × ${Lmm})</div>
+        <div class="wk-formula">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = <strong>${n2(df)} mm</strong></div>`;
+      }
+    }
+  }
+  h += `<div class="wk-section">
+    <div class="wk-head">5 — Deflection &mdash; Elastic beam theory (serviceability)</div>
+    ${dfFormula}
+    <div class="wk-formula">Limit = L / ${deflN} = ${Lmm} / ${deflN} = <strong>${n1(dlim)} mm</strong></div>
+    <div class="wk-formula">&delta; / limit = ${n2(df)} / ${n1(dlim)} = ${(df/dlim).toFixed(3)} &nbsp; ${passHtml(df/dlim)}</div>
+  </div>`;
+
+  if (type==='UB'||type==='UC') {
+    h += `<div class="wk-section wk-note">⚠ Lateral-torsional buckling (LTB) not checked. Verify M<sub>b,Rd</sub> using SCI P363 bending tables when the compression flange is unrestrained (pp.C-60/D-60 UB, pp.C-74/D-74 UC).</div>`;
+  }
+
+  showModal(h);
+}
+
+buildBeamInputs();
+buildGratingInputs();
+
+// ── Section 3a: Staircase geometry ──
+
+function buildStairInputs() {
+  document.getElementById('stair-inputs').innerHTML = `
+    <div class="input-grid">
+      <label>Floor-to-floor rise (mm)
+        <input id="s-H" type="number" value="3000" min="500" step="50" style="width:110px">
+      </label>
+      <label>Desired angle (°) <span style="color:var(--muted);font-size:10px">30–38° recommended</span>
+        <input id="s-ang" type="number" value="35" min="20" max="55" step="0.5" style="width:80px">
+      </label>
+    </div>`;
+  ['s-H', 's-ang'].forEach(id => document.getElementById(id).addEventListener('input', runStairCalc));
+  runStairCalc();
+}
+
+// BS 4592-0:2006+A1:2012, Cl.6.2 (p.12): max riser 220mm; min going 250mm
+// BS 4592-0:2006+A1:2012, Table 3, Note 1 (p.13): angles <30° not recommended
+// BS 4592-0:2006+A1:2012, Table 3, Note 2 (p.13): max recommended angle 38°
+// Steelway Design Guide pp.9–10: 2R+G = 570–700mm
+function runStairCalc() {
+  const H_mm  = parseFloat(document.getElementById('s-H').value)   || 3000;
+  const ang   = parseFloat(document.getElementById('s-ang').value) || 35;
+  const ang_r = ang * Math.PI / 180;
+
+  let n = Math.round(H_mm / 190);
+  if (H_mm / n > 220) n = Math.ceil(H_mm / 220);
+  if (n < 2) n = 2;
+  const R      = H_mm / n;
+  const G      = R / Math.tan(ang_r);
+  const twoRG  = 2 * R + G;
+  const actAng = Math.atan(R / G) * 180 / Math.PI;
+  const totalG = G * (n - 1);
+
+  const riserOk  = R <= 220;
+  const goingOk  = G >= 250;
+  const angGreen = actAng >= 30 && actAng <= 38;
+  const angAmber = (actAng >= 26 && actAng < 30) || (actAng > 38 && actAng <= 45);
+  const twoRGOk  = twoRG >= 570 && twoRG <= 700;
+
+  function angTag() {
+    if (angGreen) return '<span class="tag tag-ok">✓ Recommended 30–38°</span>';
+    if (angAmber) return '<span class="tag tag-warn">⚠ Outside recommended</span>';
+    return '<span class="tag tag-err">✗ Outside chart range</span>';
+  }
+
+  document.getElementById('stair-results').innerHTML = `
+    <table class="results-table">
+      <thead><tr><th>Parameter</th><th>Value</th><th>Limit / Recommendation</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Number of risers</td><td>${n}</td><td>—</td><td>—</td></tr>
+        <tr>
+          <td>Rise per step (R)</td><td>${R.toFixed(1)} mm</td>
+          <td>≤ 220mm (BS 4592-0 Cl.6.2, p.12)</td>
+          <td><span class="tag ${riserOk ? 'tag-ok' : 'tag-err'}">${riserOk ? '✓' : '✗'}</span></td>
+        </tr>
+        <tr>
+          <td>Going (G)</td><td>${G.toFixed(1)} mm</td>
+          <td>≥ 250mm (BS 4592-0 Cl.6.2, p.12)</td>
+          <td><span class="tag ${goingOk ? 'tag-ok' : 'tag-err'}">${goingOk ? '✓' : '✗'}</span></td>
+        </tr>
+        <tr>
+          <td>2R+G</td><td>${twoRG.toFixed(0)} mm</td>
+          <td>570–700mm (Steelway Design Guide pp.9–10)</td>
+          <td><span class="tag ${twoRGOk ? 'tag-ok' : 'tag-warn'}">${twoRGOk ? '✓ In range' : '⚠ Outside range'}</span></td>
+        </tr>
+        <tr>
+          <td>Actual angle of pitch</td><td>${actAng.toFixed(1)}°</td>
+          <td>30–38° recommended (BS 4592-0 Table 3, Notes 1&amp;2, p.13)</td>
+          <td>${angTag()}</td>
+        </tr>
+        <tr><td>Total going of flight</td><td>${totalG.toFixed(0)} mm</td><td>—</td><td>—</td></tr>
+      </tbody>
+    </table>
+    <p class="table-note">Amber = outside 30–38° recommended range but within Steelway chart range (26–45°). Red = outside chart range entirely.</p>`;
+}
+
+// ── Section 3b: Handrail post spacing ──
+
+// Source: Steelway Design Guide p.13, Tables A and B
+// Table A: 0.36 kN/m horizontal loading — BS 6180:2011 Table 2, row (iv), p.9
+// Table B: 0.74 kN/m horizontal loading — BS 6180:2011 Table 2, row (v), p.9
+// Min barrier heights: stairs 900mm, platforms/landings 1100mm — BS 6180:2011 Table 1, p.7
+// Horizontal load applied at 1100mm above datum — BS 6180:2011 Fig.1 & Cl.6.3.1
+const HANDRAIL = {
+  heights: [900, 950, 1000, 1050, 1100, 1150, 1200, 1250],
+  types: [
+    {type:'Tubular', label:'Tubular 33.7mm o/d Shank × 60mm dia. ball (M.S.)'},
+    {type:'Tubular', label:'Tubular 42.4mm o/d Shank × 75mm dia. ball (M.S.)'},
+    {type:'Tubular', label:'Tubular 48.3mm o/d Shank × 90mm dia. ball (M.S.)'},
+    {type:'Tubular', label:'Tubular 60.3mm o/d Shank × 90mm dia. ball (M.S.)'},
+    {type:'Solid',   label:'Solid 32mm dia. × 60mm dia. ball (M.S.)'},
+    {type:'Solid',   label:'Solid 38mm dia. × 70mm dia. ball (M.S.)'},
+  ],
+  tableA: [
+    [1090, 1030, null, null, null, null, null, null],
+    [1800, 1800, 1800, 1710, 1630, 1560, 1495, 1300],
+    [1800, 1800, 1800, 1800, 1800, 1800, 1800, 1800],
+    [1800, 1800, 1800, 1800, 1800, 1800, 1800, 1800],
+    [1635, 1550, 1473, 1405, 1245, null, null, null],
+    [1800, 1800, 1800, 1800, 1800, 1800, 1800, 1800],
+  ],
+  tableB: [
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    [1800, 1800, 1763, 1685, 1545, 1330, 1010, null],
+    [1800, 1800, 1800, 1800, 1800, 1800, 1800, 1800],
+    [null, null, null, null, null, null, null, null],
+    [1333, 1265, 1200, 1143, 830, null, null, null],
+  ],
+  maxSpacing: 1800,
+  footnote: '* At 1100mm height with 0.74 kN/m, using 42.4mm o/d tube handrails increases spacing to 1090mm. When fixed to concrete or masonry, max spacing for 0.74 kN/m loading ≤ 1250mm — Steelway Design Guide p.13',
+};
+
+function buildHRInputs() {
+  document.getElementById('hr-inputs').innerHTML = `
+    <div class="info-banner">
+      Min barrier heights (BS 6180:2011 Table 1, p.7): Stairs = 900mm · Platforms &amp; landings = 1100mm<br>
+      Horizontal load applied at design level = 1100mm above datum (BS 6180:2011 Fig.1, Cl.6.3.1)
+    </div>
+    <div class="input-grid">
+      <label>Handrail height (mm)
+        <select id="hr-height"></select>
+      </label>
+      <label>Loading
+        <select id="hr-duty">
+          <option value="A">General — 0.36 kN/m (BS 6180:2011 Table 2, row iv)</option>
+          <option value="B">Heavy duty — 0.74 kN/m (BS 6180:2011 Table 2, row v)</option>
+        </select>
+      </label>
+      <label>Handrail standard
+        <select id="hr-type"></select>
+      </label>
+    </div>`;
+
+  const hSel = document.getElementById('hr-height');
+  HANDRAIL.heights.forEach(h => hSel.add(new Option(h + ' mm', h)));
+
+  const tSel = document.getElementById('hr-type');
+  HANDRAIL.types.forEach((t, i) => tSel.add(new Option(t.label, i)));
+
+  ['hr-height', 'hr-duty', 'hr-type'].forEach(id =>
+    document.getElementById(id).addEventListener('change', runHRCalc));
+  runHRCalc();
+}
+
+function runHRCalc() {
+  const h     = parseInt(document.getElementById('hr-height').value);
+  const duty  = document.getElementById('hr-duty').value;
+  const ti    = parseInt(document.getElementById('hr-type').value);
+  const hIdx  = HANDRAIL.heights.indexOf(h);
+  const table = duty === 'A' ? HANDRAIL.tableA : HANDRAIL.tableB;
+  const spacing = (table[ti] && hIdx >= 0) ? table[ti][hIdx] : null;
+
+  document.getElementById('hr-results').innerHTML = `
+    <table class="results-table">
+      <tbody>
+        <tr>
+          <td>Max standard post spacing</td>
+          <td>${spacing === null
+            ? '<span class="tag tag-err">✗ THIS PATTERN NOT SUITABLE</span>'
+            : spacing + ' mm <span class="tag tag-ok">✓</span>'}</td>
+        </tr>
+        <tr><td>Absolute maximum spacing</td><td>${HANDRAIL.maxSpacing} mm (Steelway Design Guide p.13)</td></tr>
+        <tr><td>Min handrail height — platform / landing</td><td>1100mm (BS 6180:2011 Table 1, p.7 · BS 4592-0:2006+A1:2012 Cl.5.5.1, p.6)</td></tr>
+        <tr><td>Min handrail height — stair pitch line</td><td>900mm (BS 6180:2011 Table 1, p.7)</td></tr>
+        <tr><td>Max gap between rails / rails to upstand</td><td>500mm (BS 4592-0:2006+A1:2012 Cl.5.5.1, p.6)</td></tr>
+        <tr><td>Required components</td><td>Top rail + ≥1 intermediate/knee rail + toe plate (BS 4592-0:2006+A1:2012 Cl.5.5.1, p.6)</td></tr>
+      </tbody>
+    </table>
+    <p class="table-note">${HANDRAIL.footnote}</p>
+    <p class="table-note">Load: ${duty === 'A' ? '0.36 kN/m (BS 6180:2011 Table 2, row iv, p.9)' : '0.74 kN/m (BS 6180:2011 Table 2, row v, p.9)'} · Source: Steelway Design Guide p.13</p>`;
+}
+
+// ── Section 3c: Ladder ──
+
+// Source: Steelway Design Guide p.7 — "Ladders" section
+// Table: "Recommended Ladder Sections and Fixing Centres"
+// Note: fixing centres based on good connections to steelwork;
+//       for fixings to good brickwork/concrete divide by 1.5
+const LADDER = {
+  safetyCage_mm: 2440,
+  maxHeight_mm:  6000,
+  rungSpacing_mm: 250,
+  rungDia_mm: 20,
+  companionMaxRise_mm: 3000,
+  companionRake: '65–75°',
+  sections: [
+    {s:'65×10 flat',      vert:3.7, slope:3.1},
+    {s:'65×12 flat',      vert:4.1, slope:3.5},
+    {s:'70×10 flat',      vert:4.0, slope:3.4},
+    {s:'70×12 flat',      vert:4.4, slope:3.7},
+    {s:'80×10 flat',      vert:4.6, slope:3.9},
+    {s:'80×12 flat',      vert:5.0, slope:4.2},
+    {s:'75×50×8 angle',   vert:4.8, slope:4.1},
+    {s:'100×65×8 angle',  vert:6.2, slope:5.2},
+    {s:'125×75×10 angle', vert:7.7, slope:6.5},
+  ]
+};
+
+function buildLadderInputs() {
+  document.getElementById('ladder-inputs').innerHTML = `
+    <div class="input-grid">
+      <label>Floor-to-floor height (mm)
+        <input id="l-H" type="number" value="3000" min="500" step="100" style="width:110px">
+      </label>
+      <label>Ladder type
+        <select id="l-type">
+          <option value="vert">Vertical single-rung</option>
+          <option value="comp">Companion (65–75°)</option>
+        </select>
+      </label>
+    </div>`;
+  ['l-H', 'l-type'].forEach(id => document.getElementById(id).addEventListener('input', runLadderCalc));
+  runLadderCalc();
+}
+
+function runLadderCalc() {
+  const H_mm  = parseFloat(document.getElementById('l-H').value) || 0;
+  const H_m   = H_mm / 1000;
+  const type  = document.getElementById('l-type').value;
+  const isComp = type === 'comp';
+
+  let banners = '';
+  if (H_mm > LADDER.maxHeight_mm)
+    banners += `<div class="warning-banner" style="border-color:var(--red-dim);color:var(--red)">✗ Height exceeds ${LADDER.maxHeight_mm}mm maximum (Steelway Design Guide p.7)</div>`;
+  if (H_mm > LADDER.safetyCage_mm)
+    banners += `<div class="warning-banner">⚠ Safety cage required: hoops 50×8 flat, from ${LADDER.safetyCage_mm}mm to ${LADDER.safetyCage_mm + 80}mm above lower floor (Steelway Design Guide p.7)</div>`;
+  if (isComp && H_mm > LADDER.companionMaxRise_mm)
+    banners += `<div class="warning-banner">⚠ Companion ladder vertical rise exceeds ${LADDER.companionMaxRise_mm}mm maximum (Steelway Design Guide p.10)</div>`;
+  if (isComp)
+    banners += `<div class="info-banner">Companion ladder: ${LADDER.companionRake} rake · Max vertical rise ${LADDER.companionMaxRise_mm}mm · Preferred width between stringers 450–550mm (Steelway Design Guide p.10)</div>`;
+
+  let rows = '';
+  for (const r of LADDER.sections) {
+    const maxStay = isComp ? r.slope : r.vert;
+    const pass = maxStay >= H_m;
+    rows += `<tr>
+      <td style="font-family:var(--mono)">${r.s}</td>
+      <td>${r.vert}</td><td>${r.slope}</td>
+      <td><span class="tag ${pass ? 'tag-ok' : 'tag-err'}">${pass ? '✓ Suitable' : '✗ Insufficient'}</span></td></tr>`;
+  }
+
+  document.getElementById('ladder-results').innerHTML = `
+    ${banners}
+    <table class="results-table">
+      <thead><tr><th>Stringer section (mild steel)</th><th>Max stay — vertical (m)</th><th>Max stay — sloping (m)</th><th>Status at ${H_m.toFixed(1)} m</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="table-note">Rung spacing: ${LADDER.rungSpacing_mm}mm centres · Rung dia: ${LADDER.rungDia_mm}mm solid (Steelway Design Guide p.7)</p>
+    <p class="table-note">For fixings to brickwork or concrete: divide stated centres by 1.5 (Steelway Design Guide p.7)</p>`;
+}
+</script>
+
+<!-- ── Workings modal ── -->
+<div class="modal-overlay" id="wk-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">✕ Close</button>
+    <div id="wk-modal-body"></div>
+  </div>
+</div>
+
+  <script src="/assets/js/tool-frame.js"></script>
+</body>
+</html>

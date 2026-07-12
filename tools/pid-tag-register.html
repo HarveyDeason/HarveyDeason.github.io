@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNiIgZmlsbD0iIzFhNmViNSIvPgogIDx0ZXh0IHg9IjE2IiB5PSIyMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjIyIiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSJ3aGl0ZSI+UDwvdGV4dD4KPC9zdmc+"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>P&ID Tag Register — Wessex Water</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#05090f; --bg2:#080e18; --bg3:#0b1520; --border:#112030; --border2:#1a3040;
+    --text:#c0d8e8; --muted:#2a4a60; --muted2:#183040; --accent:#00c8f0;
+    --green:#00e890; --amber:#ffb020; --red:#ff4455; --purple:#a060ff;
+    --font: 'Courier New', Courier, monospace;
+  }
+  html,body { height:100%; background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px; }
+  ::-webkit-scrollbar { width:5px; height:5px; }
+  ::-webkit-scrollbar-track { background:var(--bg); }
+  ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+  #app { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+  #header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 28px; height:56px; min-height:56px;
+    background:var(--bg2); border-bottom:1px solid var(--border); position:relative; z-index:10;
+  }
+  #header::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:linear-gradient(180deg,var(--accent),#0040ff); }
+  .header-title { display:flex; align-items:baseline; gap:14px; }
+  .header-title h1 { font-size:15px; font-weight:700; color:#e8f4ff; letter-spacing:3px; }
+  .header-title span { font-size:9px; color:var(--muted); letter-spacing:3px; }
+  .header-actions { display:flex; gap:10px; align-items:center; }
+  .btn { font-family:var(--font); font-size:10px; letter-spacing:2px; text-transform:uppercase; cursor:pointer; border-radius:5px; padding:7px 16px; border:1px solid; transition:all 0.15s; display:inline-flex; align-items:center; gap:6px; }
+  .btn-accent { color:var(--accent); border-color:var(--accent); background:transparent; }
+  .btn-accent:hover { background:#00c8f015; }
+  .btn-green { color:var(--green); border-color:var(--green); background:transparent; }
+  .btn-green:hover { background:#00e89015; }
+  .btn-red { color:var(--red); border-color:var(--red); background:transparent; }
+  .btn-red:hover { background:#ff445515; }
+  #main { display:flex; flex:1; overflow:hidden; }
+  #sidebar { width:260px; min-width:260px; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; padding:18px 14px; gap:20px; }
+  .sidebar-section h3 { font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .drop-zone { border:2px dashed var(--border2); border-radius:8px; padding:18px 12px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--bg3); position:relative; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color:var(--accent); background:#00c8f00a; }
+  .drop-zone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .drop-zone .dz-icon { font-size:22px; margin-bottom:6px; }
+  .drop-zone .dz-label { font-size:10px; color:var(--accent); letter-spacing:1px; margin-bottom:3px; }
+  .drop-zone .dz-sub { font-size:9px; color:var(--muted); }
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .stat-card { background:var(--bg3); border:1px solid var(--border); border-radius:7px; padding:10px 12px; }
+  .stat-card .s-label { font-size:8px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-bottom:4px; }
+  .stat-card .s-value { font-size:26px; font-weight:800; line-height:1; }
+  .stat-card .s-sub { font-size:8px; color:var(--muted); margin-top:3px; }
+  .stat-card.full { grid-column:1/-1; }
+  .drawing-item { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-radius:5px; background:var(--bg3); border:1px solid var(--border); margin-bottom:5px; font-size:10px; }
+  .drawing-item .di-name { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .drawing-item .di-count { color:var(--muted); margin-left:8px; flex-shrink:0; }
+  .drawing-item .di-rev { color:var(--amber); margin-left:6px; font-size:9px; flex-shrink:0; }
+  .drawing-item .di-remove { color:var(--red); cursor:pointer; margin-left:6px; font-size:11px; flex-shrink:0; opacity:0.5; }
+  .drawing-item .di-remove:hover { opacity:1; }
+  #content { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  #toolbar { display:flex; align-items:center; gap:10px; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--bg2); flex-wrap:wrap; }
+  .search-box { flex:2; min-width:180px; background:var(--bg3); border:1px solid var(--border2); border-radius:5px; padding:7px 12px; color:var(--text); font-family:var(--font); font-size:11px; outline:none; transition:border-color 0.15s; }
+  .search-box:focus { border-color:var(--accent); }
+  .filter-select { background:var(--bg3); border:1px solid var(--border2); border-radius:5px; padding:7px 10px; color:var(--text); font-family:var(--font); font-size:10px; outline:none; cursor:pointer; min-width:130px; }
+  .filter-select:focus { border-color:var(--accent); }
+  #tabs { display:flex; gap:2px; padding:0 20px; border-bottom:1px solid var(--border); background:var(--bg2); }
+  .tab { padding:9px 18px; font-size:9px; letter-spacing:2px; text-transform:uppercase; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; transition:all 0.15s; background:none; border-top:none; border-left:none; border-right:none; font-family:var(--font); }
+  .tab:hover { color:var(--text); }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab.tab-red.active { color:var(--red); border-bottom-color:var(--red); }
+  .tab.tab-amber.active { color:var(--amber); border-bottom-color:var(--amber); }
+  .tab.tab-green.active { color:var(--green); border-bottom-color:var(--green); }
+  .tab.tab-purple.active { color:var(--purple); border-bottom-color:var(--purple); }
+  .tab.tab-orange.active { color:var(--amber); border-bottom-color:var(--amber); }
+  #table-wrap { flex:1; overflow:auto; }
+  table { width:100%; border-collapse:collapse; min-width:900px; }
+  thead th { position:sticky; top:0; background:var(--bg3); z-index:5; padding:9px 14px; font-size:8px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; font-weight:400; }
+  tbody tr { border-bottom:1px solid var(--muted2); transition:background 0.1s; }
+  tbody tr:hover { background:#0d1e2e; }
+  tbody tr.clash { background:#1a060908; }
+  tbody tr.clash:hover { background:#1a060925; }
+  tbody tr.review-row:hover { background:#1a100220; }
+  td { padding:8px 14px; font-size:11px; vertical-align:middle; }
+  td.tag-cell { font-size:13px; font-weight:600; white-space:nowrap; }
+  td.muted { color:var(--muted); font-size:10px; }
+  .badge { display:inline-block; padding:2px 7px; border-radius:3px; font-size:8px; letter-spacing:1px; text-transform:uppercase; border:1px solid; white-space:nowrap; }
+  .badge-instrument { color:var(--accent); border-color:#00c8f040; }
+  .badge-valve { color:var(--green); border-color:#00e89040; }
+  .badge-equipment { color:var(--amber); border-color:#ffb02040; }
+  .badge-line { color:var(--purple); border-color:#a060ff40; }
+  .badge-electrical { color:#ff80ff; border-color:#ff80ff40; }
+  .badge-other { color:var(--muted); border-color:var(--border2); }
+  .badge-clash { color:var(--red); border-color:#ff445560; background:#ff445510; }
+  .badge-review { color:var(--amber); border-color:#ffb02060; background:#ffb02010; }
+  #statusbar { display:flex; align-items:center; justify-content:space-between; padding:6px 20px; border-top:1px solid var(--border); background:var(--bg2); font-size:9px; letter-spacing:1px; color:var(--muted); min-height:30px; }
+  #progress-wrap { display:none; padding:10px 20px; background:var(--bg2); border-bottom:1px solid var(--border); }
+  #progress-wrap.visible { display:block; }
+  #progress-bar-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  #progress-bar-fill { height:100%; background:linear-gradient(90deg,var(--accent),#0060ff); border-radius:2px; width:0%; transition:width 0.3s; }
+  #progress-label { font-size:9px; color:var(--muted); margin-top:5px; letter-spacing:1px; }
+  #empty { display:flex; flex-direction:column; align-items:center; justify-content:center; flex:1; gap:12px; color:var(--muted2); padding:60px; }
+  #empty .em-icon { font-size:52px; opacity:0.4; }
+  #empty .em-title { font-size:12px; letter-spacing:3px; text-transform:uppercase; color:var(--muted); }
+  #empty .em-sub { font-size:10px; color:var(--muted2); text-align:center; line-height:1.7; }
+  #modal-overlay { display:none; position:fixed; inset:0; background:#000000aa; z-index:100; align-items:center; justify-content:center; }
+  #modal-overlay.visible { display:flex; }
+  #modal { background:var(--bg2); border:1px solid var(--border2); border-radius:10px; padding:28px; width:400px; max-width:90vw; }
+  #modal h2 { font-size:13px; letter-spacing:2px; color:#e8f4ff; margin-bottom:16px; }
+  #modal p { font-size:11px; color:var(--muted); margin-bottom:16px; line-height:1.6; }
+  #modal input { width:100%; background:var(--bg3); border:1px solid var(--border2); border-radius:5px; padding:9px 12px; color:var(--text); font-family:var(--font); font-size:13px; outline:none; letter-spacing:2px; text-transform:uppercase; }
+  #modal input:focus { border-color:var(--accent); }
+  .modal-actions { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
+  select option { background:#080e18; }
+
+  /* ── Help Modal ─────────────────────────────────────────────────── */
+  #help-overlay { display:none; position:fixed; inset:0; background:#000000cc; z-index:200; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+  #help-overlay.visible { display:flex; }
+  #help-modal { background:var(--bg2); border:1px solid var(--border2); border-radius:12px; width:100%; max-width:720px; padding:36px 40px; position:relative; }
+  #help-modal .close-btn { position:absolute; top:16px; right:20px; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; font-family:var(--font); line-height:1; }
+  #help-modal .close-btn:hover { color:var(--text); }
+  #help-modal h1 { font-size:14px; letter-spacing:3px; color:#e8f4ff; margin-bottom:6px; }
+  #help-modal .subtitle { font-size:9px; color:var(--muted); letter-spacing:2px; margin-bottom:28px; }
+  #help-modal h2 { font-size:9px; letter-spacing:3px; color:var(--accent); text-transform:uppercase; margin:24px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  #help-modal h2.amber { color:var(--amber); }
+  #help-modal h2.red   { color:var(--red); }
+  #help-modal h2.green { color:var(--green); }
+  #help-modal p { font-size:11px; color:var(--muted); line-height:1.8; margin-bottom:8px; }
+  #help-modal ul { padding-left:18px; margin-bottom:8px; }
+  #help-modal li { font-size:11px; color:var(--muted); line-height:1.8; }
+  #help-modal li span.tag-eg { color:var(--accent); font-family:var(--font); letter-spacing:1px; }
+  #help-modal .step-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:12px; margin-bottom:8px; }
+  #help-modal .step-card { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+  #help-modal .step-num { font-size:9px; color:var(--accent); letter-spacing:2px; margin-bottom:6px; }
+  #help-modal .step-title { font-size:11px; color:#e8f4ff; margin-bottom:5px; font-weight:600; }
+  #help-modal .step-desc { font-size:10px; color:var(--muted); line-height:1.7; }
+  #help-modal .limit-row { display:flex; gap:12px; margin-bottom:10px; align-items:flex-start; }
+  #help-modal .limit-icon { font-size:14px; flex-shrink:0; margin-top:1px; }
+  #help-modal .limit-text { font-size:11px; color:var(--muted); line-height:1.7; }
+  #help-modal .limit-text strong { color:var(--text); }
+  .help-btn { color:var(--muted); border-color:var(--muted); background:transparent; }
+  .help-btn:hover { color:var(--text); border-color:var(--text); background:transparent; }
+
+  /* ── Revision Confirmation Modal ───────────────────────────────── */
+  #rev-overlay { display:none; position:fixed; inset:0; background:#000000cc; z-index:150; align-items:center; justify-content:center; padding:20px; }
+  #rev-overlay.visible { display:flex; }
+  #rev-modal { background:var(--bg2); border:1px solid var(--border2); border-radius:12px; width:100%; max-width:600px; padding:28px 32px; max-height:85vh; display:flex; flex-direction:column; }
+  #rev-modal .rev-sub { flex-shrink:0; }
+  #rev-modal h2 { flex-shrink:0; }
+  .rev-table-wrap { overflow-y:auto; flex:1; margin-bottom:16px; border:1px solid var(--border); border-radius:6px; }
+  .rev-actions { flex-shrink:0; }
+  #rev-modal h2 { font-size:13px; letter-spacing:2px; color:#e8f4ff; margin-bottom:6px; }
+  #rev-modal .rev-sub { font-size:10px; color:var(--muted); letter-spacing:1px; margin-bottom:22px; }
+  .rev-table { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  .rev-table th { font-size:8px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; text-align:left; padding:6px 10px; border-bottom:1px solid var(--border); }
+  .rev-table td { padding:8px 10px; border-bottom:1px solid var(--muted2)33; vertical-align:middle; }
+  .rev-table .td-name { font-size:10px; color:var(--text); }
+  .rev-table .td-detected { font-size:10px; }
+  .rev-table .td-detected.found { color:var(--green); }
+  .rev-table .td-detected.notfound { color:var(--muted); font-style:italic; }
+  .rev-input { background:var(--bg3); border:1px solid var(--border2); border-radius:5px; padding:5px 10px; color:var(--text); font-family:var(--font); font-size:12px; letter-spacing:2px; text-transform:uppercase; outline:none; width:90px; transition:border-color 0.15s; }
+  .rev-input:focus { border-color:var(--accent); }
+  .rev-input.auto-filled { border-color:#00e89040; }
+  .rev-actions { display:flex; justify-content:flex-end; gap:10px; }
+
+  /* ── Drawing Families ───────────────────────────────────────────── */
+  #families-wrap { flex:1; overflow-y:auto; padding:28px 32px; display:none; }
+  .fam-intro { font-size:10px; color:var(--muted); letter-spacing:1px; margin-bottom:24px; line-height:1.9; max-width:640px; }
+  .fam-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+  @media(max-width:900px) { .fam-grid { grid-template-columns:1fr; } }
+  .fam-card { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:18px 20px; position:relative; }
+  .fam-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .fam-card-name { font-size:12px; font-weight:700; color:var(--text); letter-spacing:1px; flex:1; background:none; border:none; font-family:var(--font); outline:none; padding:0; }
+  .fam-card-name:focus { color:var(--accent); }
+  .fam-card-del { background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 0 0 8px; line-height:1; }
+  .fam-card-del:hover { color:var(--red); }
+  .fam-tag-count { font-size:9px; color:var(--muted); letter-spacing:1px; margin-bottom:10px; }
+  .fam-drawings-label { font-size:8px; letter-spacing:2px; color:var(--muted2); text-transform:uppercase; margin-bottom:6px; }
+  .fam-drawings-input { width:100%; background:var(--bg2); border:1px solid var(--border2); border-radius:5px; padding:7px 10px; color:var(--text); font-family:var(--font); font-size:10px; outline:none; resize:none; height:70px; transition:border-color 0.15s; line-height:1.6; }
+  .fam-drawings-input:focus { border-color:var(--accent); }
+  .fam-drawings-input::placeholder { color:var(--muted2); }
+  .fam-matched { margin-top:8px; display:flex; flex-wrap:wrap; gap:4px; }
+  .fam-drw-chip { font-size:9px; padding:2px 8px; border-radius:3px; border:1px solid var(--border2); color:var(--muted); letter-spacing:1px; }
+  .fam-drw-chip.matched { border-color:#00c8f040; color:var(--accent); }
+  .fam-clash-summary { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); font-size:10px; color:var(--muted); }
+  .fam-clash-ok   { color:var(--green); }
+  .fam-clash-warn { color:var(--amber); }
+  .fam-add-btn { display:flex; align-items:center; justify-content:center; gap:8px; background:var(--bg3); border:2px dashed var(--border2); border-radius:10px; padding:20px; cursor:pointer; color:var(--muted); font-family:var(--font); font-size:11px; letter-spacing:2px; text-transform:uppercase; transition:all 0.15s; width:100%; }
+  .fam-add-btn:hover { border-color:var(--accent); color:var(--accent); background:#00c8f008; }
+  .fam-clash-panel { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-top:8px; }
+  .fam-clash-panel h3 { font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:14px; }
+  .fam-real-clash { display:flex; align-items:baseline; gap:10px; padding:6px 0; border-bottom:1px solid var(--muted2)22; }
+  .fam-real-clash-tag { font-size:12px; color:var(--red); font-weight:600; min-width:160px; }
+  .fam-real-clash-detail { font-size:10px; color:var(--muted); }
+
+  /* ── Light Mode ─────────────────────────────────────────────────── */
+  body.light {
+    --bg:        #f0f4f8;
+    --bg2:       #ffffff;
+    --bg3:       #e8eef5;
+    --border:    #c8d8e8;
+    --border2:   #a8c0d8;
+    --text:      #1a2a3a;
+    --muted:     #4a6a8a;
+    --muted2:    #7a9ab8;
+    --accent:    #0070c0;
+    --green:     #007a50;
+    --amber:     #b06000;
+    --red:       #c0001a;
+    --purple:    #6030c0;
+  }
+  body.light thead th { background:var(--bg3); }
+  body.light tbody tr:hover { background:#dce8f4; }
+  body.light .drop-zone { background:var(--bg3); }
+  body.light .drop-zone:hover { background:#d0e4f4; }
+  body.light select option { background:var(--bg2); color:var(--text); }
+  body.light .sug-block { background:var(--bg3); }
+  body.light .fam-card { background:var(--bg3); }
+  body.light #rev-modal { background:var(--bg2); }
+  body.light #help-modal { background:var(--bg2); }
+  body.light #help-modal .step-card { background:var(--bg3); }
+  body.light .pac-card { background:var(--bg3); }
+  body.light .stat-card { background:var(--bg3); }
+  body.light .fam-clash-panel { background:var(--bg3); }
+  body.light .drawing-item { background:var(--bg3); }
+  body.light .fam-add-btn { background:var(--bg3); }
+  .theme-btn { font-size:16px; background:none; border:1px solid var(--border2); border-radius:6px; cursor:pointer; padding:5px 10px; transition:all 0.15s; color:var(--text); }
+  .theme-btn:hover { border-color:var(--accent); }
+
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── Next Tag Suggester ──────────────────────────────────────────── */
+  #suggester-wrap { flex:1; overflow-y:auto; padding:28px 32px; display:none; }
+  .sug-intro { font-size:10px; color:var(--muted); letter-spacing:1px; margin-bottom:24px; line-height:1.9; max-width:600px; }
+  .sug-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:28px; flex-wrap:wrap; }
+  .sug-field { display:flex; flex-direction:column; gap:6px; }
+  .sug-field label { font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; }
+  .sug-input { background:var(--bg3); border:1px solid var(--border2); border-radius:6px; padding:9px 14px; color:var(--text); font-family:var(--font); font-size:14px; outline:none; letter-spacing:2px; text-transform:uppercase; width:100px; transition:border-color 0.15s; }
+  .sug-input:focus { border-color:var(--accent); }
+  .sug-input.wide { width:180px; }
+  .sug-btn { background:transparent; border:1px solid var(--accent); color:var(--accent); font-family:var(--font); font-size:10px; letter-spacing:2px; text-transform:uppercase; padding:9px 20px; border-radius:6px; cursor:pointer; transition:all 0.15s; height:40px; align-self:flex-end; }
+  .sug-btn:hover { background:#00c8f015; }
+  #sug-results { margin-top:4px; }
+  .sug-block { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:22px 26px; margin-bottom:16px; max-width:700px; }
+  .sug-block h3 { font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:16px; }
+  .sug-next { font-size:32px; font-weight:800; color:var(--green); letter-spacing:4px; margin-bottom:6px; }
+  .sug-taken { font-size:11px; color:var(--muted); margin-bottom:14px; }
+  .sug-series { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .sug-tag { font-size:10px; padding:3px 10px; border-radius:4px; border:1px solid; letter-spacing:1px; font-family:var(--font); }
+  .sug-tag.used  { color:var(--muted); border-color:var(--border2); background:var(--bg2); }
+  .sug-tag.gap   { color:var(--amber); border-color:#ffb02040; background:#ffb02008; }
+  .sug-tag.next  { color:var(--green); border-color:#00e89060; background:#00e89015; font-weight:700; }
+  .sug-legend { display:flex; gap:16px; margin-bottom:12px; }
+  .sug-legend span { font-size:9px; color:var(--muted); letter-spacing:1px; display:flex; align-items:center; gap:5px; }
+  .sug-dot { width:8px; height:8px; border-radius:2px; display:inline-block; }
+  .sug-no-data { font-size:11px; color:var(--muted); font-style:italic; }
+  .sug-all-series { margin-top:6px; }
+  .sug-series-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .sug-series-label { font-size:10px; color:var(--muted); width:80px; flex-shrink:0; letter-spacing:1px; }
+  .sug-bar-wrap { flex:1; background:var(--bg2); border-radius:3px; height:6px; overflow:hidden; }
+  .sug-bar-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--green)); border-radius:3px; }
+  .sug-range-label { font-size:9px; color:var(--muted2); width:120px; text-align:right; flex-shrink:0; }
+
+  /* ── PAC Dashboard ──────────────────────────────────────────────── */
+  #pac-wrap { flex:1; overflow-y:auto; padding:28px 32px; display:none; }
+  .pac-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; }
+  .pac-card { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
+  .pac-card-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .pac-card-title { font-size:12px; font-weight:700; color:var(--accent); letter-spacing:2px; }
+  .pac-card-sub { font-size:9px; color:var(--muted); letter-spacing:1px; max-width:180px; text-align:right; line-height:1.4; }
+  .pac-type-row { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .pac-type-label { font-size:9px; color:var(--muted); width:72px; flex-shrink:0; letter-spacing:1px; text-transform:uppercase; }
+  .pac-bar-track { flex:1; background:var(--bg2); border-radius:2px; height:5px; }
+  .pac-bar-fill { height:100%; border-radius:2px; }
+  .pac-count { font-size:10px; width:28px; text-align:right; flex-shrink:0; }
+  .pac-range-block { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+  .pac-range-title { font-size:8px; letter-spacing:2px; color:var(--muted2); text-transform:uppercase; margin-bottom:8px; }
+  .pac-fc-row { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; flex-wrap:wrap; }
+  .pac-fc-code { font-size:10px; color:var(--accent); width:44px; flex-shrink:0; letter-spacing:1px; }
+  .pac-fc-range { font-size:9px; color:var(--muted); flex:1; }
+  .pac-fc-next  { font-size:9px; color:var(--green); flex-shrink:0; }
+  .pac-drawings { margin-top:10px; }
+  .pac-drw-row { display:flex; justify-content:space-between; font-size:9px; color:var(--muted2); padding:3px 0; border-bottom:1px solid var(--muted2)1a; }
+  .pac-drw-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .pac-drw-count { color:var(--muted); flex-shrink:0; margin-left:8px; }
+  .pac-empty { font-size:10px; color:var(--muted2); text-align:center; padding:60px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <div class="header-title">
+      <h1>P&amp;ID TAG REGISTER</h1>
+      <span>WESSEX WATER · DS310 · OFFLINE TOOL</span>
+    </div>
+    <div class="header-actions">
+      <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀️</button>
+      <button class="btn help-btn" onclick="toggleHelp(true)">? How to use</button>
+      <button class="btn btn-red" id="btn-clear" style="display:none" onclick="clearAll()">✕ Clear All</button>
+      <button class="btn btn-green" id="btn-export" style="display:none" onclick="exportCSV()">↓ Export CSV</button>
+    </div>
+  </div>
+  <div id="main">
+    <div id="sidebar">
+      <div class="sidebar-section">
+        <h3>Add P&amp;ID Drawings</h3>
+        <div class="drop-zone" id="dz-pid" ondragover="dzDrag(event,'dz-pid',true)" ondragleave="dzDrag(event,'dz-pid',false)" ondrop="dzDrop(event,'dz-pid')">
+          <input type="file" accept=".pdf" multiple onchange="handlePIDFiles(this.files)"/>
+          <div class="dz-icon">📐</div>
+          <div class="dz-label">Drop PDFs here</div>
+          <div class="dz-sub">or click to browse</div>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <h3>Load Master Register</h3>
+        <div class="drop-zone" id="dz-csv" ondragover="dzDrag(event,'dz-csv',true)" ondragleave="dzDrag(event,'dz-csv',false)" ondrop="dzDrop(event,'dz-csv')">
+          <input type="file" accept=".csv" onchange="handleCSVFile(this.files[0])"/>
+          <div class="dz-icon">📂</div>
+          <div class="dz-label">Load saved CSV</div>
+          <div class="dz-sub">continue previous session</div>
+        </div>
+      </div>
+      <div class="sidebar-section" id="stats-section" style="display:none">
+        <h3>Summary</h3>
+        <div class="stat-grid">
+          <div class="stat-card full"><div class="s-label">Total Tags</div><div class="s-value" id="stat-total" style="color:var(--accent)">0</div></div>
+          <div class="stat-card"><div class="s-label">Drawings</div><div class="s-value" id="stat-drawings" style="color:var(--text)">0</div></div>
+          <div class="stat-card"><div class="s-label">Clashes</div><div class="s-value" id="stat-clashes" style="color:var(--green)">0</div><div class="s-sub" id="stat-clashes-sub">All clear</div></div>
+          <div class="stat-card"><div class="s-label">For Review</div><div class="s-value" id="stat-review" style="color:var(--amber)">0</div><div class="s-sub">Possible tags</div></div>
+          <div class="stat-card"><div class="s-label">Instruments</div><div class="s-value" id="stat-instrument" style="color:var(--accent); font-size:20px">0</div></div>
+          <div class="stat-card"><div class="s-label">Valves</div><div class="s-value" id="stat-valve" style="color:var(--green); font-size:20px">0</div></div>
+          <div class="stat-card"><div class="s-label">Equipment</div><div class="s-value" id="stat-equipment" style="color:var(--amber); font-size:20px">0</div></div>
+          <div class="stat-card"><div class="s-label">Electrical</div><div class="s-value" id="stat-electrical" style="color:#ff80ff; font-size:20px">0</div></div>
+        </div>
+      </div>
+      <div class="sidebar-section" id="drawings-section" style="display:none">
+        <h3>Drawings Loaded</h3>
+        <div id="drawings-list"></div>
+      </div>
+    </div>
+
+    <div id="content">
+      <div id="progress-wrap">
+        <div id="progress-bar-track"><div id="progress-bar-fill"></div></div>
+        <div id="progress-label">Initialising…</div>
+      </div>
+      <div id="toolbar" style="display:none">
+        <input class="search-box" type="text" id="search-input" placeholder="Search tags, descriptions, drawings…" oninput="renderTable()"/>
+        <select class="filter-select" id="filter-type" onchange="renderTable()">
+          <option value="all">All Types</option>
+          <option value="instrument">Instruments</option>
+          <option value="valve">Valves</option>
+          <option value="equipment">Equipment</option>
+          <option value="electrical">Electrical</option>
+          <option value="other">Other</option>
+        </select>
+        <select class="filter-select" id="filter-pac" onchange="renderTable()">
+          <option value="all">All Process Areas</option>
+        </select>
+        <select class="filter-select" id="filter-drawing" onchange="renderTable()">
+          <option value="all">All Drawings</option>
+        </select>
+      </div>
+      <div id="tabs" style="display:none">
+        <button class="tab active" data-tab="all" onclick="switchTab('all')">All Tags</button>
+        <button class="tab tab-red" data-tab="clashes" onclick="switchTab('clashes')">⚠ Clashes (<span id="tab-clash-count">0</span>)</button>
+        <button class="tab tab-amber" data-tab="review" onclick="switchTab('review')">? Review (<span id="tab-review-count">0</span>)</button>
+        <button class="tab tab-green" data-tab="suggester" onclick="switchTab('suggester')">⊕ Next Tag</button>
+        <button class="tab tab-purple" data-tab="pac" onclick="switchTab('pac')">◈ PAC Dashboard</button>
+        <button class="tab tab-orange" data-tab="families" onclick="switchTab('families')">⊞ Drawing Families</button>
+      </div>
+      <div id="table-wrap" style="display:none">
+        <table>
+          <thead>
+            <tr>
+              <th>Function Tag</th>
+              <th>PAC</th>
+              <th>Process Area</th>
+              <th>Function Code</th>
+              <th>Asset Description</th>
+              <th>ID No.</th>
+              <th>Drawing</th>
+              <th>Rev</th>
+              <th>Type</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+
+
+      <!-- ── Drawing Families ──────────────────────────────────────────── -->
+      <div id="families-wrap">
+        <p class="fam-intro">
+          Define drawing families — groups of standard product drawings that intentionally share the same tags.<br/>
+          Clashes <strong style="color:var(--green)">within</strong> a family are suppressed (expected).<br/>
+          Clashes <strong style="color:var(--red)">between</strong> families or against ungrouped drawings are flagged as real problems.
+        </p>
+        <div class="fam-grid" id="fam-grid"></div>
+        <button class="fam-add-btn" onclick="addFamily()">+ Add Drawing Family</button>
+        <div id="fam-real-clashes-wrap" style="margin-top:24px"></div>
+      </div>
+
+      <!-- ── Next Tag Suggester ───────────────────────────────────────── -->
+      <div id="suggester-wrap">
+        <p class="sug-intro">
+          Type a PAC and Function Code to see what's already taken and what comes next.<br/>
+          The tool shows the full used series, flags any gaps, and highlights the next available number.
+        </p>
+        <div class="sug-row">
+          <div class="sug-field">
+            <label>Process Area (PAC)</label>
+            <input class="sug-input" id="sug-pac" type="text" maxlength="2" placeholder="71" oninput="runSuggester()"/>
+          </div>
+          <div class="sug-field">
+            <label>Function Code (FC)</label>
+            <input class="sug-input" id="sug-fc" type="text" maxlength="6" placeholder="P" oninput="runSuggester()"/>
+          </div>
+          <div class="sug-field">
+            <label>Or search tag</label>
+            <input class="sug-input wide" id="sug-search" type="text" maxlength="20" placeholder="71-P" oninput="runSuggesterSearch()"/>
+          </div>
+        </div>
+        <div id="sug-results"></div>
+      </div>
+
+      <!-- ── PAC Dashboard ─────────────────────────────────────────────── -->
+      <div id="pac-wrap">
+        <div id="pac-grid-inner" class="pac-grid">
+          <div class="pac-empty">Load drawings to see PAC breakdown</div>
+        </div>
+      </div>
+      <div id="empty">
+        <div class="em-icon">📐</div>
+        <div class="em-title">No tags loaded</div>
+        <div class="em-sub">
+          Drop P&amp;ID PDFs into the sidebar to extract tags<br/>
+          or load a saved CSV master register to continue<br/><br/>
+          <span style="color:var(--muted);font-size:9px;letter-spacing:2px">FORMAT: PAC–FC–NNNNN(A) · e.g. 71–P–1901A</span><br/>
+          <span style="color:var(--muted2);font-size:9px;letter-spacing:1px">Wessex Water DS310 · Plant 3D Export Compatible</span>
+        </div>
+      </div>
+      <div id="statusbar">
+        <span id="status-left">READY · WESSEX WATER DS310</span>
+        <span id="status-right">NO CLASHES DETECTED</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay" style="display:none!important">
+  <div id="modal">
+    <h2>DRAWING REVISION</h2>
+    <p>Enter the revision for the drawing(s) being added.<br/>e.g. A · B · C · C01 · C02 · P1 · IFD · IFC</p>
+    <input type="text" id="modal-input" value="C01" maxlength="10" placeholder="C01"/>
+    <div class="modal-actions">
+      <button class="btn btn-accent" onclick="modalConfirm()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// WESSEX WATER DS310 — FUNCTION CODE LOOKUP
+// Primary Function Codes → { category, description }
+// ─────────────────────────────────────────────────────────────────────────────
+const FC_LOOKUP = {
+  // INSTRUMENTS
+  'AC':'instrument','AE':'instrument','AG':'instrument','AI':'instrument','AIT':'instrument',
+  'AP':'instrument','AR':'instrument','AS':'instrument','AT':'instrument','AW':'instrument','AY':'instrument',
+  'BC':'instrument','BE':'instrument','BG':'instrument','BI':'instrument','BR':'instrument',
+  'BS':'instrument','BT':'instrument','BW':'instrument','BY':'instrument','BZ':'instrument',
+  'CPE':'instrument',
+  'EC':'instrument','EE':'instrument','EI':'instrument','EIT':'instrument','ER':'instrument',
+  'ES':'instrument','ET':'instrument','EY':'instrument','EZ':'instrument',
+  'FC':'instrument','FE':'instrument','FFC':'instrument','FG':'instrument','FI':'instrument',
+  'FICV':'instrument','FIT':'instrument','FP':'instrument','FQIT':'instrument','FR':'instrument',
+  'FS':'instrument','FT':'instrument','FY':'instrument',
+  'HC':'instrument',
+  'IC':'instrument','IE':'instrument','II':'instrument','IIT':'instrument','IR':'instrument',
+  'IS':'instrument','IT':'instrument','IY':'instrument','IZ':'instrument',
+  'JE':'instrument','JI':'instrument','JIT':'instrument','JR':'instrument','JS':'instrument',
+  'JT':'instrument','JY':'instrument',
+  'KC':'instrument','KE':'instrument','KI':'instrument','KIT':'instrument','KR':'instrument',
+  'KS':'instrument','KT':'instrument','KY':'instrument',
+  'LC':'instrument','LE':'instrument','LG':'instrument','LI':'instrument','LIT':'instrument',
+  'LR':'instrument','LS':'instrument','LT':'instrument','LW':'instrument','LY':'instrument',
+  'NC':'instrument','NE':'instrument','NI':'instrument','NIT':'instrument','NR':'instrument',
+  'NS':'instrument','NT':'instrument','NY':'instrument',
+  'PC':'instrument','PE':'instrument','PI':'instrument','PIT':'instrument','PR':'instrument',
+  'PS':'instrument','PT':'instrument','PY':'instrument',
+  'QC':'instrument','QE':'instrument','QI':'instrument','QIT':'instrument','QR':'instrument',
+  'QS':'instrument','QT':'instrument','QY':'instrument',
+  'RC':'instrument','RE':'instrument','RI':'instrument','RIT':'instrument','RR':'instrument',
+  'RS':'instrument','RT':'instrument','RY':'instrument',
+  'SC':'instrument','SE':'instrument','SI':'instrument','SIT':'instrument','SR':'instrument',
+  'SS':'instrument','ST':'instrument','SY':'instrument',
+  'TC':'instrument','TE':'instrument','TI':'instrument','TIT':'instrument','TR':'instrument',
+  'TS':'instrument','TT':'instrument','TY':'instrument',
+  'UI':'instrument','UIT':'instrument','UR':'instrument',
+  'WC':'instrument','WE':'instrument','WI':'instrument','WIT':'instrument','WR':'instrument',
+  'WS':'instrument','WT':'instrument','WY':'instrument',
+  'YC':'instrument','YE':'instrument','YI':'instrument','YIT':'instrument','YR':'instrument',
+  'YS':'instrument','YT':'instrument','YY':'instrument',
+  'ZC':'instrument','ZE':'instrument','ZI':'instrument','ZIT':'instrument','ZR':'instrument',
+  'ZS':'instrument','ZT':'instrument','ZY':'instrument',
+  'CMO':'instrument',
+  // VALVES
+  'V':'valve',
+  // EQUIPMENT / PROCESS
+  'A':'equipment','B':'equipment','C':'equipment','E':'equipment','F':'equipment',
+  'G':'equipment','H':'equipment','K':'equipment','M':'equipment','N':'equipment',
+  'P':'equipment','R':'equipment','S':'equipment','T':'equipment','U':'equipment',
+  'W':'equipment','X':'equipment',
+  'KSK':'equipment','ICP':'equipment','MCP':'equipment',
+  // ELECTRICAL / CONTROL
+  'DB':'electrical','DCS':'electrical','MCC':'electrical','MDP':'electrical','MP':'electrical',
+  'HMI':'electrical','TLM':'electrical','TX':'electrical','UPS':'electrical',
+  'GCP':'electrical','HVR':'electrical','HVS':'electrical','LVS':'electrical',
+  'BBR':'electrical','GBR':'electrical','GR':'electrical','GW':'electrical',
+  'BATT':'electrical','EST':'electrical','FDA':'electrical','ESD':'electrical',
+  'CCTV':'electrical','DH':'electrical','LGHT':'electrical',
+  'CC':'electrical','CE':'electrical','CF':'electrical','CG':'electrical',
+  'CP':'electrical','CR':'electrical','CT':'electrical','CZ':'electrical',
+  'JB':'electrical','JBE':'electrical','JBP':'electrical','JBR':'electrical',
+  'JBT':'electrical','JBZ':'electrical',
+  // JUNCTION BOXES
+};
+
+const FC_DESCRIPTIONS = {
+  'A':'Aerator','AC':'Analyser Controller','AE':'Analyser Element','AG':'Analyser Glass',
+  'AI':'Analyser Indicator','AIT':'Analyser Indicator Transmitter','AT':'Analyser Transmitter',
+  'AW':'Analyser Well','AY':'Analyser Relay',
+  'B':'Blower/Compressor','BATT':'Battery',
+  'C':'Conveyor','CCTV':'CCTV Camera','CMO':'Condition Monitor',
+  'DB':'Distribution Board','DCS':'Distributed Control System','DH':'Data Highway',
+  'E':'Heat Exchanger','ESD':'Emergency Shutdown System','EST':'Emergency Stop',
+  'F':'Filter','FDA':'Fire Detection & Alarm','FC':'Flow Controller',
+  'FE':'Flow Element','FI':'Flow Indicator','FIT':'Flow Indicating Transmitter',
+  'FT':'Flow Transmitter','FCV':'Flow Control Valve','FS':'Flow Switch',
+  'FWS':'Fire Water System',
+  'G':'Generator','GCP':'Generator Control Panel','GR':'Earthing Resistor','GW':'Earth Well',
+  'H':'Borehole/Spring','HMI':'Human Machine Interface','HEAT':'Heater',
+  'HVAC':'HVAC System',
+  'ICP':'Instrumentation & Control Panel',
+  'JB':'Junction Box','JBE':'Junction Box (Electronic)','JBP':'Junction Box (Power)',
+  'K':'Crusher/Mill','KSK':'Kiosk',
+  'LC':'Level Controller','LE':'Level Element','LG':'Level Glass','LI':'Level Indicator',
+  'LIT':'Level Indicating Transmitter','LS':'Level Switch','LT':'Level Transmitter',
+  'LGHT':'Lighting','LVS':'LV Switch',
+  'M':'Mixer','MCC':'Motor Control Centre','MCP':'Motor Control Panel','MDP':'Mains Distribution Panel',
+  'MP':'Marshalling Panel',
+  'N':'Storage (Silo/Hopper)','NC':'Concentration Controller',
+  'P':'Pump','PC':'Pressure Controller','PE':'Pressure Element','PI':'Pressure Indicator',
+  'PIT':'Pressure Indicating Transmitter','PS':'Pressure Switch','PT':'Pressure Transmitter',
+  'Q':'Water Quality Instrument','QI':'Quality Indicator','QIT':'Quality Indicating Transmitter',
+  'QT':'Quality Transmitter',
+  'R':'Screen','RC':'Radiation Controller',
+  'S':'Scraper/Separator/Sedimentation',
+  'SC':'Speed Controller','SE':'Speed Element','SI':'Speed Indicator','SS':'Speed Switch',
+  'ST':'Speed Transmitter',
+  'T':'Tank/Vessel','TC':'Temperature Controller','TE':'Temperature Element',
+  'TI':'Temperature Indicator','TIT':'Temperature Indicating Transmitter',
+  'TLM':'Telemetry Outstation','TS':'Temperature Switch','TT':'Temperature Transmitter',
+  'TX':'Transformer',
+  'U':'Burner/Boiler','UI':'Multi-variable Instrument','UIT':'Multi-variable Indicating Transmitter',
+  'UPS':'Uninterruptible Power Supply',
+  'V':'Valve',
+  'W':'Weigher','WI':'Weight Indicator','WT':'Weight Transmitter',
+  'X':'UV Disinfection',
+  'YS':'Solenoid/Event Switch','YT':'Relay/Event Transmitter',
+  'ZC':'Position Controller','ZE':'Position Element','ZI':'Position Indicator',
+  'ZIT':'Position Indicating Transmitter','ZS':'Position Switch','ZT':'Position Transmitter',
+};
+
+// Process Area Codes (PAC) — DS310 Table
+const PAC_LOOKUP = {
+  '0':'Reserved','10':'Spare Equipment','11':'General Site Facilities','12':'Electrical',
+  '13':'Control Systems','14':'Washwater Systems','15':'Odour Control',
+  '16':'Energy Generation','17':'Mobile Plant',
+  '21':'Inlet / Borehole / Pumping','22':'Inlet / Raw Water',
+  '23':'Pre-treatment / Storm','31':'Interstage Pumping (Primary)',
+  '32':'Primary Treatment / DAF','41':'Interstage Pumping (Secondary)',
+  '42':'Secondary Biological','43':'Filtration / Secondary Sludges',
+  '44':'Interstage Pumping','45':'GAC / Secondary Settlement',
+  '46':'Recirculation Pumping','47':'Nitrate Treatment',
+  '51':'Interstage Pumping (Tertiary)','52':'Tertiary Treatment / Membrane',
+  '61':'Sludge Reception','62':'Sludge Treatment','63':'Sludge Thickening',
+  '64':'Digestion','65':'Liquid Lime Treatment','66':'Sludge Dewatering',
+  '67':'Drying','68':'Powder Lime','69':'Sludge Storage & Removal',
+  '71':'Chemical Dosing','72':'Disinfection (Chemical)','73':'Disinfection (UV)',
+  '81':'Contact Tank / Treated Water','82':'Pumping (Treated Water)',
+  '83':'Water Storage (Service Reservoir)','90':'Reserved',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAG PATTERN — Wessex Water DS310
+// Format on drawings (site ID usually omitted): PAC-FC-NNNNN(A)
+// e.g. 71-P-1901A, 52-FIT-0901, 71-LCP-1901, 71-KSK-1904
+// Also catches full format: NNNNN-NN-FC-NNNNN(A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Exact: NN-FC-NNNNN(A)  — PAC is 1-2 digits, FC is 1-6 letters, ID is 3-5 digits + optional letter(s)
+const TAG_EXACT = /\b(\d{1,2})-([A-Z]{1,6})-(\d{3,5}[A-Z]{0,2})\b/g;
+// Fuzzy: looks like it could be a tag but deviates slightly
+const TAG_FUZZY = /\b(\d{1,2})[_.\-]([A-Z]{1,8})[_.\-](\d{2,6}[A-Z]{0,3})\b/g;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let allTags = [];
+let drawings = {};
+let currentTab = 'all';
+let modalResolve = null;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveFC(fc) {
+  const cat = FC_LOOKUP[fc] || 'other';
+  const desc = FC_DESCRIPTIONS[fc] || fc;
+  return { cat, desc };
+}
+
+function getPACLabel(pac) {
+  return PAC_LOOKUP[pac] ? `${pac} — ${PAC_LOOKUP[pac]}` : pac;
+}
+
+function dzDrag(e, id, on) {
+  e.preventDefault();
+  document.getElementById(id).classList.toggle('drag-over', on);
+}
+function dzDrop(e, id) {
+  e.preventDefault();
+  document.getElementById(id).classList.remove('drag-over');
+  const files = [...e.dataTransfer.files];
+  if (id === 'dz-pid') handlePIDFiles(files);
+  else if (id === 'dz-csv') handleCSVFile(files[0]);
+}
+
+function showModal() {
+  return new Promise(resolve => {
+    modalResolve = resolve;
+    document.getElementById('modal-input').value = 'C01';
+    document.getElementById('modal-overlay').classList.add('visible');
+    setTimeout(() => document.getElementById('modal-input').focus(), 50);
+  });
+}
+function modalConfirm() {
+  const val = document.getElementById('modal-input').value.trim().toUpperCase() || 'C01';
+  document.getElementById('modal-overlay').classList.remove('visible');
+  if (modalResolve) { modalResolve(val); modalResolve = null; }
+}
+document.getElementById('modal-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') modalConfirm();
+});
+
+function setProgress(pct, label) {
+  const wrap = document.getElementById('progress-wrap');
+  document.getElementById('progress-bar-fill').style.width = pct + '%';
+  document.getElementById('progress-label').textContent = label || '';
+  wrap.classList.toggle('visible', pct < 100);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF TEXT EXTRACTION
+// ─────────────────────────────────────────────────────────────────────────────
+async function extractTextFromPDF(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let text = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const cont = await page.getTextContent();
+    text += cont.items.map(i => i.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAG EXTRACTION
+// ─────────────────────────────────────────────────────────────────────────────
+function extractTagsFromText(text, drawingName, revision) {
+  const confirmed = [];
+  const review    = [];
+  const seen      = new Set();
+
+  // PASS 1: Pre-clean
+  // Normalise all dash variants to hyphen (MicroStation, Bluebeam, etc.)
+  // Collapse double-dash OCR artifacts. Uppercase everything upfront.
+  let clean = text
+    .replace(/[\u2013\u2014\u2012\u2015]/g, '-')
+    .replace(/--+/g, '-')
+    .toUpperCase();
+
+  // PASS 2: Stitch split tags
+  // PDF.js joins text items with spaces. Instrument bubbles in Plant 3D export
+  // as split items. Various space-separated patterns need stitching:
+  //   "71-LS 1913A"   -> "71-LS-1913A"    (standard split)
+  //   "71-P 1901A"    -> "71-P-1901A"     (single-char FC split)
+  //   "71-P 1901 A"   -> "71-P-1901A"     (Bluebeam: suffix further split)
+  //   "71 - P - 1901" -> "71-P-1901"      (spaces around dashes)
+  clean = clean
+    .replace(/(\d{1,2}-[A-Z]{1,6})\s+(\d{3,5}[A-Z]{0,2})(?=\s|$)/g,
+      (_, fc, id) => `${fc}-${id}`)
+    .replace(/(\d{1,2}-[A-Z]{1,6}-\d{3,5})\s+([A-E])(?=\s|$)/g,
+      (_, tag, suffix) => `${tag}${suffix}`)  // only A-E are valid parallel plant codes
+    .replace(/(\d{1,2})\s*-\s*([A-Z]{1,6})\s*-\s*(\d{3,5}[A-Z]{0,2})/g,
+      (_, a, b, c) => `${a}-${b}-${c}`);
+
+  // PASS 3: Exact match
+  TAG_EXACT.lastIndex = 0;
+  let m;
+  while ((m = TAG_EXACT.exec(clean)) !== null) {
+    const tag = m[0];
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    const pac = m[1];
+    const fc  = m[2];
+    const id  = m[3];
+    const { cat, desc } = resolveFC(fc);
+    // Single-digit PAC + pipe-material FC = likely a line number, not a tag -> Review
+    const likelyLineNum = /^[1-9]$/.test(pac) &&
+      ['FW','SW','SS','ST','CS','GI','PE','CU','PP','HDPE','MDPE','PVC','ABS','CPVC','UPVC'].includes(fc);
+    if (likelyLineNum) {
+      review.push({ tag, pac, fc, id, desc, drawing: drawingName, revision,
+        type: cat, isClash: false, isReview: true });
+    } else {
+      confirmed.push({ tag, pac, fc, id, desc, drawing: drawingName, revision,
+        type: cat, isClash: false, isReview: false });
+    }
+  }
+
+  // PASS 4: Fuzzy
+  TAG_FUZZY.lastIndex = 0;
+  while ((m = TAG_FUZZY.exec(clean)) !== null) {
+    const norm = `${m[1]}-${m[2]}-${m[3]}`;
+    if (seen.has(norm)) continue;
+    if (/^\d+$/.test(m[2])) continue;
+    seen.add(norm);
+    const { cat, desc } = resolveFC(m[2]);
+    review.push({ tag: norm, pac: m[1], fc: m[2], id: m[3],
+      desc, drawing: drawingName, revision, type: cat, isClash: false, isReview: true });
+  }
+
+  // Zero-tag warning: PDF likely scanned/image-based
+  const totalFound = confirmed.length + review.length;
+  return { confirmed, review, likelyScanPDF: totalFound === 0 };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASH DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function detectClashes() {
+  const map = {};
+  allTags.forEach((t, i) => {
+    if (t.isReview) return;
+    if (!map[t.tag]) map[t.tag] = [];
+    map[t.tag].push(i);
+  });
+  allTags.forEach(t => { t.isClash = false; t.clashFamily = null; t.clashReal = false; });
+  Object.values(map).forEach(function(indices) {
+    if (indices.length <= 1) return;
+    // Check if all clashing drawings are in the same family
+    var famIds = indices.map(function(i) { return getFamilyForDrawing(allTags[i].drawing); });
+    var uniqueFams = [...new Set(famIds)];
+    var isSuppressed = uniqueFams.length === 1 && uniqueFams[0] !== null;
+    var famName = isSuppressed ? (families.find(function(f){ return f.id===uniqueFams[0]; }) || {}).name || 'Family' : null;
+    indices.forEach(function(i) {
+      allTags[i].isClash    = true;
+      allTags[i].clashReal  = !isSuppressed;
+      allTags[i].clashFamily = famName;
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+// Pending files waiting for revision confirmation
+let _pendingFiles = [];
+
+async function handlePIDFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  _pendingFiles = files;
+  await showRevModal(files);
+}
+
+// Extract revision from PDF text
+function detectRevision(text) {
+  const t = text.toUpperCase();
+  const patterns = [
+    /\b(C\d{2})\s+(?:APPROVED|TAGGING|ISSUED|FOR\s+ISSUE|UPDATED|REVISED)/,
+    /REV\.?\s+(C\d{2}|P\d{1,2}|[A-Z]\d?|\d[A-Z]?)\b/,
+    /NTS\s+(C\d{2}|P\d{1,2})/,
+    /\bREV\.?\s*([A-Z]{1,3}\d{0,2})\b/,
+  ];
+  for (const pat of patterns) {
+    const m = t.match(pat);
+    if (m && m[1] && m[1].length <= 6) return m[1];
+  }
+  return null;
+}
+
+async function showRevModal(files) {
+  const tbody = document.getElementById('rev-table-body');
+  tbody.innerHTML = '';
+  setProgress(0, 'Reading title blocks...');
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const name = file.name.replace(/\.pdf$/i, '');
+    setProgress(Math.round((i / files.length) * 80), 'Reading ' + file.name + '...');
+
+    let detected = null;
+    try {
+      const buf  = await file.arrayBuffer();
+      const text = await extractTextFromPDF(buf);
+      detected   = detectRevision(text);
+      file._cachedText = text;
+    } catch(e) { console.error(e); }
+
+    const autoFilled = !!detected;
+    const val = detected || 'C01';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="td-name">' + name + '</td>' +
+      '<td class="td-detected ' + (autoFilled ? 'found' : 'notfound') + '">' +
+        (autoFilled ? '&#10003; ' + detected : 'Not found') +
+      '</td>' +
+      '<td><input class="rev-input ' + (autoFilled ? 'auto-filled' : '') + '" ' +
+           'data-file="' + i + '" value="' + val + '" maxlength="8"/></td>';
+    tbody.appendChild(tr);
+  }
+
+  setProgress(100, '');
+  document.getElementById('rev-overlay').classList.add('visible');
+}
+
+function cancelRevModal() {
+  document.getElementById('rev-overlay').classList.remove('visible');
+  _pendingFiles = [];
+}
+
+async function confirmRevModal() {
+  document.getElementById('rev-overlay').classList.remove('visible');
+  const inputs = document.querySelectorAll('.rev-input');
+  const revMap = {};
+  inputs.forEach(function(inp) { revMap[inp.dataset.file] = inp.value.trim().toUpperCase() || 'C01'; });
+
+  setProgress(0, 'Importing drawings...');
+  showUI(true);
+
+  for (let fi = 0; fi < _pendingFiles.length; fi++) {
+    const file = _pendingFiles[fi];
+    const drawingName = file.name.replace(/\.pdf$/i, '');
+    const revision    = revMap[fi];
+    setProgress(Math.round((fi / _pendingFiles.length) * 90), 'Extracting: ' + file.name + '...');
+    allTags = allTags.filter(function(t) { return t.drawing !== drawingName; });
+    try {
+      const text = file._cachedText || await extractTextFromPDF(await file.arrayBuffer());
+      const result = extractTagsFromText(text, drawingName, revision);
+      drawings[drawingName] = {
+        revision: revision,
+        count: result.confirmed.length,
+        warning: result.likelyScanPDF ? 'NO TAGS FOUND - may be scanned PDF' : null
+      };
+      allTags.push(...result.confirmed, ...result.review);
+    } catch(err) { console.error('Error:', file.name, err); }
+  }
+
+  _pendingFiles = [];
+  detectClashes();
+  setProgress(100, '');
+  updateAll();
+  switchTab('all');
+}
+
+async function handleCSVFile(file) {
+  if (!file) return;
+  const text  = await file.text();
+  const lines = text.split('\n');
+  allTags = []; drawings = {}; families = [];
+
+  lines.forEach(function(line) {
+    if (!line.trim()) return;
+
+    // ── Family definition rows
+    if (line.trimStart().startsWith('#FAMILY,')) {
+      const parts = parseCSVRow(line);
+      const name     = parts[1] || 'Family';
+      const patterns = (parts[2] || '').split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+      families.push({ id: Date.now() + Math.random(), name: name, patterns: patterns });
+      return;
+    }
+
+    // ── Skip the header row
+    if (line.includes('Function Code') || line.startsWith('"Tag"')) return;
+
+    const cols = parseCSVRow(line);
+    if (!cols[0]) return;
+
+    const t = {
+      tag: cols[0], pac: cols[1]||'', fc: cols[2]||'', id: cols[3]||'',
+      desc: cols[4]||'', drawing: cols[5]||'Unknown', revision: cols[6]||'',
+      type: cols[7]||'other', isReview: cols[8]==='REVIEW', isClash: false,
+      clashReal: false, clashFamily: null,
+    };
+    allTags.push(t);
+    if (!drawings[t.drawing]) drawings[t.drawing] = { revision: t.revision, count: 0 };
+    drawings[t.drawing].count++;
+  });
+
+  detectClashes();
+  showUI(true);
+  switchTab('all');
+  updateAll();
+}
+
+// Proper CSV row parser — handles quoted fields with commas and escaped quotes
+function parseCSVRow(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQ = false; }
+      else { cur += ch; }
+    } else {
+      if (ch === '"') { inQ = true; }
+      else if (ch === ',') { result.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+function exportCSV() {
+  var lines = [];
+
+  // Family definitions first — prefixed with #FAMILY so CSV import can rebuild them
+  families.forEach(function(fam) {
+    lines.push('#FAMILY,' + csvEsc(fam.name) + ',' + csvEsc(fam.patterns.join('|')));
+  });
+
+  // Column headers
+  lines.push(['Tag','PAC','Function Code','ID Number','Description','Drawing','Revision','Type','Status','Clash'].map(csvEsc).join(','));
+
+  // Tag rows
+  allTags.forEach(function(t) {
+    lines.push([
+      t.tag, t.pac, t.fc, t.id, t.desc, t.drawing, t.revision, t.type,
+      t.isReview ? 'REVIEW' : 'CONFIRMED',
+      (t.isClash && t.clashReal) ? 'CLASH' : ''
+    ].map(csvEsc).join(','));
+  });
+
+  var csv  = lines.join('\n');
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'WW_PID_TagRegister_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvEsc(v) {
+  return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+}
+
+function clearAll() {
+  if (!confirm('Clear all tags and drawings?')) return;
+  allTags = []; drawings = {};
+  showUI(false); updateAll();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI UPDATES
+// ─────────────────────────────────────────────────────────────────────────────
+function showUI(show) {
+  document.getElementById('tabs').style.display          = show ? '' : 'none';
+  document.getElementById('empty').style.display         = show ? 'none' : 'flex';
+  document.getElementById('stats-section').style.display = show ? '' : 'none';
+  document.getElementById('drawings-section').style.display = show ? '' : 'none';
+  document.getElementById('btn-export').style.display    = show ? '' : 'none';
+  document.getElementById('btn-clear').style.display     = show ? '' : 'none';
+  if (!show) {
+    document.getElementById('toolbar').style.display     = 'none';
+    document.getElementById('table-wrap').style.display  = 'none';
+    document.getElementById('suggester-wrap').style.display = 'none';
+    document.getElementById('pac-wrap').style.display    = 'none';
+    document.getElementById('families-wrap').style.display = 'none';
+    currentTab = 'all';
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(el =>
+    el.classList.toggle('active', el.dataset.tab === tab));
+  const isSuggester = tab === 'suggester';
+  const isPAC       = tab === 'pac';
+  const isFamilies  = tab === 'families';
+  const isTable     = !isSuggester && !isPAC && !isFamilies;
+  document.getElementById('suggester-wrap').style.display  = isSuggester ? 'block' : 'none';
+  document.getElementById('pac-wrap').style.display        = isPAC       ? 'block' : 'none';
+  document.getElementById('families-wrap').style.display   = isFamilies  ? 'block' : 'none';
+  document.getElementById('toolbar').style.display         = isTable     ? ''      : 'none';
+  document.getElementById('table-wrap').style.display      = isTable     ? ''      : 'none';
+  if (isSuggester) runSuggester();
+  if (isPAC)       renderPACDashboard();
+  if (isFamilies)  renderFamilies();
+  if (isTable)     renderTable();
+}
+
+function updateAll() {
+  updateStats();
+  updateDrawingsList();
+  updatePACDropdown();
+  updateDrawingDropdown();
+  renderTable();
+}
+
+function updateStats() {
+  const conf = allTags.filter(t => !t.isReview);
+  const clashCount     = conf.filter(t => t.isClash && t.clashReal).length;
+  const suppressedCount = conf.filter(t => t.isClash && !t.clashReal).length;
+  const reviewCount = allTags.filter(t => t.isReview).length;
+  document.getElementById('stat-total').textContent = conf.length;
+  document.getElementById('stat-drawings').textContent = Object.keys(drawings).length;
+  document.getElementById('stat-clashes').textContent = clashCount;
+  document.getElementById('stat-review').textContent = reviewCount;
+  const clashEl = document.getElementById('stat-clashes');
+  clashEl.style.color = clashCount > 0 ? 'var(--red)' : 'var(--green)';
+  document.getElementById('stat-clashes-sub').textContent = clashCount > 0
+    ? 'Requires action'
+    : (suppressedCount > 0 ? suppressedCount + ' suppressed' : 'All clear');
+  ['instrument','valve','equipment','electrical'].forEach(type => {
+    document.getElementById('stat-'+type).textContent = conf.filter(t => t.type===type).length;
+  });
+  document.getElementById('tab-clash-count').textContent = clashCount + (suppressedCount ? ' (+'+suppressedCount+' suppressed)' : '');
+  document.getElementById('tab-review-count').textContent = reviewCount;
+  document.getElementById('status-left').textContent =
+    `${conf.length} TAGS · ${Object.keys(drawings).length} DRAWINGS · DS310`;
+  const sr = document.getElementById('status-right');
+  sr.textContent = clashCount > 0
+    ? ('⚠ ' + clashCount + ' REAL CLASHES' + (suppressedCount ? ' · ' + suppressedCount + ' SUPPRESSED' : ''))
+    : (suppressedCount > 0 ? '✓ NO REAL CLASHES · ' + suppressedCount + ' SUPPRESSED' : '✓ NO CLASHES');
+  sr.style.color = clashCount > 0 ? 'var(--red)' : 'var(--green)';
+}
+
+function updateDrawingsList() {
+  const list = document.getElementById('drawings-list');
+  list.innerHTML = '';
+  Object.entries(drawings).sort().forEach(([name, info]) => {
+    const el = document.createElement('div');
+    el.className = 'drawing-item';
+    el.innerHTML = `<span class="di-name" title="${name}">${name}</span>
+      <span class="di-count">${info.count}</span>
+      <span class="di-rev">Rev ${info.revision}</span>
+      <span class="di-remove" onclick="removeDrawing('${name.replace(/'/g,"\\'")}')">✕</span>`;
+    list.appendChild(el);
+  });
+}
+
+function updatePACDropdown() {
+  const sel = document.getElementById('filter-pac');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="all">All Process Areas</option>';
+  const pacs = [...new Set(allTags.filter(t=>!t.isReview).map(t=>t.pac))].sort((a,b)=>parseInt(a)-parseInt(b));
+  pacs.forEach(pac => {
+    const opt = document.createElement('option');
+    opt.value = pac;
+    opt.textContent = `${pac}${PAC_LOOKUP[pac] ? ' — '+PAC_LOOKUP[pac] : ''}`;
+    sel.appendChild(opt);
+  });
+  sel.value = prev;
+}
+
+function updateDrawingDropdown() {
+  const sel = document.getElementById('filter-drawing');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="all">All Drawings</option>';
+  Object.keys(drawings).sort().forEach(d => {
+    const opt = document.createElement('option'); opt.value=d; opt.textContent=d;
+    sel.appendChild(opt);
+  });
+  sel.value = prev;
+}
+
+function removeDrawing(name) {
+  allTags = allTags.filter(t => t.drawing !== name);
+  delete drawings[name];
+  detectClashes();
+  updateAll();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TABLE RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const search   = document.getElementById('search-input').value.toLowerCase();
+  const fType    = document.getElementById('filter-type').value;
+  const fPAC     = document.getElementById('filter-pac').value;
+  const fDrawing = document.getElementById('filter-drawing').value;
+  const tbody    = document.getElementById('table-body');
+
+  let rows = allTags.filter(t => {
+    if (currentTab === 'clashes' && !(t.isClash && t.clashReal))  return false;
+    if (currentTab === 'review'  && !t.isReview) return false;
+    if (currentTab === 'all'     && t.isReview)  return false;
+    if (fType !== 'all' && t.type !== fType)     return false;
+    if (fPAC !== 'all'  && t.pac  !== fPAC)      return false;
+    if (fDrawing !== 'all' && t.drawing !== fDrawing) return false;
+    if (search && !t.tag.toLowerCase().includes(search) &&
+        !t.desc.toLowerCase().includes(search) &&
+        !t.drawing.toLowerCase().includes(search) &&
+        !(PAC_LOOKUP[t.pac]||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  rows.sort((a,b) => {
+    if (a.isClash && !b.isClash) return -1;
+    if (!a.isClash && b.isClash) return 1;
+    return a.tag.localeCompare(b.tag);
+  });
+
+  const typeClass = type => `badge badge-${type}`;
+  tbody.innerHTML = rows.map(t => {
+    const clash        = t.isClash;
+    const review       = t.isReview;
+    const isRealClash  = clash && t.clashReal;
+    const isSuppressed = clash && !t.clashReal;
+    // Suppressed clashes look identical to normal tags in All Tags view
+    const tagColor = isRealClash ? 'var(--red)' : review ? 'var(--amber)' : 'var(--accent)';
+    const prefix   = isRealClash ? '⚠ ' : review ? '? ' : '';
+    const statusBadge = isRealClash
+      ? '<span class="badge badge-clash">CLASH</span>'
+      : (isSuppressed && currentTab !== 'all')
+      ? '<span class="badge" style="color:var(--green);border-color:#00e89040;font-size:8px" title="Intentional — same standard product">⊞ ' + (t.clashFamily || 'FAMILY') + '</span>'
+      : review
+      ? '<span class="badge badge-review">REVIEW</span>'
+      : '<span style="color:var(--muted);font-size:9px">✓ OK</span>';
+    return `<tr class="${isRealClash?'clash':review?'review-row':''}">
+      <td class="tag-cell" style="color:${tagColor}">${prefix}${t.tag}</td>
+      <td class="muted">${t.pac}</td>
+      <td class="muted" style="font-size:9px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${PAC_LOOKUP[t.pac]||'—'}</td>
+      <td class="muted">${t.fc}</td>
+      <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.desc}">${t.desc||'—'}</td>
+      <td class="muted">${t.id}</td>
+      <td class="muted" style="font-size:9px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.drawing}">${t.drawing}</td>
+      <td class="muted">${t.revision}</td>
+      <td><span class="${typeClass(t.type)}">${t.type}</span></td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  const total = allTags.filter(t =>
+    currentTab==='all' ? !t.isReview : currentTab==='clashes' ? t.isClash : t.isReview
+  ).length;
+  document.getElementById('status-left').textContent =
+    `SHOWING ${rows.length} OF ${total} · ${allTags.filter(t=>!t.isReview).length} TOTAL TAGS`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEXT TAG SUGGESTER
+// ─────────────────────────────────────────────────────────────────────────────
+function getSeriesForPACFC(pac, fc) {
+  // Get all confirmed tags matching this PAC + FC, extract numeric base IDs
+  return allTags
+    .filter(t => !t.isReview && t.pac === pac && t.fc === fc)
+    .map(t => {
+      // Extract numeric part of ID (strip trailing alpha suffix A/B/C)
+      const num = parseInt(t.id.replace(/[A-E]+$/, ''), 10);
+      const suffix = t.id.match(/[A-E]+$/)?.[0] || '';
+      return { tag: t.tag, id: t.id, num, suffix, drawing: t.drawing };
+    })
+    .filter(t => !isNaN(t.num))
+    .sort((a,b) => a.num - b.num || a.suffix.localeCompare(b.suffix));
+}
+
+function nextAvailable(series) {
+  if (!series.length) return { num: 1001, suffix: '', str: '1001' };
+  // Find the highest number used, then suggest num+1
+  // Determine the ID digit length from existing tags (3, 4, or 5 digits)
+  const maxNum = Math.max(...series.map(s => s.num));
+  const sample = series[0].id.replace(/[A-E]+$/, '');
+  const digits = sample.length;
+  const nextNum = maxNum + 1;
+  const str = String(nextNum).padStart(digits, '0');
+  return { num: nextNum, suffix: '', str };
+}
+
+function renderSuggesterResult(pac, fc) {
+  pac = pac.toUpperCase().trim();
+  fc  = fc.toUpperCase().trim();
+  if (!pac || !fc) return '<div class="sug-no-data">Enter a PAC and FC above.</div>';
+
+  const series = getSeriesForPACFC(pac, fc);
+  const next   = nextAvailable(series);
+  const nextTag = `${pac}-${fc}-${next.str}`;
+  const desc   = FC_DESCRIPTIONS[fc] || fc;
+  const area   = PAC_LOOKUP[pac] ? `PAC ${pac} — ${PAC_LOOKUP[pac]}` : `PAC ${pac}`;
+
+  // Find gaps in the numeric series
+  let html = `<div class="sug-block">
+    <h3>${area} · ${desc}</h3>`;
+
+  if (!series.length) {
+    html += `<div class="sug-next">${nextTag}</div>
+    <div class="sug-taken">No existing tags — this would be the first.</div>`;
+  } else {
+    html += `<div class="sug-next">${nextTag}</div>
+    <div class="sug-taken">${series.length} existing tag${series.length>1?'s':''} · last used ${pac}-${fc}-${series[series.length-1].id}</div>`;
+
+    // Detect gaps
+    const nums = [...new Set(series.map(s => s.num))].sort((a,b)=>a-b);
+    const gaps = [];
+    for (let i = 0; i < nums.length - 1; i++) {
+      if (nums[i+1] - nums[i] > 1) {
+        for (let g = nums[i]+1; g < nums[i+1]; g++) gaps.push(g);
+      }
+    }
+
+    // Show the full used series + gaps visually
+    const digits = series[0].id.replace(/[A-E]+$/,'').length;
+    html += `<div class="sug-legend">
+      <span><span class="sug-dot" style="background:var(--border2)"></span>Used</span>
+      ${gaps.length ? '<span><span class="sug-dot" style="background:var(--amber)"></span>Gap</span>' : ''}
+      <span><span class="sug-dot" style="background:var(--green)"></span>Next available</span>
+    </div>
+    <div class="sug-series">`;
+
+    series.forEach(s => {
+      html += `<span class="sug-tag used" title="Drawing: ${s.drawing}">${pac}-${fc}-${s.id}</span>`;
+    });
+    gaps.forEach(g => {
+      const gStr = String(g).padStart(digits,'0');
+      html += `<span class="sug-tag gap" title="Gap in sequence">${pac}-${fc}-${gStr}</span>`;
+    });
+    html += `<span class="sug-tag next">${nextTag} ▶</span>`;
+    html += `</div>`;
+
+    if (gaps.length) {
+      html += `<div style="margin-top:12px;font-size:10px;color:var(--amber)">
+        ⚠ ${gaps.length} gap${gaps.length>1?'s':''} in sequence — worth checking these weren't missed off a drawing.
+      </div>`;
+    }
+  }
+
+  // Show which drawings this FC appears on
+  const drawingMap = {};
+  series.forEach(s => {
+    if (!drawingMap[s.drawing]) drawingMap[s.drawing] = [];
+    drawingMap[s.drawing].push(s.tag);
+  });
+  if (Object.keys(drawingMap).length) {
+    html += `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Appears on drawings</div>`;
+    Object.entries(drawingMap).sort().forEach(([drw, tags]) => {
+      html += `<div style="font-size:9px;color:var(--muted2);margin-bottom:4px">
+        <span style="color:var(--muted)">${drw}</span>
+        <span style="color:var(--muted2);margin-left:8px">${tags.length} tag${tags.length>1?'s':''}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+
+  // Also show ALL FC series for this PAC below
+  const allFCs = [...new Set(allTags.filter(t=>!t.isReview && t.pac===pac).map(t=>t.fc))].sort();
+  if (allFCs.length > 1) {
+    html += `<div class="sug-block">
+      <h3>All series in PAC ${pac}</h3>`;
+    allFCs.forEach(f => {
+      const s = getSeriesForPACFC(pac, f);
+      if (!s.length) return;
+      const nums = s.map(x=>x.num);
+      const min = Math.min(...nums), max = Math.max(...nums);
+      const digits = s[0].id.replace(/[A-E]+$/,'').length;
+      const nxt = nextAvailable(s);
+      html += `<div class="sug-series-row">
+        <span class="sug-series-label">${f}</span>
+        <div class="sug-bar-wrap"><div class="sug-bar-fill" style="width:${Math.min(100, s.length*8)}%"></div></div>
+        <span class="sug-range-label" style="font-size:9px;color:var(--muted)">
+          ${String(min).padStart(digits,'0')}–${String(max).padStart(digits,'0')} · next: <span style="color:var(--green)">${nxt.str}</span>
+        </span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function runSuggester() {
+  const pac = document.getElementById('sug-pac').value;
+  const fc  = document.getElementById('sug-fc').value;
+  document.getElementById('sug-search').value = '';
+  const el = document.getElementById('sug-results');
+  if (!allTags.length) {
+    el.innerHTML = '<div class="sug-no-data">Load drawings first.</div>';
+    el.style.display = 'block'; return;
+  }
+  if (!pac && !fc) { el.style.display = 'none'; return; }
+  el.innerHTML = renderSuggesterResult(pac, fc);
+  el.style.display = 'block';
+}
+
+function runSuggesterSearch() {
+  const raw = document.getElementById('sug-search').value.toUpperCase().trim();
+  document.getElementById('sug-pac').value = '';
+  document.getElementById('sug-fc').value  = '';
+  const el = document.getElementById('sug-results');
+  if (!raw) { el.style.display = 'none'; return; }
+  // Parse PAC-FC from search string
+  const m = raw.match(/^(\d{1,2})-([A-Z]{1,6})/);
+  if (m) {
+    el.innerHTML = renderSuggesterResult(m[1], m[2]);
+    el.style.display = 'block';
+  } else {
+    el.innerHTML = '<div class="sug-no-data">Enter format: 71-P or 52-PIT</div>';
+    el.style.display = 'block';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAC DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+function renderPACDashboard() {
+  const container = document.getElementById('pac-grid-inner');
+  const confirmed = allTags.filter(t => !t.isReview);
+  if (!confirmed.length) {
+    container.innerHTML = '<div class="pac-empty">Load drawings to see PAC breakdown</div>';
+    return;
+  }
+
+  // Group by PAC
+  const byPAC = {};
+  confirmed.forEach(t => {
+    if (!byPAC[t.pac]) byPAC[t.pac] = [];
+    byPAC[t.pac].push(t);
+  });
+
+  const typeColors = { instrument:'var(--accent)', valve:'var(--green)', equipment:'var(--amber)', electrical:'#ff80ff', other:'var(--muted)' };
+  const maxInPAC = Math.max(...Object.values(byPAC).map(arr => arr.length));
+
+  let html = '';
+  const sortedPACs = Object.keys(byPAC).sort((a,b) => parseInt(a)-parseInt(b));
+
+  sortedPACs.forEach(pac => {
+    const tags = byPAC[pac];
+    const areaName = PAC_LOOKUP[pac] || 'Unknown Area';
+    const total = tags.length;
+
+    // Type breakdown
+    const byType = {};
+    tags.forEach(t => { byType[t.type] = (byType[t.type]||0)+1; });
+
+    // FC breakdown with ranges and next available
+    const byFC = {};
+    tags.forEach(t => {
+      if (!byFC[t.fc]) byFC[t.fc] = [];
+      byFC[t.fc].push(t);
+    });
+
+    // Drawing breakdown
+    const byDrawing = {};
+    tags.forEach(t => {
+      if (!byDrawing[t.drawing]) byDrawing[t.drawing] = 0;
+      byDrawing[t.drawing]++;
+    });
+
+    html += `<div class="pac-card">
+      <div class="pac-card-header">
+        <div class="pac-card-title">PAC ${pac}</div>
+        <div class="pac-card-sub">${areaName}<br/><span style="color:var(--accent)">${total} tag${total!==1?'s':''}</span></div>
+      </div>`;
+
+    // Type bars
+    ['instrument','valve','equipment','electrical','other'].forEach(type => {
+      const count = byType[type] || 0;
+      if (!count) return;
+      const pct = Math.round((count / total) * 100);
+      html += `<div class="pac-type-row">
+        <span class="pac-type-label">${type}</span>
+        <div class="pac-bar-track"><div class="pac-bar-fill" style="width:${pct}%;background:${typeColors[type]}"></div></div>
+        <span class="pac-count" style="color:${typeColors[type]}">${count}</span>
+      </div>`;
+    });
+
+    // FC ranges
+    html += `<div class="pac-range-block">
+      <div class="pac-range-title">Tag ranges by FC</div>`;
+
+    const sortedFCs = Object.keys(byFC).sort();
+    sortedFCs.forEach(fc => {
+      const fcTags = byFC[fc];
+      const nums = fcTags.map(t => parseInt(t.id.replace(/[A-E]+$/,''),10)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+      if (!nums.length) return;
+      const min = nums[0], max = nums[nums.length-1];
+      const digits = fcTags[0].id.replace(/[A-E]+$/,'').length;
+      const minStr = String(min).padStart(digits,'0');
+      const maxStr = String(max).padStart(digits,'0');
+      const next = nextAvailable(getSeriesForPACFC(pac, fc));
+      html += `<div class="pac-fc-row">
+        <span class="pac-fc-code">${fc}</span>
+        <span class="pac-fc-range">${minStr}–${maxStr} <span style="color:var(--muted2)">(${fcTags.length})</span></span>
+        <span class="pac-fc-next">next: ${next.str}</span>
+      </div>`;
+    });
+    html += `</div>`;
+
+    // Drawings
+    const drawingEntries = Object.entries(byDrawing).sort();
+    if (drawingEntries.length) {
+      html += `<div class="pac-drawings" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div class="pac-range-title">Coverage</div>`;
+      drawingEntries.forEach(([drw, cnt]) => {
+        const short = drw.length > 28 ? '…'+drw.slice(-25) : drw;
+        // Find if this drawing belongs to a family
+        const famId = getFamilyForDrawing(drw);
+        const fam   = famId ? families.find(function(f){ return f.id === famId; }) : null;
+        const famChip = fam
+          ? '<span style="font-size:8px;padding:1px 6px;border-radius:3px;border:1px solid #00c8f040;color:var(--accent);margin-left:6px;flex-shrink:0;white-space:nowrap" title="Part of family: ' + fam.name + '">⊞ ' + fam.name + '</span>'
+          : '';
+        html += '<div class="pac-drw-row">' +
+          '<span class="pac-drw-name" title="' + drw + '">' + short + '</span>' +
+          famChip +
+          '<span class="pac-drw-count">' + cnt + ' tags</span>' +
+        '</div>';
+      });
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  container.innerHTML = html;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAWING FAMILIES
+// ─────────────────────────────────────────────────────────────────────────────
+// families = [{ id, name, patterns }]
+// patterns = array of strings, each is a prefix or substring to match drawing names
+// e.g. ['SP25','SP26','SP27'] or ['SP25-SP39'] (range syntax)
+
+let families = [];
+
+function saveFamilies() {
+  // Families are saved in the CSV export — nothing stored in browser
+}
+
+function expandPatterns(patterns) {
+  // Takes array of pattern strings typed by user, returns set of matched drawing names
+  // Supports: exact match, prefix match, range "SP25-SP39"
+  const matched = new Set();
+  const allDrawings = Object.keys(drawings);
+
+  patterns.forEach(pat => {
+    pat = pat.trim().toUpperCase();
+    if (!pat) return;
+
+    // Range syntax: SP25-SP39 (same prefix, numeric range)
+    const rangeMatch = pat.match(/^([A-Z]+)(\d+)-(?:[A-Z]+)?(\d+)$/);
+    if (rangeMatch) {
+      const prefix = rangeMatch[1];
+      const from   = parseInt(rangeMatch[2]);
+      const to     = parseInt(rangeMatch[3]);
+      allDrawings.forEach(d => {
+        const dm = d.toUpperCase().match(new RegExp('^' + prefix + '(\\d+)'));
+        if (dm) {
+          const n = parseInt(dm[1]);
+          if (n >= from && n <= to) matched.add(d);
+        }
+      });
+      return;
+    }
+
+    // Prefix / substring match
+    allDrawings.forEach(d => {
+      if (d.toUpperCase().startsWith(pat) || d.toUpperCase().includes(pat)) matched.add(d);
+    });
+  });
+
+  return matched;
+}
+
+function getFamilyForDrawing(drawingName) {
+  for (const fam of families) {
+    const matched = expandPatterns(fam.patterns);
+    if (matched.has(drawingName)) return fam.id;
+  }
+  return null;
+}
+
+function getRealClashes() {
+  // A clash is REAL if the same tag appears on drawings from DIFFERENT families
+  // or where at least one drawing is ungrouped
+  const tagDrawings = {};
+  allTags.filter(t => !t.isReview).forEach(t => {
+    if (!tagDrawings[t.tag]) tagDrawings[t.tag] = [];
+    tagDrawings[t.tag].push(t.drawing);
+  });
+
+  const realClashes = [];
+  Object.entries(tagDrawings).forEach(([tag, drws]) => {
+    if (drws.length <= 1) return;
+    const famIds = drws.map(d => getFamilyForDrawing(d));
+    // Real clash if not all in the same family (or all ungrouped with null)
+    const uniqueFams = new Set(famIds);
+    // All same non-null family = intentional, suppress
+    if (uniqueFams.size === 1 && !uniqueFams.has(null)) return;
+    // All ungrouped (all null) = still a clash
+    realClashes.push({ tag, drawings: drws, famIds });
+  });
+
+  return realClashes;
+}
+
+function addFamily() {
+  families.push({ id: Date.now(), name: 'New Family', patterns: [] });
+  saveFamilies();
+  renderFamilies();
+}
+
+function deleteFamily(id) {
+  families = families.filter(f => f.id !== id);
+  saveFamilies();
+  detectClashes();
+  updateStats();
+  renderFamilies();
+}
+
+function updateFamilyName(id, name) {
+  const fam = families.find(f => f.id === id);
+  if (fam) { fam.name = name; saveFamilies(); }
+}
+
+function updateFamilyPatterns(id, text) {
+  const fam = families.find(f => f.id === id);
+  if (fam) {
+    fam.patterns = text.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    saveFamilies();
+    detectClashes();
+    updateStats();
+    renderFamilies();
+  }
+}
+
+function renderFamilies() {
+  const grid = document.getElementById('fam-grid');
+  const realClashWrap = document.getElementById('fam-real-clashes-wrap');
+
+  if (!allTags.length) {
+    grid.innerHTML = '<div style="color:var(--muted);font-size:11px;grid-column:1/-1">Load drawings first.</div>';
+    realClashWrap.innerHTML = '';
+    return;
+  }
+
+  // Render family cards
+  grid.innerHTML = '';
+  families.forEach(fam => {
+    const matched = expandPatterns(fam.patterns);
+    const matchedList = [...matched].sort();
+    const tagCount = allTags.filter(t => !t.isReview && matched.has(t.drawing)).length;
+
+    // Count intentionally suppressed clashes in this family
+    const tagDrawings = {};
+    allTags.filter(t => !t.isReview && matched.has(t.drawing)).forEach(t => {
+      if (!tagDrawings[t.tag]) tagDrawings[t.tag] = 0;
+      tagDrawings[t.tag]++;
+    });
+    const suppressedClashes = Object.values(tagDrawings).filter(c => c > 1).length;
+
+    const card = document.createElement('div');
+    card.className = 'fam-card';
+    // Build card using DOM - avoids all quote escaping issues
+    const header = document.createElement('div');
+    header.className = 'fam-card-header';
+
+    const nameInput = document.createElement('input');
+    nameInput.className = 'fam-card-name';
+    nameInput.value = fam.name;
+    nameInput.addEventListener('blur', function() { updateFamilyName(fam.id, this.value); });
+    nameInput.addEventListener('keydown', function(e) { if(e.key==='Enter') this.blur(); });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'fam-card-del';
+    delBtn.title = 'Remove family';
+    delBtn.textContent = '✕';
+    delBtn.addEventListener('click', function() { deleteFamily(fam.id); });
+
+    header.appendChild(nameInput);
+    header.appendChild(delBtn);
+
+    const tagCountDiv = document.createElement('div');
+    tagCountDiv.className = 'fam-tag-count';
+    tagCountDiv.innerHTML = tagCount + ' tags · ' + matchedList.length + ' drawing' + (matchedList.length!==1?'s':'') +
+      (suppressedClashes ? ' · <span style="color:var(--green)">' + suppressedClashes + ' clashes suppressed</span>' : '');
+
+    const drawLabel = document.createElement('div');
+    drawLabel.className = 'fam-drawings-label';
+    drawLabel.textContent = 'Drawing prefixes or ranges (one per line)';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'fam-drawings-input';
+    textarea.placeholder = 'e.g. SP25-SP39\nor SP25, SP26, SP27';
+    textarea.value = fam.patterns.join('\n');
+    textarea.addEventListener('blur', function() { updateFamilyPatterns(fam.id, this.value); });
+
+    const matchedDiv = document.createElement('div');
+    matchedDiv.className = 'fam-matched';
+    if (matchedList.length) {
+      matchedList.forEach(function(d) {
+        const chip = document.createElement('span');
+        chip.className = 'fam-drw-chip matched';
+        chip.textContent = d.substring(0,20);
+        matchedDiv.appendChild(chip);
+      });
+    } else {
+      matchedDiv.innerHTML = '<span style="font-size:9px;color:var(--muted2)">No drawings matched yet</span>';
+    }
+
+    card.appendChild(header);
+    card.appendChild(tagCountDiv);
+    card.appendChild(drawLabel);
+    card.appendChild(textarea);
+    card.appendChild(matchedDiv);
+
+    grid.appendChild(card);
+  });
+
+  // Render real clashes panel
+  const realClashes = getRealClashes();
+  if (!realClashes.length) {
+    realClashWrap.innerHTML =
+      '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px 20px">' +
+      '<div style="font-size:9px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Real Clashes</div>' +
+      '<div style="font-size:11px;color:var(--green)">✓ No real clashes detected — all tag clashes are within defined families.</div>' +
+      '</div>';
+  } else {
+    let html =
+      '<div class="fam-clash-panel">' +
+      '<h3>Real Clashes (' + realClashes.length + ') — require action</h3>';
+
+    realClashes.forEach(rc => {
+      const famNames = rc.famIds.map((fid, i) => {
+        if (fid === null) return '<span style="color:var(--amber)">ungrouped</span>';
+        const fam = families.find(f => f.id === fid);
+        return fam ? '<span style="color:var(--accent)">' + fam.name + '</span>' : 'unknown';
+      });
+      const uniqueDrawings = [...new Set(rc.drawings)];
+      html +=
+        '<div class="fam-real-clash">' +
+          '<span class="fam-real-clash-tag">⚠ ' + rc.tag + '</span>' +
+          '<span class="fam-real-clash-detail">' +
+            uniqueDrawings.slice(0,4).join(', ') +
+            (uniqueDrawings.length > 4 ? ' +' + (uniqueDrawings.length-4) + ' more' : '') +
+          '</span>' +
+        '</div>';
+    });
+
+    html += '</div>';
+    realClashWrap.innerHTML = html;
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIGHT / DARK MODE
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme preference not persisted (shared tool — no localStorage)
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  document.getElementById('theme-btn').textContent = isLight ? '🌙' : '☀️';
+  // Theme not persisted
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELP MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function toggleHelp(show) {
+  document.getElementById('help-overlay').classList.toggle('visible', show);
+  document.body.style.overflow = show ? 'hidden' : '';
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') toggleHelp(false); });
+
+</script>
+
+
+<!-- ── Revision Confirmation Modal ────────────────────────────────────── -->
+<div id="rev-overlay">
+  <div id="rev-modal">
+    <h2>CONFIRM REVISIONS</h2>
+    <div class="rev-sub">Revisions detected from title blocks. Correct any that are wrong before importing.</div>
+    <div class="rev-table-wrap">
+    <table class="rev-table">
+      <thead><tr><th style="position:sticky;top:0;background:var(--bg3);z-index:1">Drawing</th><th style="position:sticky;top:0;background:var(--bg3);z-index:1">Detected</th><th style="position:sticky;top:0;background:var(--bg3);z-index:1">Revision</th></tr></thead>
+      <tbody id="rev-table-body"></tbody>
+    </table>
+    </div>
+    <div class="rev-actions">
+      <button class="btn btn-red" onclick="cancelRevModal()">Cancel</button>
+      <button class="btn btn-green" onclick="confirmRevModal()">↓ Import All</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Help Modal ──────────────────────────────────────────────────────── -->
+<div id="help-overlay" onclick="if(event.target===this)toggleHelp(false)">
+  <div id="help-modal">
+    <button class="close-btn" onclick="toggleHelp(false)">✕</button>
+    <h1>P&amp;ID TAG REGISTER</h1>
+    <div class="subtitle">WESSEX WATER DS310 · OFFLINE TOOL · HOW TO USE</div>
+
+    <h2>WHAT THIS TOOL DOES</h2>
+    <p>Extracts every function tag from your Plant 3D–exported P&amp;ID PDFs, builds a searchable master register, detects clashes, and helps you plan new tag numbers — all without any internet connection or AI involvement. It runs entirely in your browser.</p>
+
+    <h2>GETTING STARTED</h2>
+    <div class="step-grid">
+      <div class="step-card">
+        <div class="step-num">STEP 01</div>
+        <div class="step-title">Load your P&amp;IDs</div>
+        <div class="step-desc">Drop one or more PDF drawings into the <em>Add P&amp;ID Drawings</em> zone. You'll be asked for the revision (e.g. C01, C02, IFD). You can load multiple drawings at once.</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 02</div>
+        <div class="step-title">Review the register</div>
+        <div class="step-desc">The <strong>All Tags</strong> tab shows every confirmed tag. Use the filters to narrow by type, process area, or drawing. The <strong>⚠ Clashes</strong> tab flags any duplicate tags across sheets.</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 03</div>
+        <div class="step-title">Check the Review tab</div>
+        <div class="step-desc">The <strong>? Review</strong> tab contains tags that were found but don't perfectly match DS310 format. Inspect these manually — they may be real tags or noise.</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 04</div>
+        <div class="step-title">Export your register</div>
+        <div class="step-desc">Click <strong>Export CSV</strong> to save the full register. Upload it to Autodesk Construction Cloud for the team. Next time, load the CSV back in and add new drawings on top — it merges automatically.</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 05</div>
+        <div class="step-title">Plan new tags</div>
+        <div class="step-desc">Use the <strong>⊕ Next Tag</strong> tab. Enter a PAC and FC (e.g. 71, P) to see what's already taken, spot any sequence gaps, and get the next available number instantly.</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 06</div>
+        <div class="step-title">Review by process area</div>
+        <div class="step-desc">The <strong>◈ PAC Dashboard</strong> shows each process area's tag ranges, type breakdown, and which drawings cover it — useful for sense-checking a new design.</div>
+      </div>
+    </div>
+
+    <h2>TAG FORMAT — DS310</h2>
+    <p>This tool is calibrated to the Wessex Water DS310 tagging standard. Tags follow the format:</p>
+    <p style="color:var(--accent);letter-spacing:3px;font-size:13px;margin:10px 0 4px">PAC – FC – NNNNN (A)</p>
+    <ul>
+      <li><strong style="color:var(--text)">PAC</strong> — Process Area Code (1–2 digits, e.g. <span class="tag-eg">71</span> = Chemical Dosing)</li>
+      <li><strong style="color:var(--text)">FC</strong> — Function Code (1–6 letters, e.g. <span class="tag-eg">P</span> = Pump, <span class="tag-eg">LIT</span> = Level Indicating Transmitter)</li>
+      <li><strong style="color:var(--text)">NNNNN</strong> — 3–5 digit identification number (e.g. <span class="tag-eg">1901</span>)</li>
+      <li><strong style="color:var(--text)">(A)</strong> — Optional parallel plant suffix A, B, C for duty/standby (e.g. <span class="tag-eg">71-P-1901A</span>)</li>
+    </ul>
+
+    <h2 class="amber">KNOWN LIMITATIONS</h2>
+    <div class="limit-row"><span class="limit-icon">🖨️</span><div class="limit-text"><strong>Scanned / image-based PDFs will not work.</strong> The tool reads the text layer that Plant 3D embeds in the PDF. If a drawing has been scanned or printed to PDF without a text layer, no tags will be found. The tool will warn you if this happens.</div></div>
+    <div class="limit-row"><span class="limit-icon">📄</span><div class="limit-text"><strong>Sheet cross-references can confuse the ID number.</strong> Where a sheet reference number (e.g. 4001) appears immediately before a tag's ID in the PDF text, the tool may capture the wrong number. Check LCP and MCP tags in particular — these are the most common culprits. They will still appear in the register but may need manual correction.</div></div>
+    <div class="limit-row"><span class="limit-icon">📏</span><div class="limit-text"><strong>Line numbers can look like tags.</strong> Pipe line numbers with a single-digit area code and a pipe material FC (e.g. <span class="tag-eg" style="color:var(--amber)">6-FW-1001</span>) match the tag pattern. These are sent to the Review tab automatically, but you should verify them.</div></div>
+    <div class="limit-row"><span class="limit-icon">🔠</span><div class="limit-text"><strong>Fully corrupted OCR text won't be caught.</strong> If a drawing has been through OCR that replaced hyphens with spaces and garbled letters, the tag may not be recoverable. Em-dashes and double-dashes are handled, but completely mangled text is not.</div></div>
+    <div class="limit-row"><span class="limit-icon">🔁</span><div class="limit-text"><strong>The register is not saved between sessions.</strong> Export your CSV after every session and reload it next time. The tool has no database — everything lives in the browser tab while it's open.</div></div>
+    <div class="limit-row"><span class="limit-icon">✏️</span><div class="limit-text"><strong>The tool extracts, it doesn't validate.</strong> It will find tags as written on the drawing. If a tag on the drawing is wrong (wrong PAC, wrong FC, wrong format), the tool will faithfully extract the wrong tag. DS310 compliance checking is your responsibility.</div></div>
+
+    <h2 class="green">TIPS</h2>
+    <ul>
+      <li>Load your full drawing set at once rather than one at a time — it's faster and clash detection works across all sheets.</li>
+      <li>If you re-issue a drawing at a new revision, just drop the new PDF in — the tool replaces the old tags from that drawing automatically.</li>
+      <li>The CSV export is designed to be uploaded to Autodesk Construction Cloud as your project master tag register.</li>
+      <li>Use the PAC filter in the main table to focus on one process area at a time when reviewing.</li>
+      <li>Gaps in the ⊕ Next Tag view are worth investigating — they often mean a tag was assigned but never drawn.</li>
+    </ul>
+
+    <p style="margin-top:24px;font-size:9px;color:var(--muted2);letter-spacing:1px">Built for Wessex Water DS310 Rev 3b · Plant 3D PDF export compatible · Fully offline</p>
+  </div>
+</div>
+
+  <script src="/assets/js/tool-frame.js"></script>
+</body>
+</html>
