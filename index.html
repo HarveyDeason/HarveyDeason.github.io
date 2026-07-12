@@ -8,19 +8,48 @@
 </head>
 <body>
   <header id="site-header"></header>
-  <div class="container" style="padding-top:60px;">
-    <div class="frame" style="padding:40px; text-align:center;">
-      <img class="seal" src="/assets/img/seal.svg" alt="HD monogram">
-      <div class="eyebrow">Engineer &amp; Essayist</div>
-      <div class="wordmark">Harvey <em>Deason</em></div>
+  <main>
+    <section class="hero container">
+      <div class="frame hero-frame">
+        <span class="rc tl"></span><span class="rc tr"></span><span class="rc bl"></span><span class="rc br"></span>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Engineer &amp; Essayist</div>
+            <h1 class="wordmark">Harvey <em>Deason</em></h1>
+            <div class="dim"><span class="tick"></span><span class="ln"></span><span class="val">ENGINEERING &amp; WRITING</span><span class="ln"></span><span class="tick"></span></div>
+            <p class="lead">A cabinet of engineering instruments, built by hand — and a journal on work, output, and the well-considered life.</p>
+            <div class="hero-cta">
+              <a class="gilt-link" href="/tools/">Enter the Cabinet →</a>
+              <a class="gilt-link" href="/writing/">Read the Journal →</a>
+            </div>
+          </div>
+          <div class="hero-plate">
+            <canvas id="gear-train" aria-label="Interactive three-gear train illustration"></canvas>
+            <div class="label plate-cap">Plate I · The Gear Train — drag to drive</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="container section" data-anim="reveal">
       <div class="rule"><div class="ln"></div><div class="di"></div><div class="ln"></div></div>
-      <p class="label">Design system online</p>
-    </div>
-  </div>
+      <h2 class="section-title">From the Journal</h2>
+      <div id="latest-writing" class="cards-grid">Loading…</div>
+    </section>
+
+    <section class="container section" data-anim="reveal">
+      <div class="rule"><div class="ln"></div><div class="di"></div><div class="ln"></div></div>
+      <h2 class="section-title">Instruments</h2>
+      <div id="featured-tools" class="cards-grid">Loading…</div>
+    </section>
+  </main>
   <footer id="site-footer"></footer>
+
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
+    import { initGearTrain } from '/assets/js/gear-train.js';
     mountLayout('home');
+    initGearTrain(document.getElementById('gear-train'));
   </script>
 </body>
 </html>
