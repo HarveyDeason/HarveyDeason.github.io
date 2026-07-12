@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Journal — Harvey Deason</title>
+  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container reading">
+    <p><a class="gilt-link" href="/writing/">← Back to the Journal</a></p>
+    <div id="post">Loading…</div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script type="module">
+    import { mountLayout } from '/assets/js/layout.js';
+    import { fetchPostBySlug, mountSinglePost } from '/assets/js/wordpress.js';
+    mountLayout('writing');
+    const slug = new URLSearchParams(location.search).get('slug');
+    fetchPostBySlug(slug).then(p => mountSinglePost('post', p))
+      .catch(()=>{ document.getElementById('post').innerHTML =
+        '<p class="label">Unable to load this post. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+  </script>
+</body>
+</html>

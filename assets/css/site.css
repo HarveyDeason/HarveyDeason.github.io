@@ -89,3 +89,14 @@ a{color:var(--green);}
 .tool-card{display:flex; flex-direction:column; min-height:150px;}
 .tool-ref{position:absolute; top:10px; right:12px;}
 .tool-open{margin-top:auto; align-self:flex-start;}
+
+.post-cover{height:140px; background-size:cover; background-position:center; margin:-18px -18px 12px; border-bottom:1px solid var(--gilt);}
+.post-card h3{font-size:19px;}
+.reading{max-width:720px; margin-top:40px;}
+.post-title{font:400 clamp(30px,5vw,50px)/1.1 var(--serif); color:var(--ink); margin:.2em 0 .4em;}
+.post-hero{width:100%; border:1px solid var(--gilt); margin:10px 0 20px;}
+.post-body{font-size:18px; line-height:1.75;}
+.post-body p:first-of-type::first-letter{float:left; font:400 54px/.8 var(--serif); color:var(--green); padding:6px 10px 0 0;}
+.post-body img{max-width:100%; height:auto;}
+.post-body h2,.post-body h3{color:var(--green); font-style:italic;}
+.post-body blockquote{border-left:3px solid var(--gilt); margin:1em 0; padding-left:1em; color:var(--soft); font-style:italic;}

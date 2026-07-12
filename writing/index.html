@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Journal — Harvey Deason</title>
+  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <section class="section" style="margin-top:40px;">
+      <div class="eyebrow" style="text-align:center;">The Journal</div>
+      <h1 class="section-title">Writing</h1>
+      <div id="journal" class="cards-grid" style="margin-top:30px;">Loading…</div>
+    </section>
+  </main>
+  <footer id="site-footer"></footer>
+  <script type="module">
+    import { mountLayout } from '/assets/js/layout.js';
+    import { fetchPosts, mountPosts } from '/assets/js/wordpress.js';
+    mountLayout('writing');
+    fetchPosts({ perPage: 20 }).then(p => mountPosts('journal', p))
+      .catch(()=>{ document.getElementById('journal').innerHTML =
+        '<p class="label">The journal is momentarily unavailable. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+  </script>
+</body>
+</html>
