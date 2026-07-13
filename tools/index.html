@@ -3,28 +3,40 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Instruments — Harvey Deason</title>
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
   <link rel="stylesheet" href="/assets/css/site.css">
   <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
-  <main class="container">
-    <section class="section" style="margin-top:40px;">
-      <div class="eyebrow" style="text-align:center;">The Instrument Cabinet</div>
-      <h1 class="section-title">Engineering Instruments</h1>
-      <p class="lead" style="text-align:center;margin:0 auto;max-width:520px;color:var(--soft);font-style:italic;">Self-serve tools that run in your browser. Nothing to install.</p>
-      <div id="tool-cabinet" class="cards-grid" style="margin-top:30px;">Loading…</div>
+  <main>
+    <section class="section" data-anim="reveal">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>The instruments</h2>
+            <p>Single-purpose tools. No accounts, no tracking, everything runs in your browser.</p>
+          </div>
+        </div>
+        <div id="cabinet" class="bento"></div>
+      </div>
     </section>
   </main>
   <footer id="site-footer"></footer>
+
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
-    import { loadTools, mountTools } from '/assets/js/tools.js';
+    import { loadTools, mountTools, renderSkeletonCells } from '/assets/js/tools.js';
     import { initMotion } from '/assets/js/motion.js';
+
     mountLayout('tools');
-    loadTools().then(t => mountTools('tool-cabinet', t))
-      .catch(() => { document.getElementById('tool-cabinet').innerHTML =
-        '<p class="label">The cabinet is momentarily unavailable.</p>'; });
+
+    const cabinet = document.getElementById('cabinet');
+    cabinet.innerHTML = renderSkeletonCells(6);
+    loadTools().then(t => mountTools('cabinet', t))
+      .catch(() => { cabinet.innerHTML =
+        '<p class="sub">The cabinet is momentarily unavailable.</p>'; });
+
     initMotion();
   </script>
 </body>
