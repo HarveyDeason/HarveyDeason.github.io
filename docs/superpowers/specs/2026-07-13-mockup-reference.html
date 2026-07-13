@@ -1,0 +1,392 @@
+<title>Harvey Deason — Proposal Rev C · v0 Foundation</title>
+<style>
+  /* ——— shadcn/ui "stone" tokens, verbatim scale ——— */
+  :root, [data-mode="light"]{
+    --background:#fafaf9;        /* stone-50 */
+    --card:#ffffff;
+    --foreground:#1c1917;        /* stone-900 */
+    --muted:#f5f5f4;             /* stone-100 */
+    --muted-fg:#78716c;          /* stone-500 */
+    --border:#e7e5e4;            /* stone-200 */
+    --input:#d6d3d1;             /* stone-300 */
+    --primary:#1d3a2b;           /* the one old-money move: racing green as primary */
+    --primary-hover:#254735;
+    --primary-fg:#fafaf9;
+    --accent-gold:#a9863f;
+    --ring:#1d3a2b;
+    --radius:0.5rem;
+    --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .05);
+    --shadow-md:0 4px 6px -1px rgb(0 0 0 / .07), 0 2px 4px -2px rgb(0 0 0 / .05);
+    --shadow-lg:0 10px 15px -3px rgb(0 0 0 / .08), 0 4px 6px -4px rgb(0 0 0 / .05);
+    --grid-dot:rgb(28 25 23 / .07);
+    --glass:rgb(250 250 249 / .8);
+  }
+  [data-mode="dark"]{
+    --background:#0c0a09;        /* stone-950 */
+    --card:#1c1917;              /* stone-900 */
+    --foreground:#fafaf9;
+    --muted:#292524;             /* stone-800 */
+    --muted-fg:#a8a29e;          /* stone-400 */
+    --border:#292524;
+    --input:#44403c;
+    --primary:#cdae6b;           /* gilt takes over as primary after dark */
+    --primary-hover:#dcc084;
+    --primary-fg:#1c1917;
+    --accent-gold:#cdae6b;
+    --ring:#cdae6b;
+    --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .4);
+    --shadow-md:0 4px 6px -1px rgb(0 0 0 / .5);
+    --shadow-lg:0 10px 15px -3px rgb(0 0 0 / .6);
+    --grid-dot:rgb(250 250 249 / .06);
+    --glass:rgb(12 10 9 / .8);
+  }
+  *{box-sizing:border-box; margin:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--background); color:var(--foreground);
+    font:15px/1.6 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; transition:background .4s, color .4s;
+  }
+  .serif{font-family:Georgia,'Times New Roman',serif;}
+  .mono{font-family:ui-monospace,'Cascadia Code','Consolas',monospace; font-variant-numeric:tabular-nums;}
+  .container{max-width:1080px; margin:0 auto; padding:0 24px;}
+  a{color:inherit;}
+
+  /* ——— navbar ——— */
+  .nav{position:sticky; top:0; z-index:50; background:var(--glass);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border); transition:background .4s, border-color .4s;}
+  .nav-row{display:flex; align-items:center; justify-content:space-between; height:56px;}
+  .logo{display:flex; align-items:center; gap:8px; font-weight:600; font-size:15px; text-decoration:none; letter-spacing:-.2px;}
+  .logo .dot{width:8px; height:8px; border-radius:2px; background:var(--accent-gold); transform:rotate(45deg);}
+  .nav-links{display:flex; align-items:center; gap:4px;}
+  .nav-links a{font-size:13.5px; color:var(--muted-fg); text-decoration:none; padding:7px 12px; border-radius:6px; transition:.2s;}
+  .nav-links a:hover{color:var(--foreground); background:var(--muted);}
+  .nav-cta{margin-left:8px;}
+
+  /* ——— shadcn button recipes ——— */
+  .btn{display:inline-flex; align-items:center; gap:8px; font-size:13.5px; font-weight:500;
+    padding:9px 16px; border-radius:6px; text-decoration:none; border:1px solid transparent;
+    cursor:pointer; transition:all .2s; line-height:1.2;}
+  .btn-primary{background:var(--primary); color:var(--primary-fg); box-shadow:var(--shadow-sm);}
+  .btn-primary:hover{background:var(--primary-hover); box-shadow:var(--shadow-md); transform:translateY(-1px);}
+  .btn-outline{border-color:var(--input); background:var(--card); box-shadow:var(--shadow-sm);}
+  .btn-outline:hover{background:var(--muted);}
+  .btn-ghost{color:var(--muted-fg);}
+  .btn-ghost:hover{background:var(--muted); color:var(--foreground);}
+  .btn:focus-visible{outline:2px solid var(--ring); outline-offset:2px;}
+
+  /* lamp */
+  .lamp{width:34px; height:34px; border:1px solid var(--border); border-radius:8px; background:var(--card);
+    display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:.2s; padding:0;}
+  .lamp:hover{background:var(--muted);}
+  .lamp svg{width:16px; height:16px; stroke:var(--muted-fg); fill:none; stroke-width:1.6; stroke-linecap:round;}
+  .lamp:focus-visible{outline:2px solid var(--ring); outline-offset:2px;}
+
+  /* ——— hero: v0 pattern (badge → display → subcopy → CTA pair) on graph paper ——— */
+  .hero{position:relative; padding:110px 0 96px; overflow:hidden;}
+  .hero::before{content:""; position:absolute; inset:0;
+    background-image:radial-gradient(var(--grid-dot) 1px, transparent 1px);
+    background-size:22px 22px;
+    mask-image:radial-gradient(ellipse 85% 90% at 50% 0%, #000 55%, transparent 100%);
+    -webkit-mask-image:radial-gradient(ellipse 85% 90% at 50% 0%, #000 55%, transparent 100%);}
+  .hero .container{position:relative; display:grid; grid-template-columns:1.05fr .95fr; gap:48px; align-items:center;}
+  @media(max-width:820px){ .hero .container{grid-template-columns:1fr;} .hero{padding:80px 0 64px;} }
+  .gearbox{position:relative;}
+  .gearbox canvas{width:100%; aspect-ratio:1.05/1; display:block; cursor:ew-resize; touch-action:pan-y;}
+  .fig{display:flex; align-items:center; gap:10px; justify-content:center; margin-top:2px;
+    font:500 11px ui-monospace,'Cascadia Code','Consolas',monospace; letter-spacing:1.2px; color:var(--muted-fg);}
+  .fig .fl{width:34px; height:1px; background:var(--border);}
+  .badge{display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:500;
+    color:var(--muted-fg); background:var(--card); border:1px solid var(--border);
+    border-radius:999px; padding:5px 14px 5px 10px; box-shadow:var(--shadow-sm); margin-bottom:28px;}
+  .badge .pulse{width:7px; height:7px; border-radius:50%; background:var(--accent-gold);}
+  h1{font:600 clamp(44px,7.5vw,76px)/1.05 'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+    letter-spacing:-2.5px; max-width:17ch; text-wrap:balance; margin-bottom:22px;}
+  h1 .flourish{font-family:Georgia,serif; font-style:italic; font-weight:400; letter-spacing:-1px; color:var(--primary); transition:color .4s;}
+  .sub{font-size:17px; color:var(--muted-fg); max-width:56ch; margin-bottom:34px;}
+  .cta{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
+  .cta .btn{padding:11px 20px; font-size:14px;}
+  .stats{display:flex; gap:36px; margin-top:56px; flex-wrap:wrap;}
+  .stat .n{font:600 22px/1 ui-monospace,'Cascadia Code','Consolas',monospace; letter-spacing:-.5px;}
+  .stat .l{font-size:12px; color:var(--muted-fg); margin-top:6px; text-transform:uppercase; letter-spacing:.8px;}
+
+  /* ——— sections ——— */
+  .section{padding:72px 0;}
+  .section-head{display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:32px; flex-wrap:wrap;}
+  .section-head h2{font-size:26px; font-weight:600; letter-spacing:-.8px;}
+  .section-head p{color:var(--muted-fg); font-size:14.5px; margin-top:6px;}
+  .link-btn{font-size:13.5px; font-weight:500; text-decoration:none; color:var(--foreground);
+    display:inline-flex; gap:6px; align-items:center; padding:7px 12px; border-radius:6px; transition:.2s;}
+  .link-btn:hover{background:var(--muted);}
+  .link-btn .a{transition:transform .2s;}
+  .link-btn:hover .a{transform:translateX(3px);}
+
+  /* ——— bento grid ——— */
+  .bento{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
+  .cell{grid-column:span 1; background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:24px; text-decoration:none; display:flex; flex-direction:column; gap:10px; position:relative;
+    box-shadow:var(--shadow-sm); transition:box-shadow .25s, transform .2s, border-color .25s, background .4s;}
+  .cell:hover{box-shadow:var(--shadow-lg); transform:translateY(-2px); border-color:var(--accent-gold);}
+  .cell.wide{grid-column:span 2; }
+  .cell .ico{width:36px; height:36px; border-radius:8px; background:var(--muted); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; margin-bottom:6px;}
+  .cell .ico svg{width:18px; height:18px; stroke:var(--primary); fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; transition:stroke .4s;}
+  .cell h3{font-size:16.5px; font-weight:600; letter-spacing:-.3px;}
+  .cell p{font-size:13.5px; color:var(--muted-fg); flex:1;}
+  .cell .no{position:absolute; top:20px; right:22px; font:500 11px ui-monospace,'Consolas',monospace; color:var(--muted-fg); opacity:.65;}
+  .cell .meta{display:flex; gap:8px; margin-top:4px;}
+  .chip{font-size:11px; font-weight:500; color:var(--muted-fg); background:var(--muted); border:1px solid var(--border);
+    padding:2.5px 9px; border-radius:999px;}
+  @media(max-width:760px){ .bento{grid-template-columns:1fr;} .cell.wide{grid-column:span 1;} }
+
+  /* ——— journal rows ——— */
+  .post{display:flex; align-items:center; gap:20px; padding:18px 16px; margin:0 -16px; border-radius:10px;
+    text-decoration:none; transition:background .2s;}
+  .post:hover{background:var(--muted);}
+  .post + .post{border-top:1px solid var(--border);}
+  .post .date{font:500 12px ui-monospace,'Consolas',monospace; color:var(--muted-fg); min-width:86px;}
+  .post .t{flex:1;}
+  .post h3{font-size:16px; font-weight:600; letter-spacing:-.2px;}
+  .post p{font-size:13.5px; color:var(--muted-fg); margin-top:3px;}
+  .post .a{color:var(--muted-fg); transition:transform .2s, color .2s;}
+  .post:hover .a{transform:translateX(3px); color:var(--foreground);}
+  @media(max-width:640px){ .post{flex-wrap:wrap; gap:8px;} }
+
+  /* ——— footer ——— */
+  footer{border-top:1px solid var(--border); padding:40px 0 56px; margin-top:48px;}
+  .foot{display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}
+  .foot .colo{font-size:13px; color:var(--muted-fg);}
+  .foot .colo .g{color:var(--accent-gold); padding:0 7px;}
+
+  /* ——— proposal notes ——— */
+  .notes{border:1px solid var(--border); background:var(--card); border-radius:12px; padding:32px 34px; margin:72px 0 90px; box-shadow:var(--shadow-sm);}
+  .notes .tag{display:inline-flex; font-size:11px; font-weight:600; letter-spacing:1.5px; color:var(--accent-gold);
+    font-family:ui-monospace,'Consolas',monospace; margin-bottom:12px;}
+  .notes h2{font-size:22px; font-weight:600; letter-spacing:-.5px; margin-bottom:16px;}
+  .notes ul{padding-left:18px; display:grid; gap:10px; color:var(--muted-fg); font-size:14px; max-width:75ch;}
+  .notes li b{color:var(--foreground); font-weight:600;}
+
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} html{scroll-behavior:auto;} }
+</style>
+
+<body data-mode="light">
+
+<nav class="nav">
+  <div class="container nav-row">
+    <a class="logo" href="#"><span class="dot"></span>Harvey Deason</a>
+    <div class="nav-links">
+      <a href="#">Instruments</a>
+      <a href="#">Journal</a>
+      <a href="#">About</a>
+      <button class="lamp" id="lamp" aria-label="Toggle evening mode" aria-pressed="false">
+        <svg viewBox="0 0 24 24" id="lamp-ico"><path d="M12 3v1.5M12 19.5V21M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M3 12h1.5M19.5 12H21M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1"/><circle cx="12" cy="12" r="4"/></svg>
+      </button>
+      <a href="#" class="btn btn-primary nav-cta">Get in touch</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <section class="hero">
+    <div class="container">
+      <div>
+      <span class="badge"><span class="pulse"></span>Design engineer · Waterworks &amp; utilities · UK</span>
+      <h1>Engineering tools and essays, <span class="flourish">properly made.</span></h1>
+      <p class="sub">Six hand-built instruments for pipeline design, hydraulics and drawing-office work — and a journal on doing considered work in an inconsiderate industry.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#">Browse the instruments</a>
+        <a class="btn btn-outline" href="#">Read the journal</a>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="n">06</div><div class="l">Instruments</div></div>
+        <div class="stat"><div class="n">14</div><div class="l">Essays</div></div>
+        <div class="stat"><div class="n">BS 8888</div><div class="l">Drawn to standard</div></div>
+      </div>
+      </div>
+      <div class="gearbox">
+        <canvas id="gears" aria-label="Interactive three-gear train — drag to drive"></canvas>
+        <div class="fig"><span class="fl"></span>FIG. 01 — GEAR TRAIN · DRAG TO DRIVE<span class="fl"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:24px;">
+    <div class="container">
+      <div class="section-head">
+        <div><h2>The instruments</h2><p>Single-purpose tools. No accounts, no tracking, everything runs in your browser.</p></div>
+        <a class="link-btn" href="#">View all <span class="a">→</span></a>
+      </div>
+      <div class="bento">
+        <a class="cell wide" href="#">
+          <span class="no">01</span>
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 3 10 2-5h7"/></svg></span>
+          <h3>HydroSizer</h3>
+          <p>Pipe sizing by flow, velocity and headloss. Colebrook–White with full intermediate working shown — because a black-box answer isn't an answer.</p>
+          <span class="meta"><span class="chip">Hydraulics</span><span class="chip">BS EN 805</span></span>
+        </a>
+        <a class="cell" href="#">
+          <span class="no">02</span>
+          <span class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg></span>
+          <h3>P&amp;ID Tag Register</h3>
+          <p>Extract and audit instrument tags from drawing exports.</p>
+          <span class="meta"><span class="chip">QA</span></span>
+        </a>
+        <a class="cell" href="#">
+          <span class="no">03</span>
+          <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span>
+          <h3>Pipe Hydraulics</h3>
+          <p>Colebrook–White and Hazen–Williams, side by side.</p>
+          <span class="meta"><span class="chip">Hydraulics</span></span>
+        </a>
+        <a class="cell wide" href="#">
+          <span class="no">04</span>
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-6h6v6"/></svg></span>
+          <h3>Platform Access Checker</h3>
+          <p>Access-platform compliance against EN ISO 14122 — reach, pitch and clearance checks in one pass.</p>
+          <span class="meta"><span class="chip">Safety</span><span class="chip">EN ISO 14122</span></span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div><h2>From the journal</h2><p>Work, output, and the well-considered life.</p></div>
+        <a class="link-btn" href="#">Archive <span class="a">→</span></a>
+      </div>
+      <div>
+        <a class="post" href="#"><span class="date">04 Jul 26</span><span class="t"><h3>On the well-considered life</h3><p>Why the drawing office understood focus long before software did.</p></span><span class="a">→</span></a>
+        <a class="post" href="#"><span class="date">21 Jun 26</span><span class="t"><h3>Instruments, not apps</h3><p>A case for tools that do one thing precisely, and nothing else.</p></span><span class="a">→</span></a>
+        <a class="post" href="#"><span class="date">02 Jun 26</span><span class="t"><h3>The quiet spreadsheet</h3><p>Notes on inheriting fifteen years of someone else's calculations.</p></span><span class="a">→</span></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container foot">
+    <a class="logo" href="#"><span class="dot"></span>Harvey Deason</a>
+    <span class="colo">Built by hand<span class="g">·</span>No trackers<span class="g">·</span>United Kingdom</span>
+  </div>
+</footer>
+
+<div class="container">
+  <div class="notes">
+    <span class="tag">PROPOSAL HD—002 · REV C</span>
+    <h2>This one actually is built on the v0 foundation</h2>
+    <ul>
+      <li><b>shadcn "stone" tokens, verbatim.</b> Background, card, border, muted-foreground — the exact neutral scale v0 generates with (stone-50 ground, stone-200 hairlines, stone-500 secondary text). The warm stone scale was chosen over cold zinc because it quietly keeps the old-money warmth.</li>
+      <li><b>v0 component recipes:</b> the badge pill with status dot, primary/outline button pair with shadow-sm, bento grid with icon tiles and metadata chips, sticky blurred navbar with a CTA button in it, dot-grid hero background (which here doubles as graph paper — the one place engineering and SaaS aesthetics are the same thing).</li>
+      <li><b>Sans-first typography.</b> Headline is a tight-tracked modern sans, not a serif. Exactly <i>one</i> serif italic phrase survives, in racing green — that flourish plus the gilt logo mark is the entire "old money" budget on this page. In the real build: Geist or Inter, self-hosted.</li>
+      <li><b>Racing green is the primary button colour</b> — where v0 would put black. After dark it hands over to gilt. That single substitution is what makes it yours rather than a template.</li>
+      <li><b>The lamp stays</b> — now a proper shadcn icon-button in the navbar. Try it: the whole page moves through stone-950, and green passes the torch to gold.</li>
+      <li><b>The gear train is back in the hero</b> — the exact mechanism from the current site (same tooth geometry, mesh phasing and drag physics), recoloured from engraved gilt to the token palette: stone wireframe with racing-green depth in daylight, gold after dark. Sitting on the dot grid it reads as a technical figure, captioned FIG. 01 in mono. Drag it; then flick the lamp while it spins.</li>
+      <li><b>Kept from the heritage site:</b> instrument numbering in mono, the diamond mark, the colophon line, tabular figures. Retired: frames, ruled paper, small-caps letterspacing, italic headings, "Est. MMXXVI".</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const lamp = document.getElementById('lamp'), root = document.body;
+  const sun = '<path d="M12 3v1.5M12 19.5V21M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M3 12h1.5M19.5 12H21M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1"/><circle cx="12" cy="12" r="4"/>';
+  const moon = '<path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9z"/>';
+  lamp.addEventListener('click', () => {
+    const dark = root.dataset.mode !== 'dark';
+    root.dataset.mode = dark ? 'dark' : 'light';
+    lamp.setAttribute('aria-pressed', String(dark));
+    document.getElementById('lamp-ico').innerHTML = dark ? moon : sun;
+  });
+
+  /* ——— gear train (same mechanism as the live site, recoloured to tokens) ——— */
+  (function(){
+    const TWO = Math.PI*2, module_ = 0.85, betaBC = 0.96;
+    const Zs = [14,10,16];
+    const pitch = Z => module_*Z/2;
+    const toothR = (u,Z) => { const p=pitch(Z), f=((u*Z)%1+1)%1; return p+(f<0.36?0.55*module_:-0.7*module_); };
+    const meshPhase = (beta,Zd,Zn) => beta+Math.PI-(TWO/Zn)*(0.72-(beta/TWO)*Zd);
+    const cB = meshPhase(0,Zs[0],Zs[1]), cC = meshPhase(betaBC,Zs[1],Zs[2]);
+    const angles = phi => { const aA=phi, aB=-(Zs[0]/Zs[1])*aA+cB, aC=-(Zs[1]/Zs[2])*aB+cC; return [aA,aB,aC]; };
+
+    const PAL = {
+      light:{ edge:[28,25,23],  n0:[120,113,108], n1:[29,58,43],   glow:'rgba(29,58,43,0.07)'  },
+      dark: { edge:[250,250,249], n0:[128,122,118], n1:[205,174,107], glow:'rgba(205,174,107,0.08)' }
+    };
+
+    const canvas = document.getElementById('gears');
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.min(devicePixelRatio||1, 2);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const density = Math.min(innerWidth,innerHeight)<640 ? 2 : 3;
+
+    const gears = Zs.map(Z=>({Z}));
+    gears[0].cx=0; gears[0].cy=0;
+    gears[1].cx=pitch(Zs[0])+pitch(Zs[1]); gears[1].cy=0;
+    const dBC=pitch(Zs[1])+pitch(Zs[2]);
+    gears[2].cx=gears[1].cx+Math.cos(betaBC)*dBC; gears[2].cy=gears[1].cy+Math.sin(betaBC)*dBC;
+    const mx=(gears[0].cx+gears[1].cx+gears[2].cx)/3, my=(gears[0].cy+gears[1].cy+gears[2].cy)/3;
+    gears.forEach(g=>{g.cx-=mx; g.cy-=my;});
+
+    const nodes=[], edges=[], half=0.95, hub=1.4;
+    function patch(gi,U,V,fn,wrap){
+      const grid=[];
+      for(let i=0;i<U;i++){grid[i]=[];for(let j=0;j<V;j++){
+        const p=fn(i/(wrap?U:U-1), j/(V-1));
+        grid[i][j]=nodes.length; nodes.push({lx:p.x,ly:p.y,lz:p.z,g:gi,seed:p.s});
+      }}
+      for(let i=0;i<U;i++)for(let j=0;j<V;j++){
+        if(i<U-1||wrap) edges.push([grid[i][j],grid[(i+1)%U][j]]);
+        if(j<V-1) edges.push([grid[i][j],grid[i][j+1]]);
+      }
+    }
+    gears.forEach((g,gi)=>{
+      const U=g.Z*density;
+      patch(gi,U,3,(u,v)=>{const a=u*TWO,r=toothR(u,g.Z);return{x:Math.cos(a)*r,y:Math.sin(a)*r,z:(v-.5)*2*half,s:.55};},true);
+      patch(gi,U,4,(u,v)=>{const a=u*TWO,r=hub+(toothR(u,g.Z)-hub)*v;return{x:Math.cos(a)*r,y:Math.sin(a)*r,z:half,s:.35};},true);
+      patch(gi,U,4,(u,v)=>{const a=u*TWO,r=hub+(toothR(u,g.Z)-hub)*v;return{x:Math.cos(a)*r,y:Math.sin(a)*r,z:-half,s:.35};},true);
+    });
+
+    function size(){const r=canvas.getBoundingClientRect();canvas._w=r.width;canvas._h=r.height;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+    size(); addEventListener('resize', size);
+
+    let phi=0, vel=0, drag=false, lastX=0, mvx=0, mvy=0, tilt=0.62, viewY=0;
+    canvas.addEventListener('pointerdown',e=>{drag=true;lastX=e.clientX;canvas.setPointerCapture(e.pointerId);});
+    canvas.addEventListener('pointermove',e=>{ if(drag){vel+=(e.clientX-lastX)*0.0016;lastX=e.clientX;}
+      const r=canvas.getBoundingClientRect(); mvx=(e.clientX-r.left)/r.width-.5; mvy=(e.clientY-r.top)/r.height-.5; });
+    canvas.addEventListener('pointerup',()=>drag=false);
+    canvas.addEventListener('pointercancel',()=>drag=false);
+
+    const range=15.5;
+    function frame(){
+      const pal = PAL[root.dataset.mode==='dark'?'dark':'light'];
+      const W=canvas._w,H=canvas._h,cx=W/2,cy=H/2,FOV=52,S=Math.min(W,H)/(2.5*range);
+      vel*=0.94; phi+=vel+(reduce?0:0.0045);
+      const ang=angles(phi);
+      const ax=tilt+mvy*0.5; viewY+=(mvx*0.6-viewY)*0.06;
+      const cX=Math.cos(ax),sX=Math.sin(ax),cVY=Math.cos(viewY),sVY=Math.sin(viewY);
+      const cA=ang.map(Math.cos), sA=ang.map(Math.sin);
+      ctx.clearRect(0,0,W,H);
+      for(const o of nodes){
+        const x0=o.lx*cA[o.g]-o.ly*sA[o.g], y0=o.lx*sA[o.g]+o.ly*cA[o.g];
+        const x=x0+gears[o.g].cx, y=y0+gears[o.g].cy;
+        const x2=x*cVY+o.lz*sVY, z2=-x*sVY+o.lz*cVY;
+        const y2=y*cX-z2*sX, z3=y*sX+z2*cX;
+        const sc=FOV/(FOV+z3);
+        o.sx=cx+x2*sc*S; o.sy=cy+y2*sc*S; o.pz=z3; o.sc=sc;
+      }
+      const [er,eg,eb]=pal.edge;
+      for(const [i,j] of edges){const a=nodes[i],b=nodes[j];const d=(a.pz+range)/(2*range);
+        ctx.strokeStyle=`rgba(${er},${eg},${eb},${0.04+d*0.11})`; ctx.lineWidth=0.4+d*0.4;
+        ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.stroke();}
+      for(const p of [...nodes].sort((m,n)=>m.pz-n.pz)){const d=(p.pz+range)/(2*range);const rad=(0.7+p.seed*1.1)*p.sc*1.05;
+        if(d>0.82){ctx.fillStyle=pal.glow;ctx.beginPath();ctx.arc(p.sx,p.sy,rad*2.2,0,7);ctx.fill();}
+        const r=pal.n0[0]+(pal.n1[0]-pal.n0[0])*d, g=pal.n0[1]+(pal.n1[1]-pal.n0[1])*d, b=pal.n0[2]+(pal.n1[2]-pal.n0[2])*d;
+        ctx.fillStyle=`rgba(${r|0},${g|0},${b|0},${0.28+d*0.62})`;
+        ctx.beginPath();ctx.arc(p.sx,p.sy,rad,0,7);ctx.fill();}
+      requestAnimationFrame(frame);
+    }
+    frame();
+  })();
+</script>
+</body>
