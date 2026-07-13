@@ -50,12 +50,14 @@
     import { initGearTrain } from '/assets/js/gear-train.js';
     import { loadTools, mountTools } from '/assets/js/tools.js';
     import { fetchPosts, mountPosts } from '/assets/js/wordpress.js';
+    import { initMotion } from '/assets/js/motion.js';
     mountLayout('home');
     initGearTrain(document.getElementById('gear-train'));
     loadTools().then(t => mountTools('featured-tools', t, 3))
       .catch(()=>{ document.getElementById('featured-tools').innerHTML='<p class="label">Instruments unavailable.</p>'; });
     fetchPosts({ perPage:3 }).then(p => mountPosts('latest-writing', p))
       .catch(()=>{ document.getElementById('latest-writing').innerHTML='<p class="label">The journal is momentarily unavailable. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+    initMotion();
   </script>
 </body>
 </html>

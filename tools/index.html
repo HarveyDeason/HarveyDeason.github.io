@@ -20,10 +20,12 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { loadTools, mountTools } from '/assets/js/tools.js';
+    import { initMotion } from '/assets/js/motion.js';
     mountLayout('tools');
     loadTools().then(t => mountTools('tool-cabinet', t))
       .catch(() => { document.getElementById('tool-cabinet').innerHTML =
         '<p class="label">The cabinet is momentarily unavailable.</p>'; });
+    initMotion();
   </script>
 </body>
 </html>

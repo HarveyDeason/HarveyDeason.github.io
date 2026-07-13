@@ -18,10 +18,12 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPosts, mountPosts } from '/assets/js/wordpress.js';
+    import { initMotion } from '/assets/js/motion.js';
     mountLayout('writing');
     fetchPosts({ perPage: 20 }).then(p => mountPosts('journal', p))
       .catch(()=>{ document.getElementById('journal').innerHTML =
         '<p class="label">The journal is momentarily unavailable. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+    initMotion();
   </script>
 </body>
 </html>

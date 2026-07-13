@@ -15,11 +15,13 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPostBySlug, mountSinglePost } from '/assets/js/wordpress.js';
+    import { initMotion } from '/assets/js/motion.js';
     mountLayout('writing');
     const slug = new URLSearchParams(location.search).get('slug');
     fetchPostBySlug(slug).then(p => mountSinglePost('post', p))
       .catch(()=>{ document.getElementById('post').innerHTML =
         '<p class="label">Unable to load this post. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+    initMotion();
   </script>
 </body>
 </html>
