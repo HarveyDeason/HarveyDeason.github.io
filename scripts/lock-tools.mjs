@@ -92,8 +92,8 @@ export function renderLoaderPage(slug, payload) {
       <span class="ico"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
       <h1>Kept under lock</h1>
       <p class="sub">Enter the workshop code to open this instrument.</p>
-      <form class="vault-form" id="vault-form" autocomplete="off">
-        <input class="vault-input" type="password" id="vault-input" name="code" placeholder="Workshop code" autocomplete="off" required>
+      <form class="vault-form" id="vault-form" autocomplete="off" onsubmit="return false">
+        <input class="vault-input" type="password" id="vault-input" aria-label="Workshop code" placeholder="Workshop code" autocomplete="off" required>
         <button class="btn btn-primary" type="submit">Unlock</button>
         <p class="vault-error" id="vault-error" role="alert"></p>
       </form>

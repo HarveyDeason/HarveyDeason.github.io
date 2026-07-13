@@ -17,6 +17,7 @@
   --primary-hover:#254735;
   --primary-fg:#fafaf9;
   --accent-gold:#a9863f;
+  --destructive:#b3261e;
   --ring:#1d3a2b;
   --radius:0.5rem;
   --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .05);
@@ -39,6 +40,7 @@
   --primary-hover:#dcc084;
   --primary-fg:#1c1917;
   --accent-gold:#cdae6b;
+  --destructive:#ff8a80;
   --ring:#cdae6b;
   --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .4);
   --shadow-md:0 4px 6px -1px rgb(0 0 0 / .5);
@@ -59,6 +61,7 @@
     --primary-hover:#dcc084;
     --primary-fg:#1c1917;
     --accent-gold:#cdae6b;
+    --destructive:#ff8a80;
     --ring:#cdae6b;
     --shadow-sm:0 1px 2px 0 rgb(0 0 0 / .4);
     --shadow-md:0 4px 6px -1px rgb(0 0 0 / .5);
@@ -302,9 +305,7 @@ footer{border-top:1px solid var(--border); padding:40px 0 56px; margin-top:48px;
 .vault-input{width:100%; padding:11px 14px; border:1px solid var(--input); border-radius:8px;
   background:var(--background); color:var(--foreground); font-size:14.5px; font-family:inherit; transition:border-color .2s;}
 .vault-input::placeholder{color:var(--muted-fg);}
-.vault-error{font-size:13px; min-height:16px; margin:2px 0 0; color:#b3261e;}
-:root[data-mode="dark"] .vault-error{color:#ff8a80;}
-@media (prefers-color-scheme: dark){:root:not([data-mode]) .vault-error{color:#ff8a80;}}
+.vault-error{font-size:13px; min-height:16px; margin:2px 0 0; color:var(--destructive);}
 .vault-card.shake{animation:vault-shake .35s;}
 @keyframes vault-shake{
   10%,90%{transform:translateX(-1px);} 20%,80%{transform:translateX(2px);}

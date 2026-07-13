@@ -102,7 +102,17 @@ async function init() {
     return;
   }
 
-  const payload = readPayload();
+  let payload;
+  try {
+    payload = readPayload();
+  } catch {
+    // Missing or malformed payload block: the tool can never be decrypted
+    // from this page, so surface it rather than leaving a dead form.
+    if (errorEl) errorEl.textContent = 'This instrument’s locked payload is missing or corrupt.';
+    if (input) input.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
 
   // Fast path: a key cached from unlocking another tool this session.
   const cachedKeyB64 = sessionStorage.getItem(SESSION_KEY);
@@ -151,4 +161,8 @@ async function init() {
   });
 }
 
-init();
+init().catch(() => {
+  // Last-resort guard: never leave a silently dead form if init itself fails.
+  const errorEl = document.getElementById('vault-error');
+  if (errorEl) errorEl.textContent = 'Something went wrong opening this instrument.';
+});
