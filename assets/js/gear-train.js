@@ -38,6 +38,8 @@ export function initGearTrain(canvas, opts = {}) {
   const cfg = opts.config || GEAR_CONFIG;
   const ctx = canvas.getContext('2d');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const small = Math.min(window.innerWidth, window.innerHeight) < 640;
+  const density = opts.density || (small ? 2 : 3);
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const gears = cfg.gears.map(g => ({ ...g }));
@@ -51,7 +53,6 @@ export function initGearTrain(canvas, opts = {}) {
 
   // build node cloud per gear (toothed wall + two faces)
   const nodes=[], edges=[]; const half=0.95, hub=1.4;
-  const density = opts.density || 3;
   function addPatch(gi, U, V, fn, wrapU){
     const grid=[];
     for(let i=0;i<U;i++){grid[i]=[];for(let j=0;j<V;j++){

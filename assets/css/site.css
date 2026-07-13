@@ -100,3 +100,12 @@ a{color:var(--green);}
 .post-body img{max-width:100%; height:auto;}
 .post-body h2,.post-body h3{color:var(--green); font-style:italic;}
 .post-body blockquote{border-left:3px solid var(--gilt); margin:1em 0; padding-left:1em; color:var(--soft); font-style:italic;}
+
+:focus-visible{outline:2px solid var(--green); outline-offset:2px;}
+img{max-width:100%;}
+@media (max-width:720px){
+  .nav{gap:16px; font-size:11px; flex-wrap:wrap; justify-content:flex-end;}
+  .hero-frame{padding:22px;}
+  .hero-cta{flex-direction:column; gap:12px;}
+  .cards-grid{grid-template-columns:1fr;}
+}
