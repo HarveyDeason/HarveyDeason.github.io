@@ -26,8 +26,10 @@
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPostBySlug, mountSinglePost } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
 
     mountLayout('writing');
+    initPalette();
 
     const slug = new URLSearchParams(location.search).get('slug');
     fetchPostBySlug(slug).then(p => mountSinglePost('post', p))

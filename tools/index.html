@@ -28,15 +28,18 @@
     import { mountLayout } from '/assets/js/layout.js';
     import { loadTools, mountTools, renderSkeletonCells } from '/assets/js/tools.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
 
     mountLayout('tools');
 
     const cabinet = document.getElementById('cabinet');
     cabinet.innerHTML = renderSkeletonCells(6);
-    loadTools().then(t => mountTools('cabinet', t))
+    const toolsPromise = loadTools();
+    toolsPromise.then(t => mountTools('cabinet', t))
       .catch(() => { cabinet.innerHTML =
         '<p class="sub">The cabinet is momentarily unavailable.</p>'; });
 
+    initPalette({ tools:toolsPromise });
     initMotion();
   </script>
 </body>

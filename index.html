@@ -61,20 +61,24 @@
     import { loadTools, mountTools, renderSkeletonCells } from '/assets/js/tools.js';
     import { fetchPosts, mountPosts, renderSkeletonRows } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
 
     mountLayout('home');
     initGearTrain(document.getElementById('gear-train'));
 
     const tools = document.getElementById('featured-tools');
     tools.innerHTML = renderSkeletonCells(3);
-    loadTools().then(t => mountTools('featured-tools', t, 3))
+    const toolsPromise = loadTools();
+    toolsPromise.then(t => mountTools('featured-tools', t, 3))
       .catch(()=>{ tools.innerHTML='<p class="sub">Instruments unavailable.</p>'; });
 
     const writing = document.getElementById('latest-writing');
     writing.innerHTML = renderSkeletonRows(3);
-    fetchPosts({ perPage:3 }).then(p => mountPosts('latest-writing', p))
+    const postsPromise = fetchPosts({ perPage:3 });
+    postsPromise.then(p => mountPosts('latest-writing', p))
       .catch(()=>{ writing.innerHTML='<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
 
+    initPalette({ tools:toolsPromise, postsPromise });
     initMotion();
   </script>
 </body>

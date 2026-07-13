@@ -28,15 +28,18 @@
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPosts, mountPosts, renderSkeletonRows } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
 
     mountLayout('writing');
 
     const journal = document.getElementById('journal');
     journal.innerHTML = renderSkeletonRows(6);
-    fetchPosts({ perPage: 20 }).then(p => mountPosts('journal', p))
+    const postsPromise = fetchPosts({ perPage: 20 });
+    postsPromise.then(p => mountPosts('journal', p))
       .catch(() => { journal.innerHTML =
         '<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
 
+    initPalette({ postsPromise });
     initMotion();
   </script>
 </body>
