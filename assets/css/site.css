@@ -1,3 +1,9 @@
+@font-face{
+  font-family:'Geist';
+  src:url('/assets/fonts/GeistVF.woff2') format('woff2');
+  font-weight:100 900; font-display:swap;
+}
+
 /* ——— shadcn/ui "stone" tokens, verbatim scale ——— */
 :root, :root[data-mode="light"]{
   --background:#fafaf9;        /* stone-50 */
