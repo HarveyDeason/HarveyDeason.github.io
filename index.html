@@ -3,44 +3,54 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Harvey Deason — Engineer &amp; Essayist</title>
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
   <link rel="stylesheet" href="/assets/css/site.css">
   <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
   <main>
-    <section class="hero container">
-      <div class="frame hero-frame">
-        <span class="rc tl"></span><span class="rc tr"></span><span class="rc bl"></span><span class="rc br"></span>
-        <div class="hero-grid">
-          <div class="hero-copy">
-            <div class="eyebrow">Engineer &amp; Essayist</div>
-            <h1 class="wordmark">Harvey <em>Deason</em></h1>
-            <div class="dim"><span class="tick"></span><span class="ln"></span><span class="val">ENGINEERING &amp; WRITING</span><span class="ln"></span><span class="tick"></span></div>
-            <p class="lead">A cabinet of engineering instruments, built by hand — and a journal on work, output, and the well-considered life.</p>
-            <div class="hero-cta">
-              <a class="gilt-link" href="/tools/">Enter the Cabinet →</a>
-              <a class="gilt-link" href="/writing/">Read the Journal →</a>
-            </div>
+    <section class="hero">
+      <div class="container">
+        <div>
+          <span class="badge"><span class="pulse"></span>Design engineer · Waterworks &amp; utilities · UK</span>
+          <h1>Engineering tools and essays, <span class="flourish">properly made.</span></h1>
+          <p class="sub">Six hand-built instruments for pipeline design, hydraulics and drawing-office work — and a journal on doing considered work in an inconsiderate industry.</p>
+          <div class="cta">
+            <a class="btn btn-primary" href="/tools/">Browse the instruments</a>
+            <a class="btn btn-outline" href="/writing/">Read the journal</a>
           </div>
-          <div class="hero-plate">
-            <canvas id="gear-train" aria-label="Interactive three-gear train illustration"></canvas>
-            <div class="label plate-cap">Plate I · The Gear Train — drag to drive</div>
+          <div class="stats">
+            <div class="stat"><div class="n" data-count="6">06</div><div class="l">Instruments</div></div>
+            <div class="stat"><div class="n" data-count="14">14</div><div class="l">Essays</div></div>
+            <div class="stat"><div class="n">BS 8888</div><div class="l">Drawn to standard</div></div>
           </div>
+        </div>
+        <div class="gearbox">
+          <canvas id="gear-train" aria-label="Interactive three-gear train — drag to drive"></canvas>
+          <div class="fig"><span class="fl"></span>FIG. 01 — GEAR TRAIN · DRAG TO DRIVE<span class="fl"></span></div>
         </div>
       </div>
     </section>
 
-    <section class="container section" data-anim="reveal">
-      <div class="rule"><div class="ln"></div><div class="di"></div><div class="ln"></div></div>
-      <h2 class="section-title">From the Journal</h2>
-      <div id="latest-writing" class="cards-grid">Loading…</div>
+    <section class="section" style="padding-top:24px;" data-anim="reveal">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>The instruments</h2><p>Single-purpose tools. No accounts, no tracking, everything runs in your browser.</p></div>
+          <a class="link-btn" href="/tools/">View all <span class="a">→</span></a>
+        </div>
+        <div id="featured-tools" class="bento"></div>
+      </div>
     </section>
 
-    <section class="container section" data-anim="reveal">
-      <div class="rule"><div class="ln"></div><div class="di"></div><div class="ln"></div></div>
-      <h2 class="section-title">Instruments</h2>
-      <div id="featured-tools" class="cards-grid">Loading…</div>
+    <section class="section" data-anim="reveal">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>From the journal</h2><p>Work, output, and the well-considered life.</p></div>
+          <a class="link-btn" href="/writing/">Archive <span class="a">→</span></a>
+        </div>
+        <div id="latest-writing"></div>
+      </div>
     </section>
   </main>
   <footer id="site-footer"></footer>
@@ -48,15 +58,23 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { initGearTrain } from '/assets/js/gear-train.js';
-    import { loadTools, mountTools } from '/assets/js/tools.js';
-    import { fetchPosts, mountPosts } from '/assets/js/wordpress.js';
+    import { loadTools, mountTools, renderSkeletonCells } from '/assets/js/tools.js';
+    import { fetchPosts, mountPosts, renderSkeletonRows } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+
     mountLayout('home');
     initGearTrain(document.getElementById('gear-train'));
+
+    const tools = document.getElementById('featured-tools');
+    tools.innerHTML = renderSkeletonCells(3);
     loadTools().then(t => mountTools('featured-tools', t, 3))
-      .catch(()=>{ document.getElementById('featured-tools').innerHTML='<p class="label">Instruments unavailable.</p>'; });
+      .catch(()=>{ tools.innerHTML='<p class="sub">Instruments unavailable.</p>'; });
+
+    const writing = document.getElementById('latest-writing');
+    writing.innerHTML = renderSkeletonRows(3);
     fetchPosts({ perPage:3 }).then(p => mountPosts('latest-writing', p))
-      .catch(()=>{ document.getElementById('latest-writing').innerHTML='<p class="label">The journal is momentarily unavailable. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+      .catch(()=>{ writing.innerHTML='<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+
     initMotion();
   </script>
 </body>
