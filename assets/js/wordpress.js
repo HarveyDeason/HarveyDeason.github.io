@@ -33,7 +33,8 @@ export function normalizePost(o){
 function fmtDate(iso){ try { return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); } catch { return ''; } }
 
 export function renderPostCard(p){
-  const cover = p.cover ? `<div class="post-cover" style="background-image:url('${p.cover}')"></div>` : '';
+  const cImg = safeCover(p.cover);
+  const cover = cImg ? `<div class="post-cover" style="background-image:url('${cImg}')"></div>` : '';
   return `<a class="card post-card" href="/writing/post.html?slug=${encodeURIComponent(p.slug)}" data-anim="tilt">
     ${cover}
     <span class="label">${fmtDate(p.dateISO)}</span>
@@ -69,6 +70,12 @@ function safeUrl(v, kind){
   if(kind==='href') return /^(https?:|mailto:|#)/i.test(v) || (v.startsWith('/') && !v.startsWith('//'));
   return /^https?:/i.test(v) || (v.startsWith('/') && !v.startsWith('//'));
 }
+// validate a featured-image URL and escape it for safe attribute interpolation; null if unsafe
+function safeCover(u){
+  return (u && safeUrl(u,'src'))
+    ? String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;')
+    : null;
+}
 export function sanitizeHtml(html){
   const tpl = document.createElement('template'); tpl.innerHTML = html;
   (function clean(node){
@@ -94,7 +101,8 @@ export function mountPosts(elId, posts){
 export function mountSinglePost(elId, post){
   const el=document.getElementById(elId); if(!el) return;
   if(!post){ el.innerHTML='<p class="label">Post not found. <a class="gilt-link" href="/writing/">Back to the Journal →</a></p>'; return; }
-  const cover = post.cover ? `<img class="post-hero" src="${post.cover}" alt="">` : '';
+  const cImg = safeCover(post.cover);
+  const cover = cImg ? `<img class="post-hero" src="${cImg}" alt="">` : '';
   el.innerHTML = `<article class="post">
     <div class="label">${new Date(post.dateISO).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
     <h1 class="post-title">${post.title}</h1>
