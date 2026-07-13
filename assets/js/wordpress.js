@@ -30,17 +30,29 @@ export function normalizePost(o){
   };
 }
 
-function fmtDate(iso){ try { return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); } catch { return ''; } }
+function fmtDate(iso){ try { return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}); } catch { return ''; } }
 
 export function renderPostCard(p){
-  const cImg = safeCover(p.cover);
-  const cover = cImg ? `<div class="post-cover" style="background-image:url('${cImg}')"></div>` : '';
-  return `<a class="card post-card" href="/writing/post.html?slug=${encodeURIComponent(p.slug)}" data-anim="tilt">
-    ${cover}
-    <span class="label">${fmtDate(p.dateISO)}</span>
-    <h3>${p.title}</h3>
-    <p>${p.excerpt}</p>
+  return `<a class="post" href="/writing/post.html?slug=${encodeURIComponent(p.slug)}">
+    <span class="date mono">${fmtDate(p.dateISO)}</span>
+    <span class="t"><h3>${p.title}</h3><p>${p.excerpt}</p></span>
+    <span class="a">→</span>
   </a>`;
+}
+
+// skeleton placeholders shown while the journal feed loads
+export function renderSkeletonRows(n = 3){
+  let out = '';
+  for(let i = 0; i < n; i++){
+    out += `<div class="post" aria-hidden="true">
+      <span class="date skeleton" style="height:12px"></span>
+      <span class="t">
+        <span class="skeleton" style="display:block;height:16px;width:44%"></span>
+        <span class="skeleton" style="display:block;height:13px;width:72%;margin-top:7px"></span>
+      </span>
+    </div>`;
+  }
+  return out;
 }
 
 const CACHE_TTL = 10 * 60 * 1000;

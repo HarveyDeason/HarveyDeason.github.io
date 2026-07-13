@@ -1,8 +1,8 @@
 [
-  { "ref":"T-01","slug":"hydrosizer","name":"HydroSizer","blurb":"Storage tank sizing for process water.","discipline":"Process","type":"Sizing","status":"live" },
-  { "ref":"T-02","slug":"pipe-hydraulics","name":"Pipe Hydraulics Calculator","blurb":"Flow, velocity and head-loss for pipe runs.","discipline":"Mechanical","type":"Calculator","status":"live" },
-  { "ref":"T-03","slug":"pcf-matrix","name":"PCF Selection Matrix","blurb":"Guided process component selection.","discipline":"Process","type":"Selector","status":"live" },
-  { "ref":"T-04","slug":"platform-access","name":"Platform Access Checker","blurb":"Access & platform compliance checks.","discipline":"Civil","type":"Checker","status":"live" },
-  { "ref":"T-05","slug":"pid-tag-register","name":"P&ID Tag Register","blurb":"Build and manage P&ID tag registers.","discipline":"Process","type":"Register","status":"live" },
-  { "ref":"T-06","slug":"column-merge","name":"Column Merge","blurb":"Match on a key column, transfer selected columns between spreadsheets.","discipline":"Data","type":"Utility","status":"live" }
+  { "ref":"T-01","slug":"hydrosizer","name":"HydroSizer","blurb":"Storage tank sizing for process water.","tags":["Hydraulics","BS EN 805"],"discipline":"Process","type":"Sizing","status":"live" },
+  { "ref":"T-02","slug":"pipe-hydraulics","name":"Pipe Hydraulics Calculator","blurb":"Flow, velocity and head-loss for pipe runs.","tags":["Hydraulics"],"discipline":"Mechanical","type":"Calculator","status":"live" },
+  { "ref":"T-03","slug":"pcf-matrix","name":"PCF Selection Matrix","blurb":"Guided process component selection.","tags":["Drawing office"],"discipline":"Process","type":"Selector","status":"live" },
+  { "ref":"T-04","slug":"platform-access","name":"Platform Access Checker","blurb":"Access & platform compliance checks.","tags":["Safety","EN ISO 14122"],"discipline":"Civil","type":"Checker","status":"live" },
+  { "ref":"T-05","slug":"pid-tag-register","name":"P&ID Tag Register","blurb":"Build and manage P&ID tag registers.","tags":["QA"],"discipline":"Process","type":"Register","status":"live" },
+  { "ref":"T-06","slug":"column-merge","name":"Column Merge","blurb":"Match on a key column, transfer selected columns between spreadsheets.","tags":["Data"],"discipline":"Data","type":"Utility","status":"live" }
 ]
