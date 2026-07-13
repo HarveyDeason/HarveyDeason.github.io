@@ -183,6 +183,41 @@ h1 .flourish{font-family:Georgia,serif; font-style:italic; font-weight:400; lett
 .post:hover .a{transform:translateX(3px); color:var(--foreground);}
 @media(max-width:640px){ .post{flex-wrap:wrap; gap:8px;} }
 
+/* ——— post reader ——— */
+.reading{max-width:68ch; margin:0 auto; padding:56px 24px 80px;}
+.reading .back{margin:0 0 32px -12px;}
+.post-article{margin:0;}
+.post-meta{font-size:12.5px; color:var(--muted-fg); text-transform:uppercase; letter-spacing:1.2px;}
+.post-title{font:600 clamp(30px,5vw,46px)/1.1 'Geist','Segoe UI',system-ui,sans-serif;
+  letter-spacing:-1px; text-wrap:balance; margin:14px 0 40px;}
+.post-body{font:18px/1.75 Georgia,'Times New Roman',serif; color:var(--foreground);}
+.post-body > *{margin-bottom:1.35em;}
+.post-body > *:last-child{margin-bottom:0;}
+.post-body h2,.post-body h3,.post-body h4{
+  font-family:'Geist','Segoe UI',system-ui,sans-serif; font-weight:600;
+  letter-spacing:-.4px; line-height:1.25; margin:1.8em 0 .6em;}
+.post-body h2{font-size:26px;}
+.post-body h3{font-size:21px;}
+.post-body h4{font-size:18px;}
+.post-body a{color:var(--primary); text-decoration:underline; text-underline-offset:2px; text-decoration-thickness:1px;}
+.post-body img{display:block; max-width:100%; height:auto; border-radius:10px; border:1px solid var(--border); margin:2em auto;}
+.post-body ul,.post-body ol{padding-left:1.3em;}
+.post-body li{margin-bottom:.5em;}
+.post-body blockquote{border-left:2px solid var(--primary); padding-left:22px; margin-left:0;
+  font-style:italic; color:var(--muted-fg);}
+.post-body figure{margin:2em 0;}
+.post-body figcaption{font:13px/1.5 ui-monospace,'Consolas',monospace; color:var(--muted-fg); text-align:center; margin-top:10px;}
+.post-body pre{background:var(--muted); border:1px solid var(--border); border-radius:10px;
+  padding:16px 18px; overflow-x:auto; font-size:14px;}
+.post-body code{font-family:ui-monospace,'Cascadia Code','Consolas',monospace; font-size:.9em;
+  background:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px;}
+.post-body pre code{background:none; border:0; padding:0; font-size:inherit;}
+.post-body hr{border:0; border-top:1px solid var(--border); margin:2.5em 0;}
+@media(max-width:480px){
+  .reading{padding:36px 20px 60px;}
+  .post-body{font-size:17px;}
+}
+
 /* ——— footer ——— */
 footer{border-top:1px solid var(--border); padding:40px 0 56px; margin-top:48px;}
 .foot{display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}

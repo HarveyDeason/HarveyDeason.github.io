@@ -2,25 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Journal — Harvey Deason</title>
-  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+  <title>The Journal — Harvey Deason</title>
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
-  <main class="container reading">
-    <p><a class="gilt-link" href="/writing/">← Back to the Journal</a></p>
-    <div id="post">Loading…</div>
+  <main class="reading">
+    <a class="link-btn back" href="/writing/">← The Journal</a>
+    <div id="post">
+      <div class="skeleton" style="height:13px;width:150px"></div>
+      <div class="skeleton" style="height:42px;width:82%;margin-top:20px"></div>
+      <div class="skeleton" style="height:16px;margin-top:36px"></div>
+      <div class="skeleton" style="height:16px;width:94%;margin-top:12px"></div>
+      <div class="skeleton" style="height:16px;width:97%;margin-top:12px"></div>
+      <div class="skeleton" style="height:16px;width:88%;margin-top:12px"></div>
+    </div>
   </main>
   <footer id="site-footer"></footer>
+
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPostBySlug, mountSinglePost } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+
     mountLayout('writing');
+
     const slug = new URLSearchParams(location.search).get('slug');
     fetchPostBySlug(slug).then(p => mountSinglePost('post', p))
-      .catch(()=>{ document.getElementById('post').innerHTML =
-        '<p class="label">Unable to load this post. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+      .catch(() => { document.getElementById('post').innerHTML =
+        '<p class="sub">Unable to load this post. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+
     initMotion();
   </script>
 </body>

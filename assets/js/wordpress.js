@@ -112,13 +112,10 @@ export function mountPosts(elId, posts){
 
 export function mountSinglePost(elId, post){
   const el=document.getElementById(elId); if(!el) return;
-  if(!post){ el.innerHTML='<p class="label">Post not found. <a class="gilt-link" href="/writing/">Back to the Journal →</a></p>'; return; }
-  const cImg = safeCover(post.cover);
-  const cover = cImg ? `<img class="post-hero" src="${cImg}" alt="">` : '';
-  el.innerHTML = `<article class="post">
-    <div class="label">${new Date(post.dateISO).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
+  if(!post){ el.innerHTML='<p class="sub">Post not found. <a class="link-btn" href="/writing/">Back to the Journal →</a></p>'; return; }
+  el.innerHTML = `<article class="post-article">
+    <p class="post-meta mono">${new Date(post.dateISO).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</p>
     <h1 class="post-title">${post.title}</h1>
-    ${cover}
     <div class="post-body">${sanitizeHtml(post.html)}</div>
   </article>`;
 }
