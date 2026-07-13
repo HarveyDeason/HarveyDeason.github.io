@@ -129,7 +129,7 @@ a{color:inherit;}
   .logo{font-size:13.5px; gap:6px;}
   .nav-links a{font-size:12px; padding:6px 5px; letter-spacing:-.1px;}
   .lamp{width:30px; height:30px;}
-  .nav-cta{display:none;}   /* contact stays reachable via search palette + about page */
+  .nav-cta{display:none;}   /* contact stays reachable via the search palette (static Pages group) */
 }
 
 /* ——— hero: v0 pattern (badge → display → subcopy → CTA pair) on graph paper ——— */
