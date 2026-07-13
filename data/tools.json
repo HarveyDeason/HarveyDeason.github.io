@@ -1,8 +1,7 @@
 [
-  { "ref":"T-01","slug":"hydrosizer","name":"HydroSizer","blurb":"Storage tank sizing for process water.","tags":["Hydraulics","BS EN 805"],"discipline":"Process","type":"Sizing","status":"live" },
-  { "ref":"T-02","slug":"pipe-hydraulics","name":"Pipe Hydraulics Calculator","blurb":"Flow, velocity and head-loss for pipe runs.","tags":["Hydraulics"],"discipline":"Mechanical","type":"Calculator","status":"live" },
-  { "ref":"T-03","slug":"pcf-matrix","name":"PCF Selection Matrix","blurb":"Guided process component selection.","tags":["Drawing office"],"discipline":"Process","type":"Selector","status":"live" },
-  { "ref":"T-04","slug":"platform-access","name":"Platform Access Checker","blurb":"Access & platform compliance checks.","tags":["Safety","EN ISO 14122"],"discipline":"Civil","type":"Checker","status":"live" },
-  { "ref":"T-05","slug":"pid-tag-register","name":"P&ID Tag Register","blurb":"Build and manage P&ID tag registers.","tags":["QA"],"discipline":"Process","type":"Register","status":"live" },
-  { "ref":"T-06","slug":"column-merge","name":"Column Merge","blurb":"Match on a key column, transfer selected columns between spreadsheets.","tags":["Data"],"discipline":"Data","type":"Utility","status":"live" }
+  { "slug":"naming-validator","name":"File Naming Validator","blurb":"Validates and generates drawing-office file names — structure, codes and revisions checked before they ever reach the EDMS.","href":"/tools/naming-validator.html","tags":["QA","Drawing office"],"locked":true },
+  { "slug":"hydrosizer","name":"HydroSizer","blurb":"Hydraulic flow sizing and storage-tank design: submergence, overflow, freeboard and working volume in one pass.","href":"/tools/hydrosizer.html","tags":["Hydraulics","Storage"],"locked":true },
+  { "slug":"pid-tag-register","name":"P&ID Tag Register","blurb":"Scans P&ID PDFs into a living tag register — numbering checked, clashes caught, next-available always known.","href":"/tools/pid-tag-register.html","tags":["Instrumentation","QA"],"locked":true },
+  { "slug":"steelwork-checker","name":"Steelwork Checker","blurb":"Point load, UDL, flooring and stair configurations checked against British Standards.","href":"/tools/steelwork-checker.html","tags":["Structural","British Standards"],"locked":true },
+  { "slug":"schedule-sync","name":"Schedule Sync","blurb":"Match a shared column across two Excel schedules and carry the data you choose from one to the other.","href":"/tools/schedule-sync.html","tags":["Data","Excel"],"locked":true }
 ]
