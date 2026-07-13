@@ -107,7 +107,7 @@ export function sanitizeHtml(html){
 
 export function mountPosts(elId, posts){
   const el=document.getElementById(elId); if(!el) return;
-  el.innerHTML = posts.length ? posts.map(renderPostCard).join('') : '<p class="label">No posts yet.</p>';
+  el.innerHTML = posts.length ? posts.map(renderPostCard).join('') : '<p class="sub">No posts yet.</p>';
 }
 
 export function mountSinglePost(elId, post){

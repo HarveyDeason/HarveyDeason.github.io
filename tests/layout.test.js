@@ -33,7 +33,9 @@ test('header only marks one active section', () => {
 
 test('footer renders the colophon line, not the old titleblock', () => {
   const html = renderFooter();
+  assert.ok(html.includes('Set in Geist &amp; Georgia'));
   assert.ok(html.includes('Built by hand'));
+  assert.ok(html.includes('No trackers'));
   assert.ok(html.includes('United Kingdom'));
   assert.ok(!html.includes('titleblock'));
 });

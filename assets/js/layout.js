@@ -24,7 +24,10 @@ export function renderHeader(active = '') {
       <button class="lamp" id="lamp" aria-label="Toggle evening mode" aria-pressed="false">
         <svg viewBox="0 0 24 24" id="lamp-ico">${SUN}</svg>
       </button>
-      <a href="/contact/" class="btn btn-primary nav-cta">Get in touch</a>
+      <a href="/contact/" class="btn btn-primary nav-cta" aria-label="Get in touch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        <span class="nav-cta-label">Get in touch</span>
+      </a>
       </div>
     </div>
   </nav>`;
@@ -34,7 +37,7 @@ export function renderFooter() {
   return `
   <div class="container foot">
     <a class="logo" href="/"><span class="dot"></span>Harvey Deason</a>
-    <span class="colo">Built by hand<span class="g">·</span>No trackers<span class="g">·</span>United Kingdom</span>
+    <span class="colo">Set in Geist &amp; Georgia<span class="g">·</span>Built by hand<span class="g">·</span>No trackers<span class="g">·</span>United Kingdom</span>
   </div>`;
 }
 

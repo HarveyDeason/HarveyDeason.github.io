@@ -87,12 +87,14 @@ a{color:inherit;}
   backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   border-bottom:1px solid var(--border); transition:background .4s, border-color .4s;}
 .nav-row{display:flex; align-items:center; justify-content:space-between; height:56px;}
-.logo{display:flex; align-items:center; gap:8px; font-weight:600; font-size:15px; text-decoration:none; letter-spacing:-.2px;}
+.logo{display:flex; align-items:center; gap:8px; font-weight:600; font-size:15px; text-decoration:none; letter-spacing:-.2px; white-space:nowrap;}
 .logo .dot{width:8px; height:8px; border-radius:2px; background:var(--accent-gold); transform:rotate(45deg);}
 .nav-links{display:flex; align-items:center; gap:4px;}
 .nav-links a{font-size:13.5px; color:var(--muted-fg); text-decoration:none; padding:7px 12px; border-radius:6px; transition:.2s;}
 .nav-links a:hover{color:var(--foreground); background:var(--muted);}
 .nav-cta{margin-left:8px;}
+.nav-cta svg{width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round; display:none;}
 
 /* ——— shadcn button recipes ——— */
 .btn{display:inline-flex; align-items:center; gap:8px; font-size:13.5px; font-weight:500;
@@ -112,6 +114,23 @@ a{color:inherit;}
 .lamp:hover{background:var(--muted);}
 .lamp svg{width:16px; height:16px; stroke:var(--muted-fg); fill:none; stroke-width:1.6; stroke-linecap:round;}
 .lamp:focus-visible{outline:2px solid var(--ring); outline-offset:2px;}
+
+/* narrow viewports: tighten the nav row, then swap the CTA label for its icon (no hamburger) */
+@media(max-width:680px){
+  .nav .container{padding:0 16px;}
+  .nav-links{gap:2px;}
+  .nav-links a{font-size:12.5px; padding:6px 8px;}
+  .nav-cta{margin-left:4px; padding:8px;}
+  .nav-cta .nav-cta-label{display:none;}
+  .nav-cta svg{display:block;}
+}
+@media(max-width:480px){
+  .nav .container{padding:0 12px;}
+  .logo{font-size:13.5px; gap:6px;}
+  .nav-links a{font-size:12px; padding:6px 5px; letter-spacing:-.1px;}
+  .lamp{width:30px; height:30px;}
+  .nav-cta{display:none;}   /* contact stays reachable via search palette + about page */
+}
 
 /* ——— hero: v0 pattern (badge → display → subcopy → CTA pair) on graph paper ——— */
 .hero{position:relative; padding:110px 0 96px; overflow:hidden;}

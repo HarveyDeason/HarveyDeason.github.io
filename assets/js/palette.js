@@ -211,7 +211,10 @@ export function initPalette(opts = {}){
 
   // Ctrl+K / ⌘K — don't hijack while the user is typing in some *other* field,
   // and preventDefault so the browser's built-in Ctrl+K can't steal it.
+  // Exact chord only: ignore IME composition, key auto-repeat, and Shift/Alt variants.
   document.addEventListener('keydown', e => {
+    if(e.isComposing || e.repeat) return;
+    if(e.shiftKey || e.altKey) return;
     if((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)){
       const t = e.target;
       const editable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||

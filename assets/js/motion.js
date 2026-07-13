@@ -38,7 +38,7 @@ function countUp(reduce){
 
 // ——— staggered reveals ——————————————————————————————————————
 // Sections marked [data-anim="reveal"] rise 12px over 0.5s the first time they
-// scroll into view. Direct children of a .bento / .cards-grid inside them rise
+// scroll into view. Direct children of a .bento inside them rise
 // individually with a 60ms incremental transition-delay for a cascade.
 function setupReveals(){
   const hide = (el, delay = 0) => {
@@ -81,7 +81,7 @@ function setupReveals(){
   sections.forEach(sec=>{
     hide(sec);
     io.observe(sec);
-    sec.querySelectorAll('.bento, .cards-grid').forEach(revealGrid);
+    sec.querySelectorAll('.bento').forEach(revealGrid);
   });
 }
 

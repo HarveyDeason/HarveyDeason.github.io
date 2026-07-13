@@ -29,5 +29,5 @@
     };
     sync();
     lamp.addEventListener('click', function(){ mode.toggleMode(); sync(); });
-  });
+  }).catch(function(){});   // mode.js optional — never let a failed import throw
 })();
