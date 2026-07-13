@@ -168,6 +168,14 @@ h1 .flourish{font-family:Georgia,serif; font-style:italic; font-weight:400; lett
 .cell .meta{display:flex; gap:8px; margin-top:4px;}
 .chip{font-size:11px; font-weight:500; color:var(--muted-fg); background:var(--muted); border:1px solid var(--border);
   padding:2.5px 9px; border-radius:999px;}
+/* cursor spotlight — --mx/--my set by motion.js; invalid (hidden) until set,
+   so no spotlight appears under reduced motion where the props stay unset */
+@media (pointer:fine){
+  .cell::after{content:""; position:absolute; inset:0; border-radius:inherit; opacity:0; transition:opacity .3s;
+    background:radial-gradient(250px circle at var(--mx) var(--my), color-mix(in srgb, var(--primary) 5%, transparent), transparent 70%);
+    pointer-events:none;}
+  .cell:hover::after{opacity:1;}
+}
 @media(max-width:760px){ .bento{grid-template-columns:1fr;} .cell.wide{grid-column:span 1;} }
 
 /* ——— journal rows ——— */
