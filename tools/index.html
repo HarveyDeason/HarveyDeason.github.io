@@ -33,7 +33,7 @@
     mountLayout('tools');
 
     const cabinet = document.getElementById('cabinet');
-    cabinet.innerHTML = renderSkeletonCells(6);
+    cabinet.innerHTML = renderSkeletonCells(5);
     const toolsPromise = loadTools();
     toolsPromise.then(t => mountTools('cabinet', t))
       .catch(() => { cabinet.innerHTML =

@@ -53,7 +53,7 @@
 - Produces: loader page = design-system unlock screen (anti-flash script, centered card: lock icon, "Kept under lock" heading, muted line "Enter the workshop code to open this instrument.", password input, `.btn-primary` "Unlock" button, error state) + embedded `<script type="application/json" id="vault-payload">` + `<script type="module" src="/assets/js/vault.js">`. `vault.js`: cached-key fast path → prompt path → `checkKey` → `decryptText` → `document.open/write/close`.
 - tools.json rows exactly per spec §2 table (slug/name/blurb/href/tags/locked:true); slugs = naming-validator, hydrosizer, pid-tag-register, steelwork-checker, schedule-sync.
 - Note: file `YTLC_File_Naming_Convention_Validator.HTM` → `tools-src/naming-validator.html`; `P&ID_Tag_Register.html` → `tools-src/pid-tag-register.html`; `platform-access-checker.html` → `tools-src/steelwork-checker.html`; byte-identical content.
-- Encryption run for real output uses a TEMPORARY passphrase `temp-workshop-code` (controller rotates to the real one at the end of Phase 2; document this in the report).
+- Encryption run for real output uses a TEMPORARY placeholder passphrase (redacted from this doc after final review; controller rotates to the real one at the end of Phase 2; document this in the report).
 
 - [ ] Step 1: TDD tests/tools.test.js for 5-tool shape + `locked` + lock glyph markup → RED.
 - [ ] Step 2: Copy/rename tools into tools-src/ (verify byte-identical: `cmp`/hash).
