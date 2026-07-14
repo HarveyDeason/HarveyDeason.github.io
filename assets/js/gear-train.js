@@ -34,10 +34,17 @@ export function gearAngles(phi, cfg = GEAR_CONFIG) {
 }
 
 // ---- interactive render (browser only) ----
+// token palettes: stone wireframe with racing-green depth by day, gilt after dark
+const PALETTE = {
+  light: { edge:[28,25,23],   n0:[120,113,108], n1:[29,58,43],    glow:'rgba(29,58,43,0.07)'   },
+  dark:  { edge:[250,250,249], n0:[128,122,118], n1:[205,174,107], glow:'rgba(205,174,107,0.08)' },
+};
+
 export function initGearTrain(canvas, opts = {}) {
   const cfg = opts.config || GEAR_CONFIG;
   const ctx = canvas.getContext('2d');
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const palette = opts.palette || (() =>
+    PALETTE[document.documentElement.dataset.mode === 'dark' ? 'dark' : 'light']);
   const small = Math.min(window.innerWidth, window.innerHeight) < 640;
   const density = opts.density || (small ? 2 : 3);
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -71,18 +78,19 @@ export function initGearTrain(canvas, opts = {}) {
     addPatch(gi,U,4,(u,v)=>{const a=u*TWO,r=hub+(toothRadius(u,g.Z,cfg.module)-hub)*v;return{x:Math.cos(a)*r,y:Math.sin(a)*r,z:-half,seed:.35};},true);
   });
 
-  function size(){const r=canvas.getBoundingClientRect();canvas._w=r.width;canvas._h=r.height;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  function size(){const dpr=Math.min(window.devicePixelRatio||1,2);const r=canvas.getBoundingClientRect();canvas._w=r.width;canvas._h=r.height;canvas.width=r.width*dpr;canvas.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
   size(); window.addEventListener('resize', size);
 
-  let phi=0, vel=0, drag=false, lastX=0, mvx=0, mvy=0, tilt=0.62, viewY=0, running=true;
+  let phi=0, vel=0, drag=false, lastX=0, mvx=0, mvy=0, tilt=0.62, viewY=0, running=true, rafId=null;
   canvas.addEventListener('pointerdown',e=>{drag=true;lastX=e.clientX;canvas.setPointerCapture(e.pointerId);wake();});
   canvas.addEventListener('pointermove',e=>{ if(drag){vel+=(e.clientX-lastX)*0.0016;lastX=e.clientX;wake();} const r=canvas.getBoundingClientRect(); mvx=(e.clientX-r.left)/r.width-.5; mvy=(e.clientY-r.top)/r.height-.5; });
   canvas.addEventListener('pointerup',()=>drag=false);
   canvas.addEventListener('pointercancel',()=>drag=false);
 
   const range=15.5;
-  function wake(){ if(!running){ running = true; requestAnimationFrame(frame); } }
+  function wake(){ if(!running){ running = true; rafId = requestAnimationFrame(frame); } }
   function frame(){
+    const pal=palette();
     const W=canvas._w,H=canvas._h,cx=W/2,cy=H/2,FOV=52,S=Math.min(W,H)/(2.5*range);
     vel*=0.94; phi += vel + (reduce?0:0.0045);
     const ang=gearAngles(phi,cfg);
@@ -98,16 +106,26 @@ export function initGearTrain(canvas, opts = {}) {
       const sc=FOV/(FOV+z3);
       o.sx=cx+x2*sc*S; o.sy=cy+y2*sc*S; o.pz=z3; o.sc=sc;
     }
+    const [er,eg,eb]=pal.edge;
     for(const [i,j] of edges){const a=nodes[i],b=nodes[j];const d=(a.pz+range)/(2*range);
-      ctx.strokeStyle=`rgba(40,38,32,${0.05+d*0.15})`; ctx.lineWidth=0.4+d*0.4;
+      ctx.strokeStyle=`rgba(${er},${eg},${eb},${0.04+d*0.11})`; ctx.lineWidth=0.4+d*0.4;
       ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.stroke();}
     for(const p of [...nodes].sort((m,n)=>m.pz-n.pz)){const d=(p.pz+range)/(2*range);const rad=(0.7+p.seed*1.1)*p.sc*1.05;
-      if(d>0.82){ctx.fillStyle='rgba(169,134,63,0.08)';ctx.beginPath();ctx.arc(p.sx,p.sy,rad*2.2,0,7);ctx.fill();}
-      ctx.fillStyle=`rgba(${150+d*56},${116+d*42},${48+d*34},${0.32+d*0.6})`;
+      if(d>0.82){ctx.fillStyle=pal.glow;ctx.beginPath();ctx.arc(p.sx,p.sy,rad*2.2,0,7);ctx.fill();}
+      const r=pal.n0[0]+(pal.n1[0]-pal.n0[0])*d, g=pal.n0[1]+(pal.n1[1]-pal.n0[1])*d, b=pal.n0[2]+(pal.n1[2]-pal.n0[2])*d;
+      ctx.fillStyle=`rgba(${r|0},${g|0},${b|0},${0.28+d*0.62})`;
       ctx.beginPath();ctx.arc(p.sx,p.sy,rad,0,7);ctx.fill();}
     const idle = reduce && !drag && Math.abs(vel) < 1e-4;
     if (idle) { running = false; return; }   // settled still-frame under reduced motion: pause
-    requestAnimationFrame(frame);
+    rafId = requestAnimationFrame(frame);
   }
   frame();
+
+  return {
+    destroy(){
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', size);
+    }
+  };
 }

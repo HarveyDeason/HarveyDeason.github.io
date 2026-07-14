@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>About — Harvey Deason</title>
-  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
-  <main class="container reading">
-    <div class="eyebrow">About</div>
-    <h1 class="wordmark" style="font-size:clamp(34px,6vw,64px);">Harvey <em>Deason</em></h1>
-    <div class="rule"><div class="ln"></div><div class="di"></div><div class="ln"></div></div>
+  <main class="reading">
+    <span class="badge"><span class="pulse"></span>About</span>
+    <h1 style="font-size:clamp(34px,6vw,60px); max-width:none;">Harvey <span class="flourish">Deason</span></h1>
     <div class="post-body" data-anim="reveal">
       <p>Harvey Deason is a design engineer working in the water industry, and an essayist who writes on work, output, and the well-considered life.</p>
       <p>This site is his workshop and his journal in one place: a cabinet of engineering instruments he builds and gives away, alongside a weekly journal of essays.</p>
@@ -21,7 +22,9 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
     mountLayout('about');
+    initPalette();
     initMotion();
   </script>
 </body>

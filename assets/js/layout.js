@@ -1,33 +1,43 @@
+import { initMode, toggleMode, currentMode } from './mode.js';
+
 const NAV = [
   { key:'tools',   href:'/tools/',   label:'Instruments' },
   { key:'writing', href:'/writing/', label:'Journal' },
   { key:'about',   href:'/about/',   label:'About' },
-  { key:'contact', href:'/contact/', label:'Contact' },
 ];
+
+const SUN = '<path d="M12 3v1.5M12 19.5V21M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M3 12h1.5M19.5 12H21M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1"/><circle cx="12" cy="12" r="4"/>';
+const MOON = '<path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9z"/>';
+const SEARCH_ICO = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
 
 export function renderHeader(active = '') {
   const links = NAV.map(n =>
-    `<a href="${n.href}" class="nav-link"${n.key===active?' aria-current="page"':''}>${n.label}</a>`
-  ).join('');
+    `<a href="${n.href}"${n.key===active?' aria-current="page"':''}>${n.label}</a>`
+  ).join('\n      ');
   return `
-  <div class="container masthead">
-    <a class="brand" href="/" aria-label="Home">
-      <img class="seal seal-sm" src="/assets/img/seal.svg" alt="Harvey Deason monogram">
-    </a>
-    <nav class="nav">${links}</nav>
-  </div>`;
+  <nav class="nav">
+    <div class="container nav-row">
+      <a class="logo" href="/"><span class="dot"></span>Harvey Deason</a>
+      <div class="nav-links">
+      ${links}
+      <button class="lamp" id="palette-btn" aria-label="Search — Ctrl+K">${SEARCH_ICO}</button>
+      <button class="lamp" id="lamp" aria-label="Toggle evening mode" aria-pressed="false">
+        <svg viewBox="0 0 24 24" id="lamp-ico">${SUN}</svg>
+      </button>
+      <a href="/contact/" class="btn btn-primary nav-cta" aria-label="Get in touch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        <span class="nav-cta-label">Get in touch</span>
+      </a>
+      </div>
+    </div>
+  </nav>`;
 }
 
 export function renderFooter() {
   return `
-  <div class="container">
-    <div class="titleblock">
-      <div class="tb-main">
-        <div class="tb-name">HARVEY DEASON</div>
-        <div class="tb-sub">ENGINEER &amp; ESSAYIST · No. HD—001 · UNITED KINGDOM</div>
-      </div>
-      <div class="tb-logo"><img class="seal seal-sm" src="/assets/img/seal.svg" alt=""></div>
-    </div>
+  <div class="container foot">
+    <a class="logo" href="/"><span class="dot"></span>Harvey Deason</a>
+    <span class="colo">Set in Geist &amp; Georgia<span class="g">·</span>Built by hand<span class="g">·</span>No trackers<span class="g">·</span>United Kingdom</span>
   </div>`;
 }
 
@@ -36,4 +46,21 @@ export function mountLayout(active = '') {
   const f = document.getElementById('site-footer');
   if (h) h.innerHTML = renderHeader(active);
   if (f) f.innerHTML = renderFooter();
+
+  initMode();
+
+  const lamp = document.getElementById('lamp');
+  if (lamp) {
+    const ico = document.getElementById('lamp-ico');
+    const sync = () => {
+      const dark = currentMode() === 'dark';
+      lamp.setAttribute('aria-pressed', String(dark));
+      if (ico) ico.innerHTML = dark ? MOON : SUN;
+    };
+    sync();
+    lamp.addEventListener('click', () => {
+      toggleMode();
+      sync();
+    });
+  }
 }

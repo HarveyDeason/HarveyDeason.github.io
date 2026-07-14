@@ -3,31 +3,41 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Contact — Harvey Deason</title>
-  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
-  <main class="container reading" style="text-align:center;">
-    <div class="eyebrow">Correspondence</div>
-    <h1 class="section-title">Contact</h1>
-    <div class="titleblock" style="max-width:520px;margin:24px auto;text-align:left;">
-      <div class="tb-main">
-        <div class="tb-name">HARVEY DEASON</div>
-        <div class="tb-sub">ENGINEER &amp; ESSAYIST</div>
-        <p style="margin:12px 0 0;font-size:15px;">
-          <a class="gilt-link" href="mailto:deason.harvey11@gmail.com">deason.harvey11@gmail.com</a><br>
-          <a class="gilt-link" href="https://harveydeason.wordpress.com/">harveydeason.wordpress.com</a>
-        </p>
-      </div>
-      <div class="tb-logo"><img class="seal seal-sm" src="/assets/img/seal.svg" alt=""></div>
+  <main class="reading">
+    <span class="badge"><span class="pulse"></span>Correspondence</span>
+    <h1 style="font-size:clamp(34px,6vw,60px); max-width:none;">Get in touch</h1>
+    <p class="sub">The quickest way to reach me is email — I read everything that comes in. Tools, essays, corrections and commissions all welcome.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="mailto:deason.harvey11@gmail.com">Email me</a>
+      <button class="btn btn-outline" id="copy-email" data-email="deason.harvey11@gmail.com">Copy email</button>
     </div>
+    <p class="sub" style="margin:36px 0 0;">
+      Also on the web —
+      <a class="link-btn" href="https://harveydeason.wordpress.com/">harveydeason.wordpress.com <span class="a">→</span></a>
+    </p>
   </main>
   <footer id="site-footer"></footer>
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
     mountLayout('contact');
+    initPalette();
     initMotion();
+  </script>
+  <script type="module">
+    const b = document.getElementById('copy-email');
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(b.dataset.email); } catch { return; }
+      const t = b.textContent; b.textContent = 'Copied ✓';
+      setTimeout(() => { b.textContent = t; }, 1500);
+    });
   </script>
 </body>
 </html>

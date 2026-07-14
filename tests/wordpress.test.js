@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePost, renderPostCard } from '../assets/js/wordpress.js';
+import { normalizePost, renderPostCard, renderSkeletonRows } from '../assets/js/wordpress.js';
 
 const api = {
   id: 42, slug: 'weekly-waffle-19', date: '2026-01-10T09:00:00',
@@ -26,7 +26,19 @@ test('normalizePost tolerates missing featured media', () => {
   assert.equal(p.cover, null);
 });
 
+test('renderPostCard renders an editorial post row with a mono DD MMM YY date', () => {
+  const html = renderPostCard(normalizePost(api));
+  assert.ok(html.includes('class="post"'));
+  assert.ok(html.includes('10 Jan 26'));          // mono short date
+});
+
 test('renderPostCard links to the in-site post reader', () => {
   const html = renderPostCard(normalizePost(api));
   assert.ok(html.includes('href="/writing/post.html?slug=weekly-waffle-19"'));
+});
+
+test('renderSkeletonRows returns n post-row placeholders with shimmer skeletons', () => {
+  const html = renderSkeletonRows(2);
+  assert.ok(html.includes('class="post"'));
+  assert.ok((html.match(/skeleton/g) || []).length >= 2);
 });

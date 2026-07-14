@@ -2,27 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Journal — Harvey Deason</title>
-  <link rel="stylesheet" href="/assets/css/site.css"><link rel="icon" href="/assets/img/seal.svg">
+  <title>The Journal — Harvey Deason</title>
+  <script>(function(){try{var s=localStorage.getItem('hd-mode');var d=s==='dark'||s==='light'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.mode=d;}catch(e){}})();</script>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <link rel="icon" href="/assets/img/seal.svg">
 </head>
 <body>
   <header id="site-header"></header>
-  <main class="container">
-    <section class="section" style="margin-top:40px;">
-      <div class="eyebrow" style="text-align:center;">The Journal</div>
-      <h1 class="section-title">Writing</h1>
-      <div id="journal" class="cards-grid" style="margin-top:30px;">Loading…</div>
+  <main>
+    <section class="section" data-anim="reveal">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>The Journal</h2>
+            <p>Essays on doing considered work in an inconsiderate industry.</p>
+          </div>
+        </div>
+        <div id="journal"></div>
+      </div>
     </section>
   </main>
   <footer id="site-footer"></footer>
+
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
-    import { fetchPosts, mountPosts } from '/assets/js/wordpress.js';
+    import { fetchPosts, mountPosts, renderSkeletonRows } from '/assets/js/wordpress.js';
     import { initMotion } from '/assets/js/motion.js';
+    import { initPalette } from '/assets/js/palette.js';
+
     mountLayout('writing');
-    fetchPosts({ perPage: 20 }).then(p => mountPosts('journal', p))
-      .catch(()=>{ document.getElementById('journal').innerHTML =
-        '<p class="label">The journal is momentarily unavailable. <a class="gilt-link" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+
+    const journal = document.getElementById('journal');
+    journal.innerHTML = renderSkeletonRows(6);
+    const postsPromise = fetchPosts({ perPage: 20 });
+    postsPromise.then(p => mountPosts('journal', p))
+      .catch(() => { journal.innerHTML =
+        '<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
+
+    initPalette({ postsPromise });
     initMotion();
   </script>
 </body>
