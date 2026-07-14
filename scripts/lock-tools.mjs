@@ -126,8 +126,8 @@ export async function writeLoaderPage(toolsDir, slug, payload) {
  */
 function askHidden(rl, promptText) {
   return new Promise((resolve) => {
-    process.stdout.write(promptText);
-    rl.question('', (answer) => {
+    rl._hiddenPrompt = promptText;
+    rl.question(promptText, (answer) => {
       process.stdout.write('\n');
       resolve(answer);
     });
@@ -138,7 +138,11 @@ function askHidden(rl, promptText) {
 export async function promptPassphraseTwice() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   // eslint-disable-next-line no-underscore-dangle -- documented Node workaround for hidden prompts
-  rl._writeToOutput = () => {};
+  // Redraw only the prompt label on each keystroke: typed characters stay
+  // hidden, and the label no longer vanishes the moment typing begins.
+  rl._writeToOutput = function redrawPromptOnly() {
+    this.output.write(`\x1b[2K\x1b[0G${this._hiddenPrompt || ''}`);
+  };
 
   let first;
   let second;
