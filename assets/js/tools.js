@@ -27,10 +27,8 @@ export function renderToolCard(t, i = 0){
   const no = String(i + 1).padStart(2, '0');
   const chips = (t.tags || []).map(tag => `<span class="chip">${esc(tag)}</span>`).join('');
   const meta = chips ? `<span class="meta">${chips}</span>` : '';
-  const thumb = `<span class="cell-thumb"><img src="/assets/img/previews/${esc(t.slug)}.webp" alt="Preview of ${esc(t.name)}" loading="lazy" decoding="async" width="1280" height="800"></span>`;
   return `<a class="cell${wide}" href="/tools/${esc(t.slug)}.html">
     <span class="no">№ ${no}${t.locked ? lockGlyph() : ''}</span>
-    ${thumb}
     ${icon(t.slug)}
     <h3>${esc(t.name)}</h3>
     <p>${esc(t.blurb)}</p>

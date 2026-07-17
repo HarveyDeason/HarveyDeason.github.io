@@ -28,19 +28,9 @@ test('renderToolCard escapes ampersands in names', () => {
   assert.ok(!html.includes('P&ID'));
 });
 
-test('renderToolCard shows a preview thumbnail image for the tool', () => {
+test('renderToolCard does not embed a preview thumbnail (previews live on the locked page only)', () => {
   const html = renderToolCard(tool, 0);
-  assert.ok(html.includes('/assets/img/previews/hydrosizer.webp'));
-  assert.ok(html.includes('loading="lazy"'));
-  assert.ok(html.includes('alt="Preview of HydroSizer"'));
-  assert.ok(/width="\d+"/.test(html));
-  assert.ok(/height="\d+"/.test(html));
-});
-
-test('renderToolCard escapes the slug used in the thumbnail src', () => {
-  const html = renderToolCard({ ...tool, slug:'pid-tag-register', name:'P&ID Tag Register' }, 0);
-  assert.ok(html.includes('/assets/img/previews/pid-tag-register.webp'));
-  assert.ok(html.includes('alt="Preview of P&amp;ID Tag Register"'));
+  assert.ok(!html.includes('/assets/img/previews/'));
 });
 
 test('renderToolCard shows a lock glyph for locked tools', () => {
