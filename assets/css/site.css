@@ -316,3 +316,67 @@ footer{border-top:1px solid var(--border); padding:40px 0 56px; margin-top:48px;
   *{animation:none !important; transition:none !important;}
   html{scroll-behavior:auto;}
 }
+
+/* ——— title block (About hero) — BS 8888 title-block treatment ——— */
+.tb-wrap{position:relative; padding:64px 0 4px; overflow:hidden;}
+.tb-wrap::before{content:""; position:absolute; inset:0;
+  background-image:radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size:22px 22px;
+  mask-image:radial-gradient(ellipse 80% 90% at 50% 20%, #000 50%, transparent 100%);
+  -webkit-mask-image:radial-gradient(ellipse 80% 90% at 50% 20%, #000 50%, transparent 100%);}
+.titleblock{position:relative; max-width:780px; margin:0 auto; background:var(--card);
+  border:1px solid var(--input); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-lg);}
+.tb-grid{display:grid; grid-template-columns:288px 1fr;}
+.tb-photo{position:relative; border-right:1px solid var(--border);}
+.tb-photo img{width:100%; height:100%; object-fit:cover; display:block; aspect-ratio:4/5;}
+.tb-main{display:flex; flex-direction:column; min-width:0;}
+.tb-name{padding:26px 26px 20px; border-bottom:1px solid var(--border); flex:1;}
+.tb-name .kicker{font:500 11px ui-monospace,'Cascadia Code','Consolas',monospace;
+  letter-spacing:1.6px; text-transform:uppercase; color:var(--muted-fg); margin-bottom:10px;}
+.tb-name .nm{font:600 clamp(28px,4.5vw,40px)/1.08 'Geist','Segoe UI',system-ui,sans-serif;
+  letter-spacing:-1.4px; margin-bottom:8px;}
+.tb-name .nm .flourish{font-family:Georgia,serif; font-style:italic; font-weight:400;
+  letter-spacing:-.5px; color:var(--primary); transition:color .4s;}
+.tb-name .rl{font-size:14px; color:var(--muted-fg); max-width:36ch;}
+.tb-cells{display:grid; grid-template-columns:1fr 1fr;}
+.tb-cell{padding:13px 26px 14px; border-top:1px solid var(--border);}
+.tb-cell:nth-child(odd){border-right:1px solid var(--border);}
+.tb-cell:first-child,.tb-cell:nth-child(2){border-top:0;}
+.tb-cell .k{font:500 10px ui-monospace,'Cascadia Code','Consolas',monospace;
+  letter-spacing:1.4px; text-transform:uppercase; color:var(--muted-fg);}
+.tb-cell .v{font:500 13.5px/1.4 ui-monospace,'Cascadia Code','Consolas',monospace;
+  margin-top:4px; letter-spacing:-.2px;}
+.tb-cell .v .ok{color:var(--primary); transition:color .4s;}
+.tb-strip{display:flex; border-top:1px solid var(--border);}
+.tb-strip span{flex:1; padding:9px 26px; font:500 10.5px ui-monospace,'Cascadia Code','Consolas',monospace;
+  letter-spacing:1.2px; text-transform:uppercase; color:var(--muted-fg); white-space:nowrap;}
+.tb-strip span + span{border-left:1px solid var(--border); text-align:center;}
+.tb-strip span:last-child{text-align:right;}
+@media(max-width:700px){
+  .tb-grid{grid-template-columns:1fr;}
+  .tb-photo{border-right:0; border-bottom:1px solid var(--border);}
+  .tb-photo img{aspect-ratio:1/1;}
+  .tb-cell{padding:12px 20px;}
+  .tb-name{padding:22px 20px 16px;}
+  .tb-strip span{padding:8px 14px;}
+  .tb-strip span:nth-child(2){display:none;}
+}
+
+/* ——— revision table (career history) ——— */
+.rev-table{border:1px solid var(--border); border-radius:12px; overflow:hidden;
+  background:var(--card); box-shadow:var(--shadow-sm);}
+.rev-head,.rev-row{display:grid; grid-template-columns:64px 88px 1fr; align-items:baseline;}
+.rev-head{padding:11px 22px; background:var(--muted); border-bottom:1px solid var(--border);
+  font:500 10.5px ui-monospace,'Cascadia Code','Consolas',monospace;
+  letter-spacing:1.4px; text-transform:uppercase; color:var(--muted-fg);}
+.rev-row{padding:15px 22px;}
+.rev-row + .rev-row{border-top:1px solid var(--border);}
+.rev-row .rv{font:600 14px ui-monospace,'Cascadia Code','Consolas',monospace;}
+.rev-row .dt{font:500 12.5px ui-monospace,'Cascadia Code','Consolas',monospace; color:var(--muted-fg);}
+.rev-row .ds{font-size:14px;}
+.rev-row .ds small{display:block; font-size:12.5px; color:var(--muted-fg); margin-top:2px;}
+.rev-row.current{background:color-mix(in srgb, var(--primary) 5%, transparent);}
+.rev-row.current .rv{color:var(--primary); transition:color .4s;}
+@media(max-width:520px){
+  .rev-head,.rev-row{grid-template-columns:44px 64px 1fr; padding:13px 16px;}
+}
