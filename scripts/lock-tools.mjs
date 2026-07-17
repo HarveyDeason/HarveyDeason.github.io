@@ -98,6 +98,12 @@ export function renderLoaderPage(slug, payload) {
         <p class="vault-error" id="vault-error" role="alert"></p>
       </form>
     </div>
+    <div class="vault-preview">
+      <figure>
+        <img src="/assets/img/previews/${slug}.webp" alt="Preview of ${title}" loading="lazy" decoding="async" width="1280" height="800">
+        <figcaption>Preview — enter the code to use the live instrument.</figcaption>
+      </figure>
+    </div>
   </main>
   <script type="application/json" id="vault-payload">${payloadJson}</script>
   <script type="module" src="/assets/js/vault.js"></script>

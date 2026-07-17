@@ -24,6 +24,11 @@ is no server and no secret in the repo.
    `tools/vault-manifest.json`.
 3. Commit the regenerated `tools/*.html` and `tools/vault-manifest.json`.
 
+Each loader also embeds a clear preview screenshot below the unlock card,
+served from `assets/img/previews/<slug>.webp` (also used as the cabinet card
+thumbnails). These are committed images regenerated only when a tool's UI
+changes; the loader template in `scripts/lock-tools.mjs` references them.
+
 Rotating the code is just re-running the script with a new passphrase — it
 re-encrypts everything from `tools-src/`, so every loader and the manifest
 must be regenerated and committed together.
