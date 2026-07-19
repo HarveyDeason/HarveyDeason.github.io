@@ -6,6 +6,7 @@ Static site (no build step). Open `index.html` locally or serve the folder.
 - Tools manifest: `data/tools.json`
 - Blog source: WordPress.com public API
 - Tests: `npm test`
+- Tool skin lives in `assets/css/tool.css` (chrome injected by `assets/js/tool-chrome.js`); SheetJS is vendored at `assets/vendor/xlsx.full.min.js`.
 
 ## Gated instruments (vault)
 
