@@ -54,13 +54,13 @@ test('loadTools validates required fields', async () => {
   await assert.rejects(() => loadTools(fakeFetch), /missing/i);
 });
 
-test('data/tools.json has exactly the five gated instruments, all locked', () => {
+test('data/tools.json has exactly the six gated instruments, all locked', () => {
   const dataPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/tools.json');
   const tools = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 
-  assert.equal(tools.length, 5);
+  assert.equal(tools.length, 6);
 
-  const expectedSlugs = ['naming-validator', 'hydrosizer', 'pid-tag-register', 'steelwork-checker', 'schedule-sync'];
+  const expectedSlugs = ['naming-validator', 'hydrosizer', 'pid-tag-register', 'steelwork-checker', 'schedule-sync', 'comments-hub'];
   assert.deepEqual(tools.map(t => t.slug), expectedSlugs);
 
   for (const t of tools) {
