@@ -63,5 +63,35 @@ export function mergeState(local, disk) {
     tombstones,
     refCounter: Math.max(l.refCounter || 0, d.refCounter || 0),
   };
-  return merged;
+  return resequenceRefs(merged);
+}
+
+export function formatRef(n) {
+  return 'HUB-' + String(n).padStart(4, '0');
+}
+
+export function nextRef(state) {
+  const refCounter = (state.refCounter || 0) + 1;
+  return { ref: formatRef(refCounter), refCounter };
+}
+
+function refNumber(ref) {
+  const m = /^HUB-(\d+)$/.exec(ref || '');
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+export function resequenceRefs(state) {
+  const ordered = [...state.comments].sort((x, y) =>
+    (x.dateRaised || '').localeCompare(y.dateRaised || '') || String(x.id).localeCompare(String(y.id)));
+  let high = state.refCounter || 0;
+  for (const c of ordered) high = Math.max(high, refNumber(c.ref));
+  const seen = new Set();
+  const comments = ordered.map(c => {
+    if (c.ref && !seen.has(c.ref)) { seen.add(c.ref); return c; }
+    high += 1;
+    const ref = formatRef(high);
+    seen.add(ref);
+    return { ...c, ref };
+  });
+  return { ...state, comments, refCounter: high };
 }
