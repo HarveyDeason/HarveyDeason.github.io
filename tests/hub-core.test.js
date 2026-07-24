@@ -91,3 +91,44 @@ test('merge of two sides that both issued HUB-0002 re-sequences deterministicall
   assert.equal(later.ref, 'HUB-0003');
   assert.equal(m1.refCounter, 3);
 });
+
+import { filterComments, commentCounts, productCounts, daysOpen, latestRevisions } from '../assets/js/hub-core.js';
+
+test('filterComments ANDs filters and searches text case-insensitively', () => {
+  const cs = [
+    C('c1', 't', { productIds: ['p1'], status: 'open', description: 'Replace GATE valve' }),
+    C('c2', 't', { productIds: ['p2'], status: 'closed', description: 'Re-route pipework' }),
+  ];
+  assert.deepEqual(filterComments(cs, { productId: 'p1' }).map(c => c.id), ['c1']);
+  assert.deepEqual(filterComments(cs, { search: 'gate' }).map(c => c.id), ['c1']);
+  assert.deepEqual(filterComments(cs, { productId: 'p1', status: 'closed' }), []);
+});
+
+test('hold filter distinguishes held vs not-held open comments', () => {
+  const cs = [C('c1', 't', { hold: true }), C('c2', 't', { hold: false })];
+  assert.deepEqual(filterComments(cs, { hold: 'held' }).map(c => c.id), ['c1']);
+  assert.deepEqual(filterComments(cs, { hold: 'not_held' }).map(c => c.id), ['c2']);
+});
+
+test('commentCounts and productCounts', () => {
+  const cs = [
+    C('c1', 't', { status: 'open', priority: 'high' }),
+    C('c2', 't', { status: 'in_progress' }),
+    C('c3', 't', { status: 'closed', productIds: ['p2'] }),
+  ];
+  assert.deepEqual(commentCounts(cs), { open: 1, inProgress: 1, closed: 1, highOpen: 1 });
+  assert.deepEqual(productCounts(cs).get('p1'), { open: 1, inProgress: 1, closed: 0 });
+});
+
+test('daysOpen measures to today for open, to dateClosed for closed', () => {
+  assert.equal(daysOpen(C('c', 't', { dateRaised: '2026-07-01' }), '2026-07-24'), 23);
+  assert.equal(daysOpen(C('c', 't', { dateRaised: '2026-07-01', status: 'closed', dateClosed: '2026-07-10' }), '2026-07-24'), 9);
+});
+
+test('latestRevisions picks the revision with the newest importedAt', () => {
+  const reg = { revHistory: { 'DRG-001': {
+    A: { importedAt: '2026-01-01T00:00:00Z' },
+    B: { importedAt: '2026-06-01T00:00:00Z' },
+  } } };
+  assert.equal(latestRevisions(reg).get('DRG-001'), 'B');
+});
