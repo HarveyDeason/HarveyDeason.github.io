@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-core.js';
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
+import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
+  COMMENT_COLUMNS, statusLabel, sanitizeFilename } from '../assets/js/hub-core.js';
 
 const P = (id, updatedAt, name = 'OSB-01') =>
   ({ id, name, type: 'OSB item', pidDrawings: [], modelRef: '', sheetRefs: '', updatedAt });
@@ -131,4 +133,55 @@ test('latestRevisions picks the revision with the newest importedAt', () => {
     B: { importedAt: '2026-06-01T00:00:00Z' },
   } } };
   assert.equal(latestRevisions(reg).get('DRG-001'), 'B');
+});
+
+function demoState() {
+  const s = emptyState('2026-07-24T09:00:00Z');
+  s.products = [
+    { id: 'p1', name: 'OSB-01 Chemical Dosing', type: 'OSB item', pidDrawings: ['DRG-001'], modelRef: 'M-01', sheetRefs: 'SH-01', updatedAt: 't' },
+    { id: 'p2', name: 'OSB-02 Kiosk', type: 'Standard product', pidDrawings: [], modelRef: '', sheetRefs: '', updatedAt: 't' },
+  ];
+  s.comments = [
+    C('c1', 't', { ref: 'HUB-0001', productIds: ['p1', 'p2'], status: 'open', priority: 'high' }),
+    C('c2', 't', { ref: 'HUB-0002', productIds: ['p2'], status: 'closed', dateClosed: '2026-07-20', actionTaken: 'Done', closedBy: 'HD' }),
+  ];
+  return s;
+}
+
+test('product workbook: summary + log, only that product’s comments, revision from register', () => {
+  const m = buildProductWorkbookModel(demoState(), 'p1', new Map([['DRG-001', 'C']]), '2026-07-24');
+  assert.equal(m.filename, 'OSB-01 Chemical Dosing Comments.xlsx');
+  assert.equal(m.sheets.length, 2);
+  assert.equal(m.sheets[0].kind, 'summary');
+  assert.ok(m.sheets[0].rows.some(([label, value]) => label.includes('P&ID') && value.includes('DRG-001 (Rev C)')));
+  const log = m.sheets[1];
+  assert.equal(log.rows.length, 1);
+  assert.equal(log.rows[0].cells.ref, 'HUB-0001');
+  assert.equal(log.rows[0].statusKey, 'open');
+  assert.equal(log.rows[0].high, true);
+});
+
+test('master workbook: overview counts + product column on every row', () => {
+  const m = buildMasterWorkbookModel(demoState(), new Map(), '2026-07-24');
+  assert.equal(m.filename, 'Master Log.xlsx');
+  assert.equal(m.sheets[0].kind, 'summary');
+  assert.ok(m.sheets[0].rows.some(([label]) => label === 'OSB-01 Chemical Dosing'));
+  const log = m.sheets[1];
+  assert.equal(log.columns[0].key, 'product');
+  assert.equal(log.rows.length, 2);
+  assert.equal(log.rows[0].cells.product, 'OSB-01 Chemical Dosing, OSB-02 Kiosk');
+});
+
+test('filtered workbook uses only supplied comments', () => {
+  const s = demoState();
+  const m = buildFilteredWorkbookModel(s, s.comments.filter(c => c.status === 'closed'), '2026-07-24');
+  assert.equal(m.sheets.length, 1);
+  assert.equal(m.sheets[0].rows.length, 1);
+  assert.equal(m.sheets[0].rows[0].cells.ref, 'HUB-0002');
+});
+
+test('statusLabel and sanitizeFilename', () => {
+  assert.equal(statusLabel('in_progress'), 'In progress');
+  assert.equal(sanitizeFilename('A/B:C'), 'A-B-C');
+  assert.ok(COMMENT_COLUMNS.some(c => c.key === 'description' && c.width >= 50));
 });

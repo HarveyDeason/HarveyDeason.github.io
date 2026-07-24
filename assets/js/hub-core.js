@@ -154,3 +154,103 @@ export function latestRevisions(registerJson) {
   }
   return out;
 }
+
+export const EXCEL_COLORS = {
+  headerFill: 'FF1F4D38', headerText: 'FFFFFFFF', zebra: 'FFF2F5F0',
+  open: 'FFF6E3B4', inProgress: 'FFDCE8F5', closed: 'FFDDEBD9', high: 'FFF5D6D0',
+};
+
+export const COMMENT_COLUMNS = [
+  { key: 'ref', header: 'Ref', width: 10 },
+  { key: 'dateRaised', header: 'Date raised', width: 12 },
+  { key: 'raisedBy', header: 'Raised by', width: 16 },
+  { key: 'source', header: 'Source', width: 16 },
+  { key: 'affectedTypes', header: 'Affects', width: 18 },
+  { key: 'category', header: 'Category', width: 18 },
+  { key: 'priority', header: 'Priority', width: 10 },
+  { key: 'description', header: 'Description', width: 60 },
+  { key: 'pidRevision', header: 'Rev raised against', width: 14 },
+  { key: 'status', header: 'Status', width: 12 },
+  { key: 'dateClosed', header: 'Date closed', width: 12 },
+  { key: 'actionTaken', header: 'Action taken', width: 40 },
+  { key: 'closedBy', header: 'Closed by', width: 14 },
+];
+
+export function statusLabel(s) {
+  return s === 'in_progress' ? 'In progress' : s === 'closed' ? 'Closed' : 'Open';
+}
+
+export function sanitizeFilename(x) {
+  return String(x).replace(/[\/\\:*?"<>|]/g, '-');
+}
+
+function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function commentRow(c, state) {
+  const names = (c.productIds || [])
+    .map(pid => { const p = state.products.find(x => x.id === pid); return p ? p.name : pid; });
+  return {
+    cells: {
+      product: names.join(', '),
+      ref: c.ref, dateRaised: c.dateRaised, raisedBy: c.raisedBy, source: c.source,
+      affectedTypes: (c.affectedTypes || []).join(', '), category: c.category,
+      priority: titleCase(c.priority || ''), description: c.description,
+      pidRevision: c.pidRevision || '', status: statusLabel(c.status),
+      dateClosed: c.dateClosed || '', actionTaken: c.actionTaken || '', closedBy: c.closedBy || '',
+    },
+    statusKey: c.status, high: c.priority === 'high' && c.status !== 'closed',
+  };
+}
+
+function sortForLog(comments) {
+  return [...comments].sort((a, b) => (a.ref || '').localeCompare(b.ref || '', undefined, { numeric: true }));
+}
+
+export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
+  const p = state.products.find(x => x.id === productId);
+  const comments = sortForLog(state.comments.filter(c => (c.productIds || []).includes(productId)));
+  const counts = commentCounts(comments);
+  const pids = (p.pidDrawings || [])
+    .map(d => revisions.has(d) ? `${d} (Rev ${revisions.get(d)})` : d).join(', ');
+  return {
+    filename: `${sanitizeFilename(p.name)} Comments.xlsx`,
+    sheets: [
+      { name: 'Summary', kind: 'summary', meta: { title: p.name, generatedOn: nowIso }, rows: [
+        ['Product', p.name], ['Type', p.type],
+        ['P&ID drawings', pids || '—'],
+        ['Model reference', p.modelRef || '—'], ['Sheet references', p.sheetRefs || '—'],
+        ['Open comments', String(counts.open)], ['In progress', String(counts.inProgress)],
+        ['Closed', String(counts.closed)], ['Generated on', nowIso],
+      ] },
+      { name: 'Comment Log', kind: 'log', columns: COMMENT_COLUMNS,
+        rows: comments.map(c => commentRow(c, state)) },
+    ],
+  };
+}
+
+const MASTER_COLUMNS = [{ key: 'product', header: 'Product', width: 28 }, ...COMMENT_COLUMNS];
+
+export function buildMasterWorkbookModel(state, revisions, nowIso) {
+  const perProduct = productCounts(state.comments);
+  const overview = state.products.map(p => {
+    const b = perProduct.get(p.id) || { open: 0, inProgress: 0, closed: 0 };
+    return [p.name, `Open ${b.open} · In progress ${b.inProgress} · Closed ${b.closed}`];
+  });
+  return {
+    filename: 'Master Log.xlsx',
+    sheets: [
+      { name: 'Overview', kind: 'summary', meta: { title: 'Comments Hub — Master Log', generatedOn: nowIso },
+        rows: [['Generated on', nowIso], ...overview] },
+      { name: 'Comment Log', kind: 'log', columns: MASTER_COLUMNS,
+        rows: sortForLog(state.comments).map(c => commentRow(c, state)) },
+    ],
+  };
+}
+
+export function buildFilteredWorkbookModel(state, comments, nowIso) {
+  return {
+    filename: `Comments Export ${nowIso}.xlsx`,
+    sheets: [{ name: 'Comments', kind: 'log', columns: MASTER_COLUMNS,
+      rows: sortForLog(comments).map(c => commentRow(c, state)) }],
+  };
+}
