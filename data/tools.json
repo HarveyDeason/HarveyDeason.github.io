@@ -3,5 +3,6 @@
   { "slug":"hydrosizer","name":"HydroSizer","blurb":"Hydraulic flow sizing and storage-tank design: submergence, overflow, freeboard and working volume in one pass.","href":"/tools/hydrosizer.html","tags":["Hydraulics","Storage"],"locked":true },
   { "slug":"pid-tag-register","name":"P&ID Tag Register","blurb":"Scans P&ID PDFs into a living tag register — numbering checked, clashes caught, next-available always known.","href":"/tools/pid-tag-register.html","tags":["Instrumentation","QA"],"locked":true },
   { "slug":"steelwork-checker","name":"Steelwork Checker","blurb":"Point load, UDL, flooring and stair configurations checked against British Standards.","href":"/tools/steelwork-checker.html","tags":["Structural","British Standards"],"locked":true },
-  { "slug":"schedule-sync","name":"Schedule Sync","blurb":"Match a shared column across two Excel schedules and carry the data you choose from one to the other.","href":"/tools/schedule-sync.html","tags":["Data","Excel"],"locked":true }
+  { "slug":"schedule-sync","name":"Schedule Sync","blurb":"Match a shared column across two Excel schedules and carry the data you choose from one to the other.","href":"/tools/schedule-sync.html","tags":["Data","Excel"],"locked":true },
+  { "slug":"comments-hub","name":"Comments Hub","blurb":"One place to log comments and updates against OSB items and Standard products — tagged, tracked to close-out, and distributed as formatted Excel logs.","href":"/tools/comments-hub.html","tags":["QA","Tracking"],"locked":true }
 ]
