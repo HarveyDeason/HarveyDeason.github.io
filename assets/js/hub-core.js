@@ -290,3 +290,58 @@ export function expandProductFilter(productId, membership) {
   if (m.familyOf.has(productId)) out.add(m.familyOf.get(productId));
   return out;
 }
+
+export function excelSheetName(name, takenNames) {
+  const cleaned = String(name).replace(/[[\]:*?/\\]/g, '-').slice(0, 31);
+  const taken = new Set(takenNames || []);
+  if (!taken.has(cleaned)) return cleaned;
+  for (let n = 2; ; n++) {
+    const suffix = ' (' + n + ')';
+    const candidate = cleaned.slice(0, 31 - suffix.length) + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function buildFamilyWorkbookModel(state, familyPid, membership, revisions, nowIso) {
+  const fam = state.products.find(p => p.id === familyPid);
+  const memberIds = (membership.members.get(familyPid)) || [];
+  const familyComments = sortForLog(state.comments.filter(c => (c.productIds || []).includes(familyPid)));
+  const allIds = [familyPid, ...memberIds];
+  const rolled = commentCounts(state.comments.filter(c => (c.productIds || []).some(id => allIds.includes(id))));
+  const memberList = (fam.pidDrawings || [])
+    .map(d => revisions.has(d) ? `${d} (Rev ${revisions.get(d)})` : d).join(', ');
+  const sheets = [
+    { name: 'Summary', kind: 'summary', meta: { title: fam.name, generatedOn: nowIso }, rows: [
+      ['Family', fam.name], ['Type', fam.type],
+      ['Member drawings', memberList || '—'],
+      ['Family-level comments', String(familyComments.length)],
+      ['Open (family + drawings)', String(rolled.open)],
+      ['In progress', String(rolled.inProgress)], ['Closed', String(rolled.closed)],
+      ['Generated on', nowIso],
+    ] },
+    { name: 'Family Comments', kind: 'log', columns: COMMENT_COLUMNS,
+      rows: familyComments.map(c => commentRow(c, state)) },
+  ];
+  const taken = sheets.map(s => s.name);
+  for (const mid of memberIds) {
+    const mp = state.products.find(p => p.id === mid);
+    if (!mp) continue;
+    const name = excelSheetName(mp.name, taken);
+    taken.push(name);
+    sheets.push({ name, kind: 'log', heading: mp.name, columns: COMMENT_COLUMNS,
+      rows: sortForLog(state.comments.filter(c => (c.productIds || []).includes(mid)))
+        .map(c => commentRow(c, state)) });
+  }
+  return { filename: `${sanitizeFilename(fam.name)} Comments.xlsx`, sheets };
+}
+
+export function staleFamilyMemberFiles(state, membership) {
+  const out = [];
+  for (const ids of membership.members.values()) {
+    for (const id of ids) {
+      const p = state.products.find(x => x.id === id);
+      if (p) out.push(`${sanitizeFilename(p.name)} Comments.xlsx`);
+    }
+  }
+  return out;
+}
