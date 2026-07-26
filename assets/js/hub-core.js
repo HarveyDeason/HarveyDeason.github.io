@@ -231,3 +231,117 @@ export function buildFilteredWorkbookModel(state, comments, nowIso) {
       rows: sortForLog(comments).map(c => commentRow(c, state)) }],
   };
 }
+
+// ── Product families (defined in the P&ID tool; read-only here) ──
+export function expandFamilyPatterns(patterns, drawingNames) {
+  const matched = new Set();
+  (patterns || []).forEach(raw => {
+    const pat = String(raw).trim().toUpperCase();
+    if (!pat) return;
+    const rangeMatch = pat.match(/^([A-Z]+)(\d+)-(?:[A-Z]+)?(\d+)$/);
+    if (rangeMatch) {
+      const prefix = rangeMatch[1];
+      const from = parseInt(rangeMatch[2], 10);
+      const to = parseInt(rangeMatch[3], 10);
+      drawingNames.forEach(d => {
+        const dm = d.toUpperCase().match(new RegExp('^' + prefix + '(\\d+)'));
+        if (dm) {
+          const n = parseInt(dm[1], 10);
+          if (n >= from && n <= to) matched.add(d);
+        }
+      });
+      return;
+    }
+    drawingNames.forEach(d => {
+      if (d.toUpperCase().startsWith(pat) || d.toUpperCase().includes(pat)) matched.add(d);
+    });
+  });
+  return matched;
+}
+
+export function familiesFromRegister(registerJson) {
+  const drawings = Object.keys((registerJson && registerJson.revHistory) || {});
+  return ((registerJson && registerJson.families) || [])
+    .map(f => ({ id: f.id, name: f.name, drawings: [...expandFamilyPatterns(f.patterns, drawings)] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function familyProductId(famId) { return 'fam-' + famId; }
+
+export function familyMembership(products, families) {
+  const members = new Map();
+  const familyOf = new Map();
+  for (const fam of families || []) {
+    const fpid = familyProductId(fam.id);
+    const drawingSet = new Set(fam.drawings);
+    const ids = (products || [])
+      .filter(p => !p.familyId && (p.pidDrawings || []).some(d => drawingSet.has(d)))
+      .map(p => p.id);
+    members.set(fpid, ids);
+    for (const id of ids) familyOf.set(id, fpid);
+  }
+  return { members, familyOf };
+}
+
+export function expandProductFilter(productId, membership) {
+  const out = new Set([productId]);
+  const m = membership || { members: new Map(), familyOf: new Map() };
+  if (m.members.has(productId)) for (const id of m.members.get(productId)) out.add(id);
+  if (m.familyOf.has(productId)) out.add(m.familyOf.get(productId));
+  return out;
+}
+
+export function excelSheetName(name, takenNames) {
+  const cleaned = String(name).replace(/[[\]:*?/\\]/g, '-').slice(0, 31);
+  const taken = new Set(takenNames || []);
+  if (!taken.has(cleaned)) return cleaned;
+  for (let n = 2; ; n++) {
+    const suffix = ' (' + n + ')';
+    const candidate = cleaned.slice(0, 31 - suffix.length) + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function buildFamilyWorkbookModel(state, familyPid, membership, revisions, nowIso) {
+  const fam = state.products.find(p => p.id === familyPid);
+  const memberIds = (membership.members.get(familyPid)) || [];
+  const familyComments = sortForLog(state.comments.filter(c => (c.productIds || []).includes(familyPid)));
+  const allIds = [familyPid, ...memberIds];
+  const rolled = commentCounts(state.comments.filter(c => (c.productIds || []).some(id => allIds.includes(id))));
+  const memberList = (fam.pidDrawings || [])
+    .map(d => revisions.has(d) ? `${d} (Rev ${revisions.get(d)})` : d).join(', ');
+  const sheets = [
+    { name: 'Summary', kind: 'summary', meta: { title: fam.name, generatedOn: nowIso }, rows: [
+      ['Family', fam.name], ['Type', fam.type],
+      ['Member drawings', memberList || '—'],
+      ['Family-level comments', String(familyComments.length)],
+      ['Open (family + drawings)', String(rolled.open)],
+      ['In progress', String(rolled.inProgress)], ['Closed', String(rolled.closed)],
+      ['Generated on', nowIso],
+    ] },
+    { name: 'Family Comments', kind: 'log', columns: COMMENT_COLUMNS,
+      rows: familyComments.map(c => commentRow(c, state)) },
+  ];
+  const taken = sheets.map(s => s.name);
+  for (const mid of memberIds) {
+    const mp = state.products.find(p => p.id === mid);
+    if (!mp) continue;
+    const name = excelSheetName(mp.name, taken);
+    taken.push(name);
+    sheets.push({ name, kind: 'log', heading: mp.name, columns: COMMENT_COLUMNS,
+      rows: sortForLog(state.comments.filter(c => (c.productIds || []).includes(mid)))
+        .map(c => commentRow(c, state)) });
+  }
+  return { filename: `${sanitizeFilename(fam.name)} Comments.xlsx`, sheets };
+}
+
+export function staleFamilyMemberFiles(state, membership) {
+  const out = [];
+  for (const ids of membership.members.values()) {
+    for (const id of ids) {
+      const p = state.products.find(x => x.id === id);
+      if (p) out.push(`${sanitizeFilename(p.name)} Comments.xlsx`);
+    }
+  }
+  return out;
+}

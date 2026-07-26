@@ -5,6 +5,9 @@ import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-cor
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
 import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
   COMMENT_COLUMNS, statusLabel, sanitizeFilename } from '../assets/js/hub-core.js';
+import { expandFamilyPatterns, familiesFromRegister, familyProductId, familyMembership,
+  expandProductFilter } from '../assets/js/hub-core.js';
+import { excelSheetName, buildFamilyWorkbookModel, staleFamilyMemberFiles } from '../assets/js/hub-core.js';
 
 const P = (id, updatedAt, name = 'OSB-01') =>
   ({ id, name, type: 'OSB item', pidDrawings: [], modelRef: '', sheetRefs: '', updatedAt });
@@ -184,4 +187,88 @@ test('statusLabel and sanitizeFilename', () => {
   assert.equal(statusLabel('in_progress'), 'In progress');
   assert.equal(sanitizeFilename('A/B:C'), 'A-B-C');
   assert.ok(COMMENT_COLUMNS.some(c => c.key === 'description' && c.width >= 50));
+});
+
+const DRAWINGS = ['SP51', 'SP52-01', 'SP68', 'SP69', 'WW-KIOSK-01'];
+
+test('expandFamilyPatterns: numeric range with prefix', () => {
+  const m = expandFamilyPatterns(['SP51-68'], DRAWINGS);
+  assert.deepEqual([...m].sort(), ['SP51', 'SP52-01', 'SP68']);
+});
+
+test('expandFamilyPatterns: plain pattern matches prefix or substring, case-insensitive', () => {
+  assert.deepEqual([...expandFamilyPatterns(['kiosk'], DRAWINGS)], ['WW-KIOSK-01']);
+  assert.equal(expandFamilyPatterns(['', '  '], DRAWINGS).size, 0);
+});
+
+test('familiesFromRegister expands against revHistory keys, sorted by name', () => {
+  const reg = { revHistory: Object.fromEntries(DRAWINGS.map(d => [d, {}])),
+    families: [{ id: 'f2', name: 'Zeta', patterns: ['SP69'] }, { id: 'f1', name: 'SP51-68', patterns: ['SP51-68'] }] };
+  const fams = familiesFromRegister(reg);
+  assert.deepEqual(fams.map(f => f.name), ['SP51-68', 'Zeta']);
+  assert.deepEqual(fams[0].drawings.sort(), ['SP51', 'SP52-01', 'SP68']);
+  assert.deepEqual(familiesFromRegister({}), []);
+});
+
+test('familyMembership and expandProductFilter roll up both directions', () => {
+  const products = [
+    { id: 'fam-f1', name: 'SP51-68', familyId: 'f1', pidDrawings: ['SP51', 'SP52-01', 'SP68'] },
+    { id: 'reg-SP51', name: 'SP51', pidDrawings: ['SP51'] },
+    { id: 'reg-SP69', name: 'SP69', pidDrawings: ['SP69'] },
+    { id: 'manual1', name: 'Kiosk', pidDrawings: [] },
+  ];
+  const fams = [{ id: 'f1', name: 'SP51-68', drawings: ['SP51', 'SP52-01', 'SP68'] }];
+  const mem = familyMembership(products, fams);
+  assert.deepEqual(mem.members.get('fam-f1'), ['reg-SP51']);
+  assert.equal(mem.familyOf.get('reg-SP51'), 'fam-f1');
+  assert.equal(mem.familyOf.get('reg-SP69'), undefined);
+  assert.deepEqual([...expandProductFilter('fam-f1', mem)].sort(), ['fam-f1', 'reg-SP51']);
+  assert.deepEqual([...expandProductFilter('reg-SP51', mem)].sort(), ['fam-f1', 'reg-SP51']);
+  assert.deepEqual([...expandProductFilter('manual1', mem)], ['manual1']);
+});
+
+test('excelSheetName strips banned chars, truncates to 31, dedupes', () => {
+  assert.equal(excelSheetName('SP52-01: [Rev]/A', []), 'SP52-01- -Rev--A');
+  const long = 'X'.repeat(40);
+  assert.equal(excelSheetName(long, []).length, 31);
+  const first = excelSheetName(long, []);
+  const second = excelSheetName(long, [first]);
+  assert.notEqual(second, first);
+  assert.ok(second.length <= 31 && second.endsWith(' (2)'));
+});
+
+function famState() {
+  const s = emptyState('t');
+  s.products = [
+    { id: 'fam-f1', name: 'SP51-68', type: 'OSB item', familyId: 'f1', pidDrawings: ['SP51', 'SP68'], modelRef: '', sheetRefs: '', updatedAt: 't' },
+    { id: 'reg-SP51', name: 'SP51', type: 'OSB item', pidDrawings: ['SP51'], modelRef: '', sheetRefs: '', updatedAt: 't' },
+    { id: 'reg-SP68', name: 'SP68', type: 'OSB item', pidDrawings: ['SP68'], modelRef: '', sheetRefs: '', updatedAt: 't' },
+  ];
+  s.comments = [
+    C('c1', 't', { ref: 'HUB-0001', productIds: ['fam-f1'], description: 'range-wide change' }),
+    C('c2', 't', { ref: 'HUB-0002', productIds: ['reg-SP51'], description: 'SP51 only' }),
+  ];
+  return s;
+}
+
+test('family workbook: summary + family sheet + one sheet per member, no duplication', () => {
+  const s = famState();
+  const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]),
+    familyOf: new Map([['reg-SP51', 'fam-f1'], ['reg-SP68', 'fam-f1']]) };
+  const m = buildFamilyWorkbookModel(s, 'fam-f1', membership, new Map([['SP51', 'C']]), '2026-07-26');
+  assert.equal(m.filename, 'SP51-68 Comments.xlsx');
+  assert.deepEqual(m.sheets.map(x => x.name), ['Summary', 'Family Comments', 'SP51', 'SP68']);
+  assert.equal(m.sheets[1].rows.length, 1);
+  assert.equal(m.sheets[1].rows[0].cells.ref, 'HUB-0001');
+  assert.equal(m.sheets[2].heading, 'SP51');
+  assert.equal(m.sheets[2].rows.length, 1);
+  assert.equal(m.sheets[2].rows[0].cells.ref, 'HUB-0002');
+  assert.equal(m.sheets[3].rows.length, 0);
+  assert.ok(m.sheets[0].rows.some(([l, v]) => l.includes('Member') && v.includes('SP51 (Rev C)')));
+});
+
+test('staleFamilyMemberFiles predicts old per-member filenames', () => {
+  const s = famState();
+  const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]), familyOf: new Map() };
+  assert.deepEqual(staleFamilyMemberFiles(s, membership).sort(), ['SP51 Comments.xlsx', 'SP68 Comments.xlsx']);
 });

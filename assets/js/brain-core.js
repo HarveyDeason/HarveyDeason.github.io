@@ -74,7 +74,7 @@ export function extractionMethodFor(filename) {
   const ext = (/\.([a-z0-9]+)$/i.exec(filename || '') || [])[1]?.toLowerCase() || '';
   if (ext === 'pdf') return 'pdf';
   if (ext === 'docx') return 'docx';
-  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'sheet';
+  if (['xlsx', 'xlsm', 'xlsb', 'xls', 'csv'].includes(ext)) return 'sheet';
   return 'none';
 }
 
