@@ -272,3 +272,25 @@ test('staleFamilyMemberFiles predicts old per-member filenames', () => {
   const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]), familyOf: new Map() };
   assert.deepEqual(staleFamilyMemberFiles(s, membership).sort(), ['SP51 Comments.xlsx', 'SP68 Comments.xlsx']);
 });
+
+// Folder/file names go straight to the OS. Windows rejects trailing dots and
+// spaces, reserved device names, and control characters — and a name that
+// sanitises to nothing would throw on create. Any of those failed folder
+// creation, which the tool then mislabelled as "locked".
+test('sanitizeFilename strips trailing dots and spaces Windows rejects', () => {
+  assert.equal(sanitizeFilename('SP51-68 '), 'SP51-68');
+  assert.equal(sanitizeFilename('SP51-68.'), 'SP51-68');
+  assert.equal(sanitizeFilename('  SP51-68  '), 'SP51-68');
+});
+
+test('sanitizeFilename guards reserved device names and empty results', () => {
+  assert.equal(sanitizeFilename('CON'), 'CON_');
+  assert.equal(sanitizeFilename('lpt1'), 'lpt1_');
+  assert.equal(sanitizeFilename('   '), 'Unnamed');
+  assert.equal(sanitizeFilename('///'), '---');
+});
+
+test('sanitizeFilename keeps its existing substitution behaviour', () => {
+  assert.equal(sanitizeFilename('A/B:C'), 'A-B-C');
+  assert.equal(sanitizeFilename('SP51-68'), 'SP51-68');
+});

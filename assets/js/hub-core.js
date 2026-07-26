@@ -157,8 +157,17 @@ export function statusLabel(s) {
   return s === 'in_progress' ? 'In progress' : s === 'closed' ? 'Closed' : 'Open';
 }
 
+const WINDOWS_RESERVED_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+
+// Names here become real folders and files. Beyond the characters Windows
+// bans outright, it also rejects trailing dots and spaces and a handful of
+// reserved device names — each of which fails folder creation rather than
+// merely looking odd.
 export function sanitizeFilename(x) {
-  return String(x).replace(/[\/\\:*?"<>|]/g, '-');
+  let s = String(x).replace(/[\/\\:*?"<>|]/g, '-').replace(/[\x00-\x1f]/g, '');
+  s = s.replace(/[. ]+$/, '').trim();
+  if (!s) return 'Unnamed';
+  return WINDOWS_RESERVED_NAME.test(s) ? s + '_' : s;
 }
 
 function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
