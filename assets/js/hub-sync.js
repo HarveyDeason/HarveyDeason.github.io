@@ -41,8 +41,19 @@ export function createSyncEngine(cfg) {
   async function writeFile(dir, name, contents) {
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
-    await w.write(contents);
-    await w.close();
+    try {
+      await w.write(contents);
+      await w.close();
+    } catch (e) {
+      // A half-open writable holds an OS lock and a .crswap swap file, and
+      // every later createWritable() on this file then fails with
+      // InvalidStateError — one transient lock would otherwise poison all
+      // future saves. Always release it, and never let abort's own failure
+      // hide the error that actually happened.
+      try { await w.abort(); } catch (abortErr) { /* stream already gone */ }
+      if (e && e.name) e.hubFile = name;   // so callers can name the file
+      throw e;
+    }
   }
 
   async function readLedger() {
@@ -96,7 +107,8 @@ export function createSyncEngine(cfg) {
         try { await saveNow(touched); }
         catch (e) {
           console.error('save failed', e);
-          cfg.onStatus('error', 'Save failed (' + ((e && e.name) || 'error') + '). Your change is kept on screen and will retry on the next change.');
+          const which = e && e.hubFile ? ' writing ' + e.hubFile : '';
+          cfg.onStatus('error', 'Save failed' + which + ' (' + ((e && e.name) || 'error') + '). Your change is kept on screen and will retry on the next change.');
           if (touched === null) pendingAll = true;
           else for (const id of touched) pendingIds.add(id);
         }

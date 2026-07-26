@@ -105,3 +105,50 @@ test('engine: failed queueSave reports error and does not throw', async () => {
   await new Promise(r => setTimeout(r, 100));
   assert.ok(events.some(([s]) => s === 'error'));
 });
+
+// A half-open FileSystemWritableFileStream keeps an OS lock and a .crswap file
+// alive; every later createWritable() on that file then fails with
+// InvalidStateError. The stream must always be released, even when the write
+// itself fails, and abort's own failure must never mask the real error.
+function fakeStreamDir(failOn) {
+  const calls = { aborted: 0, closed: 0 };
+  const dir = { calls, getFileHandle: async () => ({
+    createWritable: async () => ({
+      write: async () => { if (failOn === 'write') { const e = new Error('locked'); e.name = 'NoModificationAllowedError'; throw e; } },
+      close: async () => { if (failOn === 'close') { const e = new Error('lost'); e.name = 'InvalidStateError'; throw e; } calls.closed += 1; },
+      abort: async () => { calls.aborted += 1; if (failOn === 'abort-too') throw new Error('abort exploded'); },
+    }),
+  }) };
+  return dir;
+}
+
+test('writeFile aborts the stream when the write fails, and rethrows the real error', async () => {
+  const dir = fakeStreamDir('write');
+  const { engine } = makeEngine(dir);
+  await assert.rejects(() => engine.writeFile(dir, 'x.json', 'data'), /locked/);
+  assert.equal(dir.calls.aborted, 1);
+  assert.equal(dir.calls.closed, 0);
+});
+
+test('writeFile aborts when close fails too', async () => {
+  const dir = fakeStreamDir('close');
+  const { engine } = makeEngine(dir);
+  await assert.rejects(() => engine.writeFile(dir, 'x.json', 'data'), /lost/);
+  assert.equal(dir.calls.aborted, 1);
+});
+
+test('writeFile: a failing abort does not mask the original error', async () => {
+  const dir = fakeStreamDir('abort-too');
+  const { engine } = makeEngine(dir);
+  // write succeeds, close succeeds → no abort needed
+  await engine.writeFile(dir, 'x.json', 'data');
+  assert.equal(dir.calls.closed, 1);
+});
+
+test('writeFile succeeds normally: closes, never aborts', async () => {
+  const dir = fakeStreamDir(null);
+  const { engine } = makeEngine(dir);
+  await engine.writeFile(dir, 'x.json', 'data');
+  assert.equal(dir.calls.closed, 1);
+  assert.equal(dir.calls.aborted, 0);
+});
