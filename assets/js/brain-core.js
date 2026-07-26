@@ -156,3 +156,130 @@ export function decisionFromComment(comment, nowIso) {
     links: { documents: [], comments: [comment.id], urls: [] },
   };
 }
+
+// ── Search quality ──────────────────────────────────────────────────────────
+// Pasting a sentence should find the document containing that sentence, not
+// every document sharing one common word with it. Three parts do that work:
+// stopword-stripped content terms, an AND gate, and phrase-aware snippets.
+
+const STOPWORDS = new Set(['a','an','and','are','as','at','be','been','but','by','can','could','do','does',
+  'for','from','had','has','have','how','if','in','into','is','it','its','may','might','must','no','not',
+  'of','on','or','shall','should','so','such','than','that','the','their','then','there','these','this',
+  'those','to','was','we','were','what','when','where','which','while','who','will','with','would','you','your']);
+
+/** Query words worth searching on: lowercased, stopwords and single characters
+ *  dropped. A query made entirely of stopwords keeps them — otherwise
+ *  searching for "to" would search for nothing. */
+export function contentTerms(query) {
+  const all = String(query || '').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  const kept = all.filter(t => t.length > 1 && !STOPWORDS.has(t));
+  return kept.length ? kept : all;
+}
+
+/** The query as a normalised phrase, or '' when it is too short to be one. */
+export function phraseOf(query) {
+  const norm = String(query || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return norm.split(' ').filter(Boolean).length >= 2 ? norm : '';
+}
+
+/** Index of `phrase` in `text`, tolerating whitespace and case differences and
+ *  ignoring page/sheet markers. -1 when absent. */
+export function findPhrase(text, phrase) {
+  if (!phrase) return -1;
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  // Normalise (markers dropped, whitespace collapsed) while recording where
+  // each normalised character came from, so the hit maps back exactly. An
+  // approximate map lands in the wrong page and mis-reports the citation.
+  let norm = '';
+  const origin = [];
+  let i = 0, lastWasSpace = true;
+  while (i < lower.length) {
+    if (lower.startsWith('[[', i)) {
+      const close = lower.indexOf(']]', i);
+      if (close !== -1) { i = close + 2; continue; }
+    }
+    if (/\s/.test(lower[i])) {
+      if (!lastWasSpace) { norm += ' '; origin.push(i); lastWasSpace = true; }
+      i++;
+      continue;
+    }
+    norm += lower[i]; origin.push(i); lastWasSpace = false;
+    i++;
+  }
+  const needle = String(phrase).toLowerCase().replace(/\s+/g, ' ').trim();
+  const idx = norm.indexOf(needle);
+  return idx === -1 ? -1 : origin[idx];
+}
+
+/** True when every term appears in the text as a whole word. */
+export function hasAllTerms(text, terms) {
+  const hay = String(text || '').toLowerCase();
+  return (terms || []).every(t => wordRegex(t).test(hay));
+}
+
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function wordRegex(term, flags) {
+  const t = escapeRe(String(term).toLowerCase());
+  // \b is unreliable next to non-word characters, so anchor on non-alphanumerics.
+  return new RegExp('(?<![a-z0-9])' + t + '(?![a-z0-9])', flags || '');
+}
+
+/** The most relevant passage: the exact phrase where present, otherwise the
+ *  window containing the most distinct query terms. */
+export function bestSnippetFor(text, terms, phrase, radius) {
+  const t = String(text || '');
+  const r = radius || 60;
+  if (!t) return { snippet: '', marker: '', hit: -1 };
+
+  let hit = findPhrase(t, phrase);
+  if (hit === -1) {
+    const lower = t.toLowerCase();
+    let best = -1, bestScore = -1;
+    for (const term of terms || []) {
+      const re = wordRegex(term, 'g');
+      let m;
+      while ((m = re.exec(lower)) !== null) {
+        const from = m.index - r, to = m.index + r;
+        const window = lower.slice(Math.max(0, from), to);
+        const score = (terms || []).filter(x => wordRegex(x).test(window)).length;
+        if (score > bestScore) { bestScore = score; best = m.index; }
+      }
+    }
+    hit = best;
+  }
+  if (hit === -1) return { snippet: t.replace(MARKER_RE, '').slice(0, r * 2), marker: '', hit: -1 };
+
+  let marker = '';
+  for (const m of t.slice(0, hit).matchAll(MARKER_RE)) marker = m[2] ? 'p.' + m[2] : 'sheet ' + m[3];
+  const start = Math.max(0, hit - r);
+  const end = Math.min(t.length, hit + r * 2);
+  const snippet = (start > 0 ? '…' : '') + t.slice(start, end).replace(MARKER_RE, '') + (end < t.length ? '…' : '');
+  return { snippet, marker, hit };
+}
+
+/** Character ranges to highlight: whole-word term matches, plus the phrase as
+ *  one span when present. Overlapping ranges merge. */
+export function highlightRanges(text, terms, phrase) {
+  const t = String(text || '');
+  const lower = t.toLowerCase();
+  const ranges = [];
+  if (phrase) {
+    const re = new RegExp(escapeRe(phrase).replace(/\s+/g, '\\s+'), 'gi');
+    let m;
+    while ((m = re.exec(t)) !== null) ranges.push([m.index, m.index + m[0].length]);
+  }
+  for (const term of terms || []) {
+    const re = wordRegex(term, 'g');
+    let m;
+    while ((m = re.exec(lower)) !== null) ranges.push([m.index, m.index + m[0].length]);
+  }
+  ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const merged = [];
+  for (const [s, e] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+  return merged;
+}

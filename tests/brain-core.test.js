@@ -107,3 +107,81 @@ test('decisionFromComment prefills reasoning, products, and back-link', () => {
   assert.deepEqual(p.productIds, ['p1', 'p2']);
   assert.equal(p.date, '2026-07-26');
 });
+
+// ── Search quality ──────────────────────────────────────────────────────────
+import { contentTerms, phraseOf, findPhrase, hasAllTerms, bestSnippetFor,
+  highlightRanges } from '../assets/js/brain-core.js';
+
+const SENTENCE = 'Additional costs may be incurred for backwash balance tanks where revised DS493 requirements exceed the original 5m^3 standard product';
+
+test('contentTerms drops stopwords and one-character noise, keeps codes', () => {
+  const t = contentTerms(SENTENCE);
+  assert.ok(!t.includes('to'));
+  assert.ok(!t.includes('may'));
+  assert.ok(!t.includes('the'));
+  assert.ok(!t.includes('for'));
+  assert.ok(t.includes('backwash'));
+  assert.ok(t.includes('ds493'));
+  assert.ok(t.includes('5m'));
+});
+
+test('contentTerms keeps a short query usable even when it is all stopwords', () => {
+  assert.deepEqual(contentTerms('to'), ['to']);      // nothing else to search on
+  assert.deepEqual(contentTerms(''), []);
+});
+
+test('phraseOf only treats real sentences as phrases', () => {
+  assert.equal(phraseOf('backwash balance tanks'), 'backwash balance tanks');
+  assert.equal(phraseOf('  Backwash   Balance  Tanks '), 'backwash balance tanks');
+  assert.equal(phraseOf('valve'), '');               // single word is not a phrase
+});
+
+test('findPhrase locates a sentence ignoring whitespace and case differences', () => {
+  const doc = '[[p3]] Additional  costs may be\nincurred for backwash balance tanks where revised DS493 requirements exceed';
+  assert.ok(findPhrase(doc, 'costs may be incurred for backwash') >= 0);
+  assert.equal(findPhrase(doc, 'costs may be reduced'), -1);
+});
+
+test('hasAllTerms is the AND gate that stops one shared word matching', () => {
+  const other = 'The custodian is to be notified of any change to the register.';
+  const real  = 'Backwash balance tanks sized to DS493 requirements, revised from the 5m3 standard product.';
+  const terms = contentTerms(SENTENCE);
+  assert.equal(hasAllTerms(other, terms), false);
+  assert.equal(hasAllTerms(real, ['backwash', 'ds493']), true);
+});
+
+test('bestSnippetFor centres on the phrase, and reports its page marker', () => {
+  const text = '[[p1]] unrelated preamble about custodians\n[[p4]] Additional costs may be incurred for backwash balance tanks where revised DS493 requirements exceed the original';
+  const r = bestSnippetFor(text, contentTerms(SENTENCE), phraseOf(SENTENCE), 60);
+  assert.equal(r.marker, 'p.4');
+  assert.ok(r.snippet.includes('backwash balance tanks'));
+  assert.ok(!r.snippet.includes('[[p4]]'));
+});
+
+test('bestSnippetFor picks the densest passage when there is no exact phrase', () => {
+  const text = 'backwash appears here alone. ' + 'filler '.repeat(40) + 'backwash balance tanks DS493 together here';
+  const r = bestSnippetFor(text, ['backwash', 'balance', 'tanks', 'ds493'], '', 50);
+  assert.ok(r.snippet.includes('DS493'), 'should choose the passage with the most terms');
+});
+
+test('highlightRanges marks whole words only — never "to" inside "custodian"', () => {
+  const ranges = highlightRanges('The custodian is to be notified', ['to']);
+  assert.equal(ranges.length, 1);
+  const [s, e] = ranges[0];
+  assert.equal('The custodian is to be notified'.slice(s, e), 'to');
+});
+
+test('highlightRanges merges overlaps and prefers the phrase span', () => {
+  const text = 'backwash balance tanks were revised';
+  const ranges = highlightRanges(text, ['backwash', 'balance'], 'backwash balance tanks');
+  assert.equal(ranges.length, 1);
+  assert.equal(text.slice(ranges[0][0], ranges[0][1]), 'backwash balance tanks');
+});
+
+test('findPhrase maps back to the exact offset, so the page citation is right', () => {
+  const text = '[[p1]] intro about custodians and registers\n[[p3]] Additional costs may be incurred for backwash';
+  const idx = findPhrase(text, phraseOf('Additional costs may be incurred'));
+  assert.equal(idx, text.indexOf('Additional costs'));
+  const r = bestSnippetFor(text, contentTerms('Additional costs may be incurred'), phraseOf('Additional costs may be incurred'), 90);
+  assert.equal(r.marker, 'p.3');
+});
