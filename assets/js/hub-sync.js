@@ -33,3 +33,76 @@ export function mergeTombstones(a, b) {
   }
   return out;
 }
+
+export function createSyncEngine(cfg) {
+  let running = false, pending = false, pendingAll = false;
+  let pendingIds = new Set();
+
+  async function writeFile(dir, name, contents) {
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(contents);
+    await w.close();
+  }
+
+  async function readLedger() {
+    const dir = cfg.getDir();
+    if (!dir) return { status: 'missing' };
+    let txt;
+    try {
+      const fh = await dir.getFileHandle(cfg.fileName, { create: false });
+      txt = await (await fh.getFile()).text();
+    } catch (e) { return { status: 'missing' }; }
+    try { return { status: 'ok', data: JSON.parse(txt), raw: txt }; }
+    catch (e) { return { status: 'corrupt' }; }
+  }
+
+  async function saveNow(touched) {
+    const dir = cfg.getDir();
+    if (!dir) return true;
+    cfg.onStatus('saving');
+    const disk = await readLedger();
+    if (disk.status === 'corrupt') {
+      cfg.onStatus('error', cfg.fileName + ' is unreadable — not overwriting. Fix or remove it, then reconnect.');
+      return false;
+    }
+    if (disk.status === 'ok') {
+      await writeFile(dir, cfg.backupName, disk.raw);
+      cfg.setState(cfg.merge(cfg.getState(), disk.data));
+    }
+    const st = cfg.getState();
+    st.savedAt = new Date().toISOString();
+    await writeFile(dir, cfg.fileName, JSON.stringify(st, null, 2));
+    await cfg.afterSave(touched);
+    cfg.onStatus('synced');
+    return true;
+  }
+
+  function queueSave(touched) {
+    if (touched === null) pendingAll = true;
+    else for (const id of touched || []) pendingIds.add(id);
+    pending = true;
+    void loop();
+  }
+
+  async function loop() {
+    if (running) return;
+    running = true;
+    try {
+      while (pending) {
+        pending = false;
+        const touched = pendingAll ? null : [...pendingIds];
+        pendingAll = false; pendingIds = new Set();
+        try { await saveNow(touched); }
+        catch (e) {
+          console.error('save failed', e);
+          cfg.onStatus('error', 'Save failed (' + ((e && e.name) || 'error') + '). Your change is kept on screen and will retry on the next change.');
+          if (touched === null) pendingAll = true;
+          else for (const id of touched) pendingIds.add(id);
+        }
+      }
+    } finally { running = false; }
+  }
+
+  return { queueSave, saveNow, readLedger, writeFile };
+}
