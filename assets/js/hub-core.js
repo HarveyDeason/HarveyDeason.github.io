@@ -231,3 +231,62 @@ export function buildFilteredWorkbookModel(state, comments, nowIso) {
       rows: sortForLog(comments).map(c => commentRow(c, state)) }],
   };
 }
+
+// ── Product families (defined in the P&ID tool; read-only here) ──
+export function expandFamilyPatterns(patterns, drawingNames) {
+  const matched = new Set();
+  (patterns || []).forEach(raw => {
+    const pat = String(raw).trim().toUpperCase();
+    if (!pat) return;
+    const rangeMatch = pat.match(/^([A-Z]+)(\d+)-(?:[A-Z]+)?(\d+)$/);
+    if (rangeMatch) {
+      const prefix = rangeMatch[1];
+      const from = parseInt(rangeMatch[2], 10);
+      const to = parseInt(rangeMatch[3], 10);
+      drawingNames.forEach(d => {
+        const dm = d.toUpperCase().match(new RegExp('^' + prefix + '(\\d+)'));
+        if (dm) {
+          const n = parseInt(dm[1], 10);
+          if (n >= from && n <= to) matched.add(d);
+        }
+      });
+      return;
+    }
+    drawingNames.forEach(d => {
+      if (d.toUpperCase().startsWith(pat) || d.toUpperCase().includes(pat)) matched.add(d);
+    });
+  });
+  return matched;
+}
+
+export function familiesFromRegister(registerJson) {
+  const drawings = Object.keys((registerJson && registerJson.revHistory) || {});
+  return ((registerJson && registerJson.families) || [])
+    .map(f => ({ id: f.id, name: f.name, drawings: [...expandFamilyPatterns(f.patterns, drawings)] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function familyProductId(famId) { return 'fam-' + famId; }
+
+export function familyMembership(products, families) {
+  const members = new Map();
+  const familyOf = new Map();
+  for (const fam of families || []) {
+    const fpid = familyProductId(fam.id);
+    const drawingSet = new Set(fam.drawings);
+    const ids = (products || [])
+      .filter(p => !p.familyId && (p.pidDrawings || []).some(d => drawingSet.has(d)))
+      .map(p => p.id);
+    members.set(fpid, ids);
+    for (const id of ids) familyOf.set(id, fpid);
+  }
+  return { members, familyOf };
+}
+
+export function expandProductFilter(productId, membership) {
+  const out = new Set([productId]);
+  const m = membership || { members: new Map(), familyOf: new Map() };
+  if (m.members.has(productId)) for (const id of m.members.get(productId)) out.add(id);
+  if (m.familyOf.has(productId)) out.add(m.familyOf.get(productId));
+  return out;
+}

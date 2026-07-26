@@ -5,6 +5,8 @@ import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-cor
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
 import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
   COMMENT_COLUMNS, statusLabel, sanitizeFilename } from '../assets/js/hub-core.js';
+import { expandFamilyPatterns, familiesFromRegister, familyProductId, familyMembership,
+  expandProductFilter } from '../assets/js/hub-core.js';
 
 const P = (id, updatedAt, name = 'OSB-01') =>
   ({ id, name, type: 'OSB item', pidDrawings: [], modelRef: '', sheetRefs: '', updatedAt });
@@ -184,4 +186,42 @@ test('statusLabel and sanitizeFilename', () => {
   assert.equal(statusLabel('in_progress'), 'In progress');
   assert.equal(sanitizeFilename('A/B:C'), 'A-B-C');
   assert.ok(COMMENT_COLUMNS.some(c => c.key === 'description' && c.width >= 50));
+});
+
+const DRAWINGS = ['SP51', 'SP52-01', 'SP68', 'SP69', 'WW-KIOSK-01'];
+
+test('expandFamilyPatterns: numeric range with prefix', () => {
+  const m = expandFamilyPatterns(['SP51-68'], DRAWINGS);
+  assert.deepEqual([...m].sort(), ['SP51', 'SP52-01', 'SP68']);
+});
+
+test('expandFamilyPatterns: plain pattern matches prefix or substring, case-insensitive', () => {
+  assert.deepEqual([...expandFamilyPatterns(['kiosk'], DRAWINGS)], ['WW-KIOSK-01']);
+  assert.equal(expandFamilyPatterns(['', '  '], DRAWINGS).size, 0);
+});
+
+test('familiesFromRegister expands against revHistory keys, sorted by name', () => {
+  const reg = { revHistory: Object.fromEntries(DRAWINGS.map(d => [d, {}])),
+    families: [{ id: 'f2', name: 'Zeta', patterns: ['SP69'] }, { id: 'f1', name: 'SP51-68', patterns: ['SP51-68'] }] };
+  const fams = familiesFromRegister(reg);
+  assert.deepEqual(fams.map(f => f.name), ['SP51-68', 'Zeta']);
+  assert.deepEqual(fams[0].drawings.sort(), ['SP51', 'SP52-01', 'SP68']);
+  assert.deepEqual(familiesFromRegister({}), []);
+});
+
+test('familyMembership and expandProductFilter roll up both directions', () => {
+  const products = [
+    { id: 'fam-f1', name: 'SP51-68', familyId: 'f1', pidDrawings: ['SP51', 'SP52-01', 'SP68'] },
+    { id: 'reg-SP51', name: 'SP51', pidDrawings: ['SP51'] },
+    { id: 'reg-SP69', name: 'SP69', pidDrawings: ['SP69'] },
+    { id: 'manual1', name: 'Kiosk', pidDrawings: [] },
+  ];
+  const fams = [{ id: 'f1', name: 'SP51-68', drawings: ['SP51', 'SP52-01', 'SP68'] }];
+  const mem = familyMembership(products, fams);
+  assert.deepEqual(mem.members.get('fam-f1'), ['reg-SP51']);
+  assert.equal(mem.familyOf.get('reg-SP51'), 'fam-f1');
+  assert.equal(mem.familyOf.get('reg-SP69'), undefined);
+  assert.deepEqual([...expandProductFilter('fam-f1', mem)].sort(), ['fam-f1', 'reg-SP51']);
+  assert.deepEqual([...expandProductFilter('reg-SP51', mem)].sort(), ['fam-f1', 'reg-SP51']);
+  assert.deepEqual([...expandProductFilter('manual1', mem)], ['manual1']);
 });
