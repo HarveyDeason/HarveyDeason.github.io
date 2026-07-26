@@ -52,6 +52,8 @@ test('extractionMethodFor maps extensions, .doc is none', () => {
   assert.equal(extractionMethodFor('minutes.PDF'), 'pdf');
   assert.equal(extractionMethodFor('minutes.docx'), 'docx');
   assert.equal(extractionMethodFor('reg.xlsx'), 'sheet');
+  assert.equal(extractionMethodFor('tracker.XLSM'), 'sheet');
+  assert.equal(extractionMethodFor('binary.xlsb'), 'sheet');
   assert.equal(extractionMethodFor('old.doc'), 'none');
   assert.equal(extractionMethodFor('photo.png'), 'none');
 });
