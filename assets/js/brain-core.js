@@ -93,3 +93,66 @@ export function docFolderPath(productName, docType) {
   if (!productName) return ['Documents', '_General'];
   return ['Documents', sanitizeFilename(productName), sanitizeFilename(docType || 'Other')];
 }
+
+export function buildSearchDocs(brain, hubComments, textById) {
+  const docs = [];
+  for (const d of brain.decisions) {
+    docs.push({ id: 'd:' + d.id, kind: 'decision', title: d.title,
+      text: (d.decision || '') + '\n' + (d.reasoning || ''), tags: (d.tags || []).join(' '),
+      productIds: d.productIds || [], projectTag: d.projectTag || '', date: d.date || '',
+      who: d.madeBy || '', status: d.status || 'active' });
+  }
+  for (const f of brain.documents) {
+    docs.push({ id: 'f:' + f.id, kind: 'document', title: f.title,
+      text: (textById && textById.get(f.id)) || '', tags: (f.tags || []).join(' '),
+      productIds: f.productIds || [], projectTag: f.projectTag || '', date: f.date || '',
+      who: '', status: 'active' });
+  }
+  for (const c of hubComments || []) {
+    docs.push({ id: 'c:' + c.id, kind: 'comment', title: (c.ref || '') + ' ' + (c.category || ''),
+      text: (c.description || '') + '\n' + (c.actionTaken || ''), tags: '',
+      productIds: c.productIds || [], projectTag: '', date: c.dateRaised || '',
+      who: c.raisedBy || '', status: 'active' });
+  }
+  return docs;
+}
+
+const MARKER_RE = /\[\[(p(\d+)|sheet:([^\]]+))\]\]\s?/g;
+
+export function snippetFor(text, terms, radius = 60) {
+  const t = String(text || '');
+  const lower = t.toLowerCase();
+  let hit = -1;
+  for (const term of terms || []) {
+    const i = lower.indexOf(String(term).toLowerCase());
+    if (i !== -1 && (hit === -1 || i < hit)) hit = i;
+  }
+  if (hit === -1) return { snippet: t.replace(MARKER_RE, '').slice(0, radius * 2), marker: '' };
+  let marker = '';
+  for (const m of t.slice(0, hit).matchAll(MARKER_RE)) {
+    marker = m[2] ? 'p.' + m[2] : 'sheet ' + m[3];
+  }
+  const start = Math.max(0, hit - radius);
+  const end = Math.min(t.length, hit + radius);
+  const snippet = (start > 0 ? '…' : '') + t.slice(start, end).replace(MARKER_RE, '') + (end < t.length ? '…' : '');
+  return { snippet, marker };
+}
+
+export function supersedeDecision(state, oldId, newDecision, nowIso) {
+  const oldD = state.decisions.find(d => d.id === oldId);
+  if (!oldD) throw new Error('supersedeDecision: unknown decision ' + oldId);
+  const decisions = state.decisions
+    .map(d => d.id === oldId ? { ...d, status: 'superseded', supersededBy: newDecision.id, updatedAt: nowIso } : d)
+    .concat([{ ...newDecision, supersedes: oldId, updatedAt: nowIso }]);
+  return { ...state, decisions };
+}
+
+export function decisionFromComment(comment, nowIso) {
+  return {
+    title: '', decision: '', reasoning: comment.description || '',
+    madeBy: '', recordedBy: '', date: (nowIso || '').slice(0, 10),
+    productIds: [...(comment.productIds || [])], projectTag: '', tags: [],
+    status: 'active', supersededBy: '', supersedes: '',
+    links: { documents: [], comments: [comment.id], urls: [] },
+  };
+}
