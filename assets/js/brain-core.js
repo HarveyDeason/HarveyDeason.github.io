@@ -2,7 +2,7 @@
 // Pure logic for the Product Brain: state, merge, compressed text storage,
 // extraction assembly, search documents, snippets, supersession. Node-testable.
 import { mergeById, mergeList, mergeTombstones } from './hub-sync.js';
-import { sanitizeFilename } from './hub-core.js';
+import { sanitizeFilename, photosCell } from './hub-core.js';
 export { sanitizeFilename };
 
 export const BRAIN_VERSION = 1;
@@ -282,4 +282,79 @@ export function highlightRanges(text, terms, phrase) {
     else merged.push([s, e]);
   }
   return merged;
+}
+
+// Photos hang off the decision record so they ride the existing merge and save
+// queue. Removing one unlinks it; the files stay in the folder.
+export function addPhotoToDecision(state, decisionId, photo, nowIso) {
+  if (!state.decisions.some(d => d.id === decisionId)) return state;
+  return { ...state, decisions: state.decisions.map(d => d.id === decisionId
+    ? { ...d, photos: [...(d.photos || []), photo], updatedAt: nowIso } : d) };
+}
+
+export function removePhotoFromDecision(state, decisionId, photoId, nowIso) {
+  const d = state.decisions.find(x => x.id === decisionId);
+  if (!d || !(d.photos || []).some(p => p.id === photoId)) return state;
+  return { ...state, decisions: state.decisions.map(x => x.id === decisionId
+    ? { ...x, photos: x.photos.filter(p => p.id !== photoId), updatedAt: nowIso } : x) };
+}
+
+// Decision photos share one flat folder (decisions have no ref to name a folder
+// with), so collision checks span every decision, not just the current one.
+export function decisionPhotoNames(state) {
+  const out = [];
+  for (const d of (state && state.decisions) || []) {
+    for (const p of d.photos || []) out.push(p.file);
+  }
+  return out;
+}
+
+export const DECISION_COLUMNS = [
+  { key: 'date', header: 'Date', width: 12 },
+  { key: 'title', header: 'Decision', width: 34 },
+  { key: 'decision', header: 'What was decided', width: 60 },
+  { key: 'reasoning', header: 'Why', width: 60 },
+  { key: 'products', header: 'Product(s)', width: 28 },
+  { key: 'projectTag', header: 'Project', width: 16 },
+  { key: 'tags', header: 'Tags', width: 22 },
+  { key: 'madeBy', header: 'Made by', width: 16 },
+  { key: 'recordedBy', header: 'Recorded by', width: 16 },
+  { key: 'status', header: 'Status', width: 12 },
+  { key: 'supersedes', header: 'Supersedes', width: 28 },
+  { key: 'photos', header: 'Photos', width: 30 },
+];
+
+// Products live in the Comments Hub's data, which brain-core does not read, so
+// the caller passes the id→name map it already has. Unknown ids fall back to
+// the id rather than vanishing from the export.
+export function buildDecisionsWorkbookModel(state, decisions, nowIso, productNames) {
+  const names = productNames || new Map();
+  const titleOf = id => {
+    const d = (state.decisions || []).find(x => x.id === id);
+    return d ? (d.title || id) : id;
+  };
+  const rows = [...(decisions || [])]
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
+      || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+    .map(d => ({
+      cells: {
+        date: d.date || '',
+        title: d.title || '',
+        decision: d.decision || '',
+        reasoning: d.reasoning || '',
+        products: (d.productIds || []).map(id => names.get(id) || id).join(', '),
+        projectTag: d.projectTag || '',
+        tags: (d.tags || []).join(', '),
+        madeBy: d.madeBy || '',
+        recordedBy: d.recordedBy || '',
+        status: (d.status === 'superseded') ? 'Superseded' : 'Active',
+        supersedes: d.supersedes ? titleOf(d.supersedes) : '',
+        photos: photosCell(d),      // same wording as the Comments Hub column
+      },
+      statusKey: d.status || 'active',
+    }));
+  return {
+    filename: `Decisions Export ${nowIso}.xlsx`,
+    sheets: [{ name: 'Decisions', kind: 'log', columns: DECISION_COLUMNS, rows }],
+  };
 }
