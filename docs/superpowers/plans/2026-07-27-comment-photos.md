@@ -13,7 +13,7 @@
 - `tools-src/*.html` is **gitignored**. Tasks that only touch it produce **no commit** — the deliverable is the file on disk plus a report. Only `assets/`, `tests/` and `docs/` changes get committed.
 - Never write to `tools/` by hand. Locked loaders are regenerated only by `scripts/lock-tools.mjs` at the endgame, with the workshop code supplied by Harvey. The code is **not on disk**.
 - No external network requests from any tool file — everything vendored under `assets/`.
-- No hardcoded colours in tool CSS; use the existing custom properties (`--bg2`, `--border`, `--accent`, `--muted2`, `--tmut`, `--radius-md`, …).
+- No hardcoded colours in tool CSS; use the existing custom properties (`--bg2`, `--border`, `--accent`, `--muted2`, `--tmut`, `--radius-md`, …). **One approved exception** (Harvey, 2026-07-27): the photo viewer's `.pv-bar` caption and buttons in Task 6 use `#fff` and `rgba(255,255,255,0.5)`, because that bar sits on a dimmed photo rather than the page background and must stay white in both light and dark mode. No other literal colour is permitted.
 - All user-supplied text reaches the DOM through `escHtml` / `escAttr`.
 - Never prefill a person's name (`addedBy`), matching the existing house rule for `raisedBy` / `closedBy`.
 - Stored images are always re-encoded to JPEG: `.jpg` extension, main copy longest edge ≤ 2000px at quality 0.82, thumbnail longest edge ≤ 320px at quality 0.7.
