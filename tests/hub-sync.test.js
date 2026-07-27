@@ -217,3 +217,25 @@ test('engine: a new change cancels the pending retry rather than racing it', asy
   await new Promise(r => setTimeout(r, 600));     // the old timer would have fired by now
   assert.equal(dir.stats.attempts, attemptsAfterUserChange, 'no stray retry after the change succeeded');
 });
+
+// Whether a failure is final decides whether the tools interrupt the user with
+// a dialog. A lock that heals itself in three seconds should not: the chip
+// going ERROR then SYNCED tells the story quietly. A failure with no retry left
+// is worth a dialog, and so is a corrupt ledger, which no retry can fix.
+test('engine: a retryable failure reports final=false, the last one true', async () => {
+  const dir = flakyDir(99);
+  const finals = [];
+  const { engine } = makeEngine(dir, { retryDelays: [10, 20],
+    onStatus: (s, m, final) => { if (s === 'error') finals.push(final); } });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 300));
+  assert.deepEqual(finals, [false, false, true]);
+});
+
+test('engine: a corrupt ledger is always final — no retry can fix it', async () => {
+  const finals = [];
+  const { engine } = makeEngine(fakeDir({ 'x.json': 'not json' }), {
+    onStatus: (s, m, final) => { if (s === 'error') finals.push(final); } });
+  await engine.saveNow([]);
+  assert.deepEqual(finals, [true]);
+});

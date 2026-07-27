@@ -95,7 +95,8 @@ export function createSyncEngine(cfg) {
     cfg.onStatus('saving');
     const disk = await readLedger();
     if (disk.status === 'corrupt') {
-      cfg.onStatus('error', cfg.fileName + ' is unreadable — not overwriting. Fix or remove it, then reconnect.');
+      // Final: no amount of retrying fixes a file someone has to go and mend.
+      cfg.onStatus('error', cfg.fileName + ' is unreadable — not overwriting. Fix or remove it, then reconnect.', true);
       return false;
     }
     if (disk.status === 'ok') {
@@ -133,10 +134,13 @@ export function createSyncEngine(cfg) {
         } catch (e) {
           console.error('save failed', e);
           const which = e && e.hubFile ? ' writing ' + e.hubFile : '';
-          const more = retryIndex < retryDelays.length
+          // final=false means "we are about to try again" — the tools keep it to
+          // the chip rather than interrupting with a dialog.
+          const willRetry = retryIndex < retryDelays.length;
+          const more = willRetry
             ? ' Your change is kept on screen and will retry shortly.'
             : ' Your change is kept on screen and will retry on the next change.';
-          cfg.onStatus('error', 'Save failed' + which + ' (' + ((e && e.name) || 'error') + ').' + more);
+          cfg.onStatus('error', 'Save failed' + which + ' (' + ((e && e.name) || 'error') + ').' + more, !willRetry);
           if (touched === null) pendingAll = true;
           else for (const id of touched) pendingIds.add(id);
           scheduleRetry();
