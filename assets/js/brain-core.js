@@ -283,3 +283,28 @@ export function highlightRanges(text, terms, phrase) {
   }
   return merged;
 }
+
+// Photos hang off the decision record so they ride the existing merge and save
+// queue. Removing one unlinks it; the files stay in the folder.
+export function addPhotoToDecision(state, decisionId, photo, nowIso) {
+  if (!state.decisions.some(d => d.id === decisionId)) return state;
+  return { ...state, decisions: state.decisions.map(d => d.id === decisionId
+    ? { ...d, photos: [...(d.photos || []), photo], updatedAt: nowIso } : d) };
+}
+
+export function removePhotoFromDecision(state, decisionId, photoId, nowIso) {
+  const d = state.decisions.find(x => x.id === decisionId);
+  if (!d || !(d.photos || []).some(p => p.id === photoId)) return state;
+  return { ...state, decisions: state.decisions.map(x => x.id === decisionId
+    ? { ...x, photos: x.photos.filter(p => p.id !== photoId), updatedAt: nowIso } : x) };
+}
+
+// Decision photos share one flat folder (decisions have no ref to name a folder
+// with), so collision checks span every decision, not just the current one.
+export function decisionPhotoNames(state) {
+  const out = [];
+  for (const d of (state && state.decisions) || []) {
+    for (const p of d.photos || []) out.push(p.file);
+  }
+  return out;
+}

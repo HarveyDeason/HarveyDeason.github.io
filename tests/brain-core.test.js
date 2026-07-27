@@ -4,6 +4,7 @@ import { emptyBrainState, mergeBrainState, gzipText, gunzipText, DEFAULT_DOC_TYP
 import { pdfPagesToText, sheetTextFromRows, normalizeExtractedText, extractionMethodFor,
   dedupeFilename, docFolderPath } from '../assets/js/brain-core.js';
 import { buildSearchDocs, snippetFor, supersedeDecision, decisionFromComment } from '../assets/js/brain-core.js';
+import { addPhotoToDecision, removePhotoFromDecision, decisionPhotoNames } from '../assets/js/brain-core.js';
 
 const D = (id, updatedAt, extra = {}) => ({
   id, title: 'ARV omitted', decision: 'No ARV on OSB-04 discharge', reasoning: 'Surge analysis showed…',
@@ -184,4 +185,48 @@ test('findPhrase maps back to the exact offset, so the page citation is right', 
   assert.equal(idx, text.indexOf('Additional costs'));
   const r = bestSnippetFor(text, contentTerms('Additional costs may be incurred'), phraseOf('Additional costs may be incurred'), 90);
   assert.equal(r.marker, 'p.3');
+});
+
+const PH = (id, file, caption = '') =>
+  ({ id, file, thumb: file, caption, addedAt: '2026-07-27T09:00:00Z', addedBy: '' });
+
+test('addPhotoToDecision appends and bumps updatedAt', () => {
+  const s0 = { ...emptyBrainState('t'), decisions: [D('d1', '2026-07-27T08:00:00Z')] };
+  const s1 = addPhotoToDecision(s0, 'd1', PH('p1', 'access.jpg', 'access'), '2026-07-27T09:00:00Z');
+  assert.equal(s1.decisions[0].photos.length, 1);
+  assert.equal(s1.decisions[0].photos[0].file, 'access.jpg');
+  assert.equal(s1.decisions[0].updatedAt, '2026-07-27T09:00:00Z');
+  assert.equal(s0.decisions[0].photos, undefined);          // input untouched
+});
+
+test('addPhotoToDecision on an unknown id is a no-op', () => {
+  const s0 = { ...emptyBrainState('t'), decisions: [D('d1', '2026-07-27T08:00:00Z')] };
+  assert.deepEqual(addPhotoToDecision(s0, 'nope', PH('p1', 'a.jpg'), 'x'), s0);
+});
+
+test('removePhotoFromDecision drops one entry and bumps updatedAt', () => {
+  const s0 = { ...emptyBrainState('t'), decisions: [
+    D('d1', '2026-07-27T08:00:00Z', { photos: [PH('p1', 'a.jpg'), PH('p2', 'b.jpg')] })] };
+  const s1 = removePhotoFromDecision(s0, 'd1', 'p1', '2026-07-27T10:00:00Z');
+  assert.deepEqual(s1.decisions[0].photos.map(p => p.id), ['p2']);
+  assert.equal(s1.decisions[0].updatedAt, '2026-07-27T10:00:00Z');
+});
+
+test('removePhotoFromDecision on an unknown photo id is a no-op', () => {
+  const s0 = { ...emptyBrainState('t'), decisions: [
+    D('d1', '2026-07-27T08:00:00Z', { photos: [PH('p1', 'a.jpg')] })] };
+  assert.deepEqual(removePhotoFromDecision(s0, 'd1', 'nope', 'x'), s0);
+});
+
+test('decisionPhotoNames collects every filename across decisions', () => {
+  const s = { ...emptyBrainState('t'), decisions: [
+    D('d1', 't', { photos: [PH('p1', 'access.jpg'), PH('p2', 'valve.jpg')] }),
+    D('d2', 't', { photos: [PH('p3', 'access (2).jpg')] }),
+    D('d3', 't'),
+  ] };
+  assert.deepEqual(decisionPhotoNames(s).sort(), ['access (2).jpg', 'access.jpg', 'valve.jpg']);
+});
+
+test('decisionPhotoNames is empty when nothing has photos', () => {
+  assert.deepEqual(decisionPhotoNames({ ...emptyBrainState('t'), decisions: [D('d1', 't')] }), []);
 });
