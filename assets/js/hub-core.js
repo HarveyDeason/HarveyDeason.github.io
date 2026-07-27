@@ -151,6 +151,7 @@ export const COMMENT_COLUMNS = [
   { key: 'dateClosed', header: 'Date closed', width: 12 },
   { key: 'actionTaken', header: 'Action taken', width: 40 },
   { key: 'closedBy', header: 'Closed by', width: 14 },
+  { key: 'photos', header: 'Photos', width: 30 },
 ];
 
 export function statusLabel(s) {
@@ -185,6 +186,28 @@ export function photoFileName(caption, originalName, existingNames) {
   return name;
 }
 
+// Photos live on the comment record so they ride the existing merge, save queue
+// and workbook regeneration. Removing one unlinks it; the files stay on disk.
+export function addPhotoToComment(state, commentId, photo, nowIso) {
+  if (!state.comments.some(c => c.id === commentId)) return state;
+  return { ...state, comments: state.comments.map(c => c.id === commentId
+    ? { ...c, photos: [...(c.photos || []), photo], updatedAt: nowIso } : c) };
+}
+
+export function removePhotoFromComment(state, commentId, photoId, nowIso) {
+  const c = state.comments.find(x => x.id === commentId);
+  if (!c || !(c.photos || []).some(p => p.id === photoId)) return state;
+  return { ...state, comments: state.comments.map(x => x.id === commentId
+    ? { ...x, photos: x.photos.filter(p => p.id !== photoId), updatedAt: nowIso } : x) };
+}
+
+export function photosCell(comment) {
+  const photos = (comment && comment.photos) || [];
+  if (!photos.length) return '';
+  const noun = photos.length === 1 ? 'photo' : 'photos';
+  return `${photos.length} ${noun}: ${photos.map(p => p.file).join(', ')}`;
+}
+
 function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function commentRow(c, state) {
@@ -198,6 +221,7 @@ function commentRow(c, state) {
       priority: titleCase(c.priority || ''), description: c.description,
       pidRevision: c.pidRevision || '', status: statusLabel(c.status),
       dateClosed: c.dateClosed || '', actionTaken: c.actionTaken || '', closedBy: c.closedBy || '',
+      photos: photosCell(c),
     },
     statusKey: c.status, high: c.priority === 'high' && c.status !== 'closed',
   };

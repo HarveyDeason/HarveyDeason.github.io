@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-core.js';
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
 import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
-  COMMENT_COLUMNS, statusLabel, sanitizeFilename, photoFileName } from '../assets/js/hub-core.js';
+  COMMENT_COLUMNS, statusLabel, sanitizeFilename, photoFileName,
+  addPhotoToComment, removePhotoFromComment, photosCell } from '../assets/js/hub-core.js';
 import { expandFamilyPatterns, familiesFromRegister, familyProductId, familyMembership,
   expandProductFilter } from '../assets/js/hub-core.js';
 import { excelSheetName, buildFamilyWorkbookModel, staleFamilyMemberFiles } from '../assets/js/hub-core.js';
@@ -318,4 +319,60 @@ test('photoFileName: collisions get a numeric suffix, case-insensitively', () =>
   assert.equal(photoFileName('clash', 'x.jpg', ['clash.jpg']), 'clash (2).jpg');
   assert.equal(photoFileName('clash', 'x.jpg', ['clash.jpg', 'clash (2).jpg']), 'clash (3).jpg');
   assert.equal(photoFileName('Clash', 'x.jpg', ['clash.jpg']), 'Clash (2).jpg');
+});
+
+const PH = (id, file, caption = '') =>
+  ({ id, file, thumb: file, caption, addedAt: '2026-07-27T09:00:00Z', addedBy: '' });
+
+test('addPhotoToComment appends and bumps updatedAt', () => {
+  const s0 = { ...emptyState('t'), comments: [C('c1', '2026-07-27T08:00:00Z')] };
+  const s1 = addPhotoToComment(s0, 'c1', PH('p1', 'clash.jpg', 'clash'), '2026-07-27T09:00:00Z');
+  assert.equal(s1.comments[0].photos.length, 1);
+  assert.equal(s1.comments[0].photos[0].file, 'clash.jpg');
+  assert.equal(s1.comments[0].updatedAt, '2026-07-27T09:00:00Z');
+  assert.equal(s0.comments[0].photos, undefined);          // input untouched
+});
+
+test('addPhotoToComment on an unknown id is a no-op', () => {
+  const s0 = { ...emptyState('t'), comments: [C('c1', '2026-07-27T08:00:00Z')] };
+  assert.deepEqual(addPhotoToComment(s0, 'nope', PH('p1', 'a.jpg'), 'x'), s0);
+});
+
+test('removePhotoFromComment drops one entry and bumps updatedAt', () => {
+  const s0 = { ...emptyState('t'), comments: [
+    C('c1', '2026-07-27T08:00:00Z', { photos: [PH('p1', 'a.jpg'), PH('p2', 'b.jpg')] })] };
+  const s1 = removePhotoFromComment(s0, 'c1', 'p1', '2026-07-27T10:00:00Z');
+  assert.deepEqual(s1.comments[0].photos.map(p => p.id), ['p2']);
+  assert.equal(s1.comments[0].updatedAt, '2026-07-27T10:00:00Z');
+});
+
+test('removePhotoFromComment on an unknown photo id is a no-op', () => {
+  const s0 = { ...emptyState('t'), comments: [
+    C('c1', '2026-07-27T08:00:00Z', { photos: [PH('p1', 'a.jpg')] })] };
+  assert.deepEqual(removePhotoFromComment(s0, 'c1', 'nope', 'x'), s0);
+});
+
+test('photosCell: empty, singular, plural', () => {
+  assert.equal(photosCell(C('c1', 't')), '');
+  assert.equal(photosCell(C('c1', 't', { photos: [] })), '');
+  assert.equal(photosCell(C('c1', 't', { photos: [PH('p1', 'clash.jpg')] })), '1 photo: clash.jpg');
+  assert.equal(photosCell(C('c1', 't', { photos: [PH('p1', 'clash.jpg'), PH('p2', 'valve label.jpg')] })),
+    '2 photos: clash.jpg, valve label.jpg');
+});
+
+test('COMMENT_COLUMNS ends with the Photos column', () => {
+  const last = COMMENT_COLUMNS[COMMENT_COLUMNS.length - 1];
+  assert.deepEqual(last, { key: 'photos', header: 'Photos', width: 30 });
+});
+
+test('every workbook log sheet carries the photos cell', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01')],
+    comments: [C('c1', 't', { productIds: ['p1'], photos: [PH('ph1', 'clash.jpg')] })] };
+  const master = buildMasterWorkbookModel(state, new Map(), '2026-07-27');
+  assert.equal(master.sheets[1].rows[0].cells.photos, '1 photo: clash.jpg');
+  const prod = buildProductWorkbookModel(state, 'p1', new Map(), '2026-07-27');
+  assert.equal(prod.sheets[1].rows[0].cells.photos, '1 photo: clash.jpg');
+  const filtered = buildFilteredWorkbookModel(state, state.comments, '2026-07-27');
+  assert.equal(filtered.sheets[0].rows[0].cells.photos, '1 photo: clash.jpg');
 });
