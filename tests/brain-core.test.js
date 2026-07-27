@@ -5,10 +5,11 @@ import { pdfPagesToText, sheetTextFromRows, normalizeExtractedText, extractionMe
   dedupeFilename, docFolderPath } from '../assets/js/brain-core.js';
 import { buildSearchDocs, snippetFor, supersedeDecision, decisionFromComment } from '../assets/js/brain-core.js';
 import { addPhotoToDecision, removePhotoFromDecision, decisionPhotoNames } from '../assets/js/brain-core.js';
+import { DECISION_COLUMNS, buildDecisionsWorkbookModel } from '../assets/js/brain-core.js';
 
 const D = (id, updatedAt, extra = {}) => ({
-  id, title: 'ARV omitted', decision: 'No ARV on OSB-04 discharge', reasoning: 'Surge analysis showed…',
-  madeBy: 'HAZOP chair', recordedBy: 'HD', date: '2026-07-01', productIds: ['p1'], projectTag: '',
+  id, title: 'A decision', decision: 'We did X', reasoning: 'Surge analysis showed…',
+  madeBy: 'A N Other', recordedBy: 'HD', date: '2026-07-01', productIds: ['p1'], projectTag: '',
   tags: ['air valve'], status: 'active', supersededBy: '', supersedes: '',
   links: { documents: [], comments: [], urls: [] }, updatedAt, ...extra,
 });
@@ -229,4 +230,65 @@ test('decisionPhotoNames collects every filename across decisions', () => {
 
 test('decisionPhotoNames is empty when nothing has photos', () => {
   assert.deepEqual(decisionPhotoNames({ ...emptyBrainState('t'), decisions: [D('d1', 't')] }), []);
+});
+
+// ── Decisions workbook model ────────────────────────────────────────────────
+
+test('DECISION_COLUMNS covers the record and ends with Photos', () => {
+  assert.deepEqual(DECISION_COLUMNS.map(c => c.key), [
+    'date', 'title', 'decision', 'reasoning', 'products', 'projectTag', 'tags',
+    'madeBy', 'recordedBy', 'status', 'supersedes', 'photos',
+  ]);
+  assert.deepEqual(DECISION_COLUMNS[DECISION_COLUMNS.length - 1], { key: 'photos', header: 'Photos', width: 30 });
+});
+
+test('buildDecisionsWorkbookModel renders one row per decision, newest first', () => {
+  const state = { ...emptyBrainState('t'), decisions: [
+    D('d1', 't', { date: '2026-07-01', title: 'Older' }),
+    D('d2', 't', { date: '2026-07-20', title: 'Newer' }),
+  ] };
+  const m = buildDecisionsWorkbookModel(state, state.decisions, '2026-07-27');
+  assert.equal(m.filename, 'Decisions Export 2026-07-27.xlsx');
+  assert.equal(m.sheets.length, 1);
+  assert.equal(m.sheets[0].kind, 'log');
+  assert.deepEqual(m.sheets[0].rows.map(r => r.cells.title), ['Newer', 'Older']);
+});
+
+test('buildDecisionsWorkbookModel fills the cells from the record', () => {
+  const state = { ...emptyBrainState('t'),
+    decisions: [D('d1', 't', { tags: ['hazop', 'access'], projectTag: 'AMP8',
+      photos: [PH('p1', 'access.jpg'), PH('p2', 'valve.jpg')] })] };
+  const cells = buildDecisionsWorkbookModel(state, state.decisions, '2026-07-27').sheets[0].rows[0].cells;
+  assert.equal(cells.title, 'A decision');
+  assert.equal(cells.decision, 'We did X');
+  assert.equal(cells.tags, 'hazop, access');
+  assert.equal(cells.projectTag, 'AMP8');
+  assert.equal(cells.madeBy, 'A N Other');
+  assert.equal(cells.status, 'Active');
+  assert.equal(cells.photos, '2 photos: access.jpg, valve.jpg');
+});
+
+test('buildDecisionsWorkbookModel keeps superseded decisions and names the successor', () => {
+  const state = { ...emptyBrainState('t'), decisions: [
+    D('old', 't', { title: 'Old way', status: 'superseded', supersededBy: 'new', date: '2026-07-01' }),
+    D('new', 't', { title: 'New way', supersedes: 'old', date: '2026-07-02' }),
+  ] };
+  const rows = buildDecisionsWorkbookModel(state, state.decisions, '2026-07-27').sheets[0].rows;
+  assert.equal(rows.length, 2);
+  const oldRow = rows.find(r => r.cells.title === 'Old way');
+  assert.equal(oldRow.cells.status, 'Superseded');
+  assert.equal(oldRow.statusKey, 'superseded');
+  assert.equal(rows.find(r => r.cells.title === 'New way').cells.supersedes, 'Old way');
+});
+
+test('buildDecisionsWorkbookModel names products, falling back to the id', () => {
+  const state = { ...emptyBrainState('t'), decisions: [D('d1', 't', { productIds: ['p1', 'ghost'] })] };
+  const cells = buildDecisionsWorkbookModel(state, state.decisions,
+    '2026-07-27', new Map([['p1', 'Sampler Kiosk']])).sheets[0].rows[0].cells;
+  assert.equal(cells.products, 'Sampler Kiosk, ghost');
+});
+
+test('buildDecisionsWorkbookModel with no decisions still produces a sheet', () => {
+  const m = buildDecisionsWorkbookModel(emptyBrainState('t'), [], '2026-07-27');
+  assert.deepEqual(m.sheets[0].rows, []);
 });
