@@ -152,3 +152,68 @@ test('writeFile succeeds normally: closes, never aborts', async () => {
   assert.equal(dir.calls.closed, 1);
   assert.equal(dir.calls.aborted, 0);
 });
+
+// A lock (OneDrive syncing, the file open in Excel, a stale .crswap) is
+// transient: the save that failed will usually succeed moments later. Waiting
+// for the user's next change to retry meant a photo could sit unlinked on disk
+// indefinitely — Harvey hit exactly that, and only found out by editing
+// something else. The engine now retries itself.
+function flakyDir(failures, files = {}) {
+  let left = failures;
+  const stats = { writes: [], attempts: 0 };
+  return { stats, files,
+    getFileHandle: async (name, o) => {
+      if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      return {
+        getFile: async () => ({ text: async () => files[name] }),
+        createWritable: async () => {
+          stats.attempts++;
+          if (left > 0) { left--; const e = new Error('locked'); e.name = 'InvalidStateError'; throw e; }
+          let buf = '';
+          return { write: async c => { buf = c; }, close: async () => { files[name] = buf; stats.writes.push(name); },
+                   abort: async () => {} };
+        },
+      };
+    } };
+}
+
+test('engine: a failed save retries itself without another change', async () => {
+  const dir = flakyDir(1);
+  const { engine, events } = makeEngine(dir, { retryDelays: [20, 40] });
+  engine.queueSave(['a']);
+  await new Promise(r => setTimeout(r, 200));
+  assert.ok(events.some(([s]) => s === 'error'), 'the failure is surfaced when it happens');
+  assert.ok(dir.stats.writes.includes('x.json'), 'the ledger lands on the retry');
+  assert.equal(events[events.length - 1][0], 'synced', 'and the chip ends up synced');
+});
+
+test('engine: the retry keeps the touched ids from the failed attempt', async () => {
+  const dir = flakyDir(1);
+  const touched = [];
+  const { engine } = makeEngine(dir, { retryDelays: [20], afterSave: async t => { touched.push(t); } });
+  engine.queueSave(['p1', 'p2']);
+  await new Promise(r => setTimeout(r, 200));
+  assert.deepEqual(touched, [['p1', 'p2']]);
+});
+
+test('engine: retries give up after the last delay, leaving the next change to try', async () => {
+  const dir = flakyDir(99);
+  const { engine, events } = makeEngine(dir, { retryDelays: [10, 20] });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(dir.stats.attempts, 3, 'first attempt plus one per delay, then stop');
+  assert.equal(events[events.length - 1][0], 'error');
+});
+
+test('engine: a new change cancels the pending retry rather than racing it', async () => {
+  const dir = flakyDir(1);
+  const { engine } = makeEngine(dir, { retryDelays: [500] });
+  engine.queueSave(['a']);
+  await new Promise(r => setTimeout(r, 60));      // failed, retry scheduled for +500ms
+  engine.queueSave(['b']);                        // user changes something first
+  await new Promise(r => setTimeout(r, 120));
+  assert.ok(dir.stats.writes.includes('x.json'));
+  const attemptsAfterUserChange = dir.stats.attempts;
+  await new Promise(r => setTimeout(r, 600));     // the old timer would have fired by now
+  assert.equal(dir.stats.attempts, attemptsAfterUserChange, 'no stray retry after the change succeeded');
+});

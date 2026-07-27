@@ -38,6 +38,27 @@ export function createSyncEngine(cfg) {
   let running = false, pending = false, pendingAll = false;
   let pendingIds = new Set();
 
+  // A lock is transient — OneDrive mid-sync, the workbook open in Excel, a
+  // stale .crswap — so the save that just failed will usually succeed moments
+  // later. Retrying only on the user's next change meant a change could sit
+  // unsaved indefinitely without anyone knowing. Back off, then hand back to
+  // the next change rather than hammering the disk forever.
+  const retryDelays = cfg.retryDelays || [3000, 10000, 30000];
+  let retryTimer = null, retryIndex = 0;
+
+  function clearRetry() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  }
+
+  function scheduleRetry() {
+    if (retryIndex >= retryDelays.length) return;   // give up; the next change tries again
+    const delay = retryDelays[retryIndex];
+    retryIndex += 1;
+    clearRetry();
+    retryTimer = setTimeout(() => { retryTimer = null; pending = true; void loop(); }, delay);
+    if (retryTimer && typeof retryTimer.unref === 'function') retryTimer.unref();   // never hold a test process open
+  }
+
   async function writeFile(dir, name, contents) {
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
@@ -93,6 +114,8 @@ export function createSyncEngine(cfg) {
     if (touched === null) pendingAll = true;
     else for (const id of touched || []) pendingIds.add(id);
     pending = true;
+    clearRetry();        // this change supersedes any pending retry
+    retryIndex = 0;
     void loop();
   }
 
@@ -104,13 +127,19 @@ export function createSyncEngine(cfg) {
         pending = false;
         const touched = pendingAll ? null : [...pendingIds];
         pendingAll = false; pendingIds = new Set();
-        try { await saveNow(touched); }
-        catch (e) {
+        try {
+          await saveNow(touched);
+          retryIndex = 0;                       // a clean save resets the backoff
+        } catch (e) {
           console.error('save failed', e);
           const which = e && e.hubFile ? ' writing ' + e.hubFile : '';
-          cfg.onStatus('error', 'Save failed' + which + ' (' + ((e && e.name) || 'error') + '). Your change is kept on screen and will retry on the next change.');
+          const more = retryIndex < retryDelays.length
+            ? ' Your change is kept on screen and will retry shortly.'
+            : ' Your change is kept on screen and will retry on the next change.';
+          cfg.onStatus('error', 'Save failed' + which + ' (' + ((e && e.name) || 'error') + ').' + more);
           if (touched === null) pendingAll = true;
           else for (const id of touched) pendingIds.add(id);
+          scheduleRetry();
         }
       }
     } finally { running = false; }
