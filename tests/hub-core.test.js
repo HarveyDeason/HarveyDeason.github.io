@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-core.js';
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
 import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
-  COMMENT_COLUMNS, statusLabel, sanitizeFilename } from '../assets/js/hub-core.js';
+  COMMENT_COLUMNS, statusLabel, sanitizeFilename, photoFileName } from '../assets/js/hub-core.js';
 import { expandFamilyPatterns, familiesFromRegister, familyProductId, familyMembership,
   expandProductFilter } from '../assets/js/hub-core.js';
 import { excelSheetName, buildFamilyWorkbookModel, staleFamilyMemberFiles } from '../assets/js/hub-core.js';
@@ -293,4 +293,29 @@ test('sanitizeFilename guards reserved device names and empty results', () => {
 test('sanitizeFilename keeps its existing substitution behaviour', () => {
   assert.equal(sanitizeFilename('A/B:C'), 'A-B-C');
   assert.equal(sanitizeFilename('SP51-68'), 'SP51-68');
+});
+
+test('photoFileName: caption becomes the filename', () => {
+  assert.equal(photoFileName('flange clash at pump 2', 'IMG_4471.JPG', []), 'flange clash at pump 2.jpg');
+});
+
+test('photoFileName: blank caption falls back to the original name, always .jpg', () => {
+  assert.equal(photoFileName('', 'IMG_4471.JPG', []), 'IMG_4471.jpg');
+  assert.equal(photoFileName('   ', 'scan.png', []), 'scan.jpg');
+});
+
+test('photoFileName: unsafe captions are sanitised for Windows', () => {
+  assert.equal(photoFileName('valve: A/B "spec"', 'x.jpg', []), 'valve- A-B -spec-.jpg');
+  assert.equal(photoFileName('CON', 'x.jpg', []), 'CON_.jpg');
+  assert.equal(photoFileName('trailing dots...', 'x.jpg', []), 'trailing dots.jpg');
+});
+
+test('photoFileName: nothing usable anywhere still yields a name', () => {
+  assert.equal(photoFileName('', '', []), 'Unnamed.jpg');
+});
+
+test('photoFileName: collisions get a numeric suffix, case-insensitively', () => {
+  assert.equal(photoFileName('clash', 'x.jpg', ['clash.jpg']), 'clash (2).jpg');
+  assert.equal(photoFileName('clash', 'x.jpg', ['clash.jpg', 'clash (2).jpg']), 'clash (3).jpg');
+  assert.equal(photoFileName('Clash', 'x.jpg', ['clash.jpg']), 'Clash (2).jpg');
 });

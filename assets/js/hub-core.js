@@ -170,6 +170,21 @@ export function sanitizeFilename(x) {
   return WINDOWS_RESERVED_NAME.test(s) ? s + '_' : s;
 }
 
+// Photos are stored as JPEG under Photos/<REF>/, named from the caption the
+// user typed — "IMG_4471.JPG" tells nobody anything. Falls back to the original
+// filename's base when the caption is blank, and suffixes duplicates rather
+// than silently overwriting a colleague's photo.
+export function photoFileName(caption, originalName, existingNames) {
+  const base = String(caption || '').trim()
+    || String(originalName || '').replace(/\.[^.]*$/, '').trim();
+  const safe = sanitizeFilename(base);
+  const taken = new Set((existingNames || []).map(n => String(n).toLowerCase()));
+  let name = safe + '.jpg';
+  let n = 2;
+  while (taken.has(name.toLowerCase())) { name = `${safe} (${n}).jpg`; n += 1; }
+  return name;
+}
+
 function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function commentRow(c, state) {
