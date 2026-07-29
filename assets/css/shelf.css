@@ -1,7 +1,10 @@
 /* ——— The Journal bookcase ———
    Books are real 3D boxes: a spine face plus a top face hinged at the head and
    laid back into the case. Cloth colours live here, not in shelf.js, so light
-   and dark are handled by tokens like everything else on the site. */
+   and dark are handled by tokens like everything else on the site. The blurb
+   panel is anchored to the shelf (one per row), not to the book — a book is
+   its own containing block and sits at row edges, so a book-anchored panel
+   would overhang the container on the first/last book of a row. */
 
 .bookcase{
   --cloth-series:#1d3a2b;  --cloth-oxblood:#7a2e2a; --cloth-navy:#2f4858;
@@ -103,15 +106,15 @@
 }
 .book:focus-visible{ outline:2px solid var(--ring); outline-offset:4px; }
 
-.blurb{
-  position:absolute; top:calc(100% + 18px); left:50%; width:240px;
-  transform:translateX(-50%) translateY(6px);
-  display:flex; flex-direction:column; gap:5px;
-  padding:14px 16px; border-radius:10px;
+.shelf-blurb{
+  position:relative; width:100%; min-height:96px; box-sizing:border-box;
+  display:flex; flex-direction:column; gap:5px; justify-content:center;
+  margin:12px 0 20px; padding:14px 16px; border-radius:10px;
   background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow-lg);
-  opacity:0; pointer-events:none; transition:opacity .3s, transform .3s; z-index:12;
+  opacity:0; transform:translateY(6px); pointer-events:none;
+  transition:opacity .3s cubic-bezier(.2,.85,.25,1), transform .3s cubic-bezier(.2,.85,.25,1);
 }
-.book.is-open .blurb{ opacity:1; transform:translateX(-50%) translateY(0); }
+.shelf-blurb.is-showing{ opacity:1; transform:translateY(0); }
 .blurb-date{ font:500 11px ui-monospace,'Consolas',monospace; color:var(--muted-fg); }
 .blurb-title{ font-size:14px; font-weight:600; color:var(--foreground); }
 .blurb-excerpt{ font-size:12.5px; line-height:1.5; color:var(--muted-fg); }
@@ -128,17 +131,14 @@
    that arithmetic must stay the single source of truth, so CSS must not
    force a different width (e.g. a min-width) onto .book. On narrow screens
    the case simply wraps onto more shelves, like a real bookcase.
-   Do NOT add overflow-x/auto scrolling to .shelf, .bookcase, or any
-   ancestor of .blurb: .blurb hangs below the book (top:calc(100% + 18px)),
-   so it inflates scrollHeight; a scroll container up the tree computes
+   Do NOT add overflow-x/auto scrolling to .shelf, .bookcase, .shelf-blurb,
+   or any ancestor: the shelf-blurb sits in normal flow below the shelf
+   board and inflates scrollHeight; a scroll container up the tree computes
    overflow-y:auto too (you can't mix visible-x with auto-y) and the whole
    shelf gets scrolled vertically until every book is off-screen. */
-@media(max-width:640px){
-  .blurb{ width:200px; }
-}
 
 /* ——— reduced motion: the shelf is never built, but belt and braces ——— */
 @media(prefers-reduced-motion:reduce){
   .book{ transition:none; }
-  .blurb{ transition:none; }
+  .shelf-blurb{ transition:none; }
 }

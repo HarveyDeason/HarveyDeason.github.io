@@ -101,6 +101,7 @@ export function renderSpine(v, tabindex = -1){
   return `<a class="book" href="/writing/post.html?slug=${encodeURIComponent(v.slug)}"` +
     ` data-slug="${esc(v.slug)}" data-cloth="${esc(v.cloth)}" tabindex="${tabindex}"` +
     ` aria-label="${esc(v.title)}"` +
+    ` data-date="${esc(fmtDate(v.dateISO))}" data-excerpt="${esc(v.excerpt)}"` +
     ` style="--w:${v.width}px;--h:${v.height}px;--d:${v.depth}px">` +
       `<span class="book-top"></span>` +
       `<span class="spine">` +
@@ -113,11 +114,6 @@ export function renderSpine(v, tabindex = -1){
         `</span>` +
         (v.volume ? `<span class="vol" style="bottom:${Math.round(h * 0.10)}px">${esc(v.volume)}</span>` : '') +
       `</span>` +
-      `<span class="blurb" role="note">` +
-        `<span class="blurb-date">${esc(fmtDate(v.dateISO))}</span>` +
-        `<span class="blurb-title">${esc(v.title)}</span>` +
-        `<span class="blurb-excerpt">${esc(v.excerpt)}</span>` +
-      `</span>` +
     `</a>`;
 }
 
@@ -126,7 +122,10 @@ export function renderBookcase(rows){
   let seen = 0;
   const shelves = rows.map(row => {
     const books = row.map(v => renderSpine(v, seen++ === 0 ? 0 : -1)).join('');
-    return `<div class="shelf">${books}</div><div class="shelf-board"></div>`;
+    return `<div class="shelf">${books}</div><div class="shelf-board"></div>` +
+      `<div class="shelf-blurb" role="note" aria-live="polite">` +
+        `<span class="blurb-date"></span><span class="blurb-title"></span><span class="blurb-excerpt"></span>` +
+      `</div>`;
   }).join('');
   return `<div class="bookcase">${shelves}</div>`;
 }

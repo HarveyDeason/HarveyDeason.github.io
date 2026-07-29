@@ -179,10 +179,59 @@ test('renderSpine escapes titles so quotes cannot break out of attributes', () =
   assert.ok(html.includes('&amp; more'));
 });
 
-test('renderBookcase emits one shelf and board per packed row', () => {
+test('renderSpine no longer emits a blurb element inside the book', () => {
+  const html = renderSpine(full);
+  assert.ok(!html.includes('class="blurb"'));
+  assert.ok(!html.includes('class="blurb-date"'));
+  assert.ok(!html.includes('class="blurb-title"'));
+  assert.ok(!html.includes('class="blurb-excerpt"'));
+});
+
+test('renderSpine carries the date and excerpt as attributes on the book element', () => {
+  const html = renderSpine(full);
+  const dateMatch = html.match(/data-date="([^"]*)"/);
+  const excerptMatch = html.match(/data-excerpt="([^"]*)"/);
+  assert.ok(dateMatch);
+  assert.ok(dateMatch[1].length > 0);
+  assert.ok(excerptMatch);
+  assert.equal(excerptMatch[1], 'On saying less.');
+});
+
+test('renderSpine escapes quotes and angle brackets inside data-date/data-excerpt', () => {
+  const v = toVolume(post({
+    title: 'Weekly Waffle #12 — Silence is Golden',
+    slug: 'x',
+    excerpt: 'A "quoted" <tag> & more'
+  }));
+  const html = renderSpine(v);
+  const excerptAttr = html.match(/data-excerpt="([^"]*)"/)[1];
+  assert.ok(!excerptAttr.includes('<'));
+  assert.ok(!excerptAttr.includes('"'));
+  assert.ok(excerptAttr.includes('&lt;tag&gt;'));
+  assert.ok(excerptAttr.includes('&quot;quoted&quot;'));
+  assert.ok(excerptAttr.includes('&amp; more'));
+
+  const dateAttr = html.match(/data-date="([^"]*)"/)[1];
+  assert.ok(!dateAttr.includes('<'));
+  assert.ok(!dateAttr.includes('"'));
+});
+
+test('renderBookcase emits one shelf, board, and blurb per packed row', () => {
   const html = renderBookcase([[full, single], [full]]);
   assert.equal((html.match(/class="shelf"/g) || []).length, 2);
   assert.equal((html.match(/class="shelf-board"/g) || []).length, 2);
+  assert.equal((html.match(/class="shelf-blurb"/g) || []).length, 2);
+});
+
+test('renderBookcase emits the shelf-blurb empty, with no post text baked in', () => {
+  const html = renderBookcase([[full, single]]);
+  const match = html.match(/<div class="shelf-blurb"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(match);
+  const inner = match[1]
+    .replace('<span class="blurb-date"></span>', '')
+    .replace('<span class="blurb-title"></span>', '')
+    .replace('<span class="blurb-excerpt"></span>', '');
+  assert.equal(inner, '');
 });
 
 test('renderBookcase gives exactly one book a roving tabindex of 0', () => {
