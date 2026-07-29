@@ -11,22 +11,19 @@
   --cloth-tan:#6b4423;     --cloth-plum:#3d3a5c;
   --gilt:var(--accent-gold);
   --board:linear-gradient(180deg,#cfc7ba 0%,#b7ac9c 42%,#9c907e 100%);
-  --book-top:linear-gradient(180deg,#efe7d6,#cfc3ab);
   padding:48px 0 0;
 }
 :root[data-mode="dark"] .bookcase{
   --cloth-series:#22412f;  --cloth-oxblood:#8a3833; --cloth-navy:#365468;
   --cloth-tan:#7a5029;     --cloth-plum:#474168;
   --board:linear-gradient(180deg,#3a332c 0%,#2a241e 42%,#191512 100%);
-  --book-top:linear-gradient(180deg,#3a352c,#241f19);
 }
 
 .shelf{
   display:flex; align-items:flex-end; gap:2px;
   perspective:1600px; perspective-origin:50% -14%;
-  /* padding-top leaves room for the book-top bands, which sit above each
-     book's own box; perspective is retained only for the pull-out's translateZ */
-  padding:12px 0 0 6px; min-height:200px;
+  /* perspective is retained only for the pull-out's translateZ */
+  padding-left:6px; min-height:200px;
 }
 .shelf-board{
   position:relative; height:16px; background:var(--board);
@@ -49,23 +46,6 @@
 .book[data-cloth="tan"]    { --cloth:var(--cloth-tan);     --ink:#f2ede5; }
 .book[data-cloth="plum"]   { --cloth:var(--cloth-plum);    --ink:#f2ede5; }
 
-/* The top is a plain band directly above its own spine, exactly the spine's
-   width, with no lean and no projection.
-
-   It used to be a real rotateX'd face. The problem is that each book is its own
-   3D context projecting toward one shared vanishing point, so tops sheared
-   sideways — hardest at the ends of a row — and leant across the neighbouring
-   spine (measured up to 6.2px, 13 collisions across four shelves). Real books
-   do not do that; a book's top sits directly above its own spine. Keeping the
-   band axis-aligned and the book's own width makes that overlap structurally
-   impossible rather than something to be tuned down. */
-.book-top{
-  position:absolute; left:0; right:0;
-  height:calc(var(--d) * .15); top:calc(var(--d) * -.15);
-  border-radius:2px 2px 0 0;
-  background:var(--book-top);
-  box-shadow:inset 0 1px 0 rgb(255 255 255 / .45);
-}
 
 .spine{
   position:absolute; inset:0; border-radius:2px 1px 1px 2px; overflow:hidden;

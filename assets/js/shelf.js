@@ -53,8 +53,7 @@ export function toVolume(post){
     volume,
     cloth: series ? 'series' : SINGLE_CLOTHS[h % SINGLE_CLOTHS.length],
     width:  30 + (h % 5) * 4,
-    height: 196 + (h % 7) * 13,
-    depth:  46 + (h % 4) * 7
+    height: 196 + (h % 7) * 13
   };
 }
 
@@ -98,8 +97,7 @@ export function renderSpine(v, tabindex = -1){
     ` data-slug="${esc(v.slug)}" data-cloth="${esc(v.cloth)}" tabindex="${tabindex}"` +
     ` aria-label="${esc(v.title)}"` +
     ` data-date="${esc(fmtDate(v.dateISO))}" data-excerpt="${esc(v.excerpt)}"` +
-    ` style="--w:${v.width}px;--h:${v.height}px;--d:${v.depth}px">` +
-      `<span class="book-top"></span>` +
+    ` style="--w:${v.width}px;--h:${v.height}px">` +
       `<span class="spine">` +
         `<span class="hub" style="top:${Math.round(h * 0.14)}px"></span>` +
         `<span class="hub" style="bottom:${Math.round(h * 0.20)}px"></span>` +
