@@ -3,6 +3,8 @@
 // deliberately absent — this module emits cloth *names* and shelf.css maps them
 // to values per light/dark mode.
 
+import { esc } from './wordpress.js';
+
 const SERIES_RE = /^\s*weekly\s*waffle\b/i;
 const VOLUME_RE = /#\s*(\d+)/;
 // Separator left dangling after the volume number is stripped (dash, colon,
@@ -83,12 +85,6 @@ export function packShelves(volumes, containerWidth, gap = 2){
   return rows;
 }
 
-function esc(s){
-  return String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
 function fmtDate(iso){
   try { return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
   catch { return ''; }
@@ -161,6 +157,10 @@ export function initShelf(el){
 
   const books = () => Array.from(el.querySelectorAll('.book:not(.skeleton-book)'));
   let openBook = null;
+  // Touch: first tap arms and opens, second tap on the same book follows the
+  // link. Armed state is tracked separately from `openBook` because focus
+  // (which also opens) fires before click in a touch sequence.
+  let touchArmed = null;
 
   // Each shelf owns one blurb panel shared by its books, so opening a book
   // repaints that panel rather than revealing a panel of its own.
@@ -258,9 +258,9 @@ export function initShelf(el){
   // ——— touch: first tap opens, second follows ———
   el.addEventListener('click', e => {
     const book = e.target.closest('.book');
-    if(!book) return;
-    if(matchMedia('(pointer:fine)').matches) return;   // mouse users navigate on first click
-    if(openBook !== book){ e.preventDefault(); open(book); }
+    if(!book || book.classList.contains('skeleton-book')) return;
+    if(matchMedia('(pointer:fine)').matches) return;   // mouse navigates on first click
+    if(touchArmed !== book){ e.preventDefault(); touchArmed = book; open(book); }
   });
 }
 
