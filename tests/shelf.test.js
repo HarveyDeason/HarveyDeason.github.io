@@ -43,6 +43,53 @@ test('toVolume treats standalone essays as non-series with their own cloth', () 
   assert.ok(['oxblood','navy','tan','plum'].includes(v.cloth));
 });
 
+test('toVolume strips a dash-before-hash prefix with no subtitle (falls back to series name)', () => {
+  const v = toVolume(post({ title: 'Weekly waffle – #2', slug: 'weekly-waffle-2' }));
+  assert.equal(v.shortTitle, 'Weekly Waffle');
+});
+
+test('toVolume strips a dash-before-hash prefix with a parenthesised subtitle', () => {
+  const v = toVolume(post({ title: 'Weekly Waffle – #8 (Overoptimization)', slug: 'weekly-waffle-8' }));
+  assert.equal(v.shortTitle, 'Overoptimization');
+});
+
+test('toVolume strips a space-after-hash prefix with a parenthesised subtitle', () => {
+  const v = toVolume(post({ title: 'Weekly Waffle # 11 (Growth Mindset)', slug: 'weekly-waffle-11' }));
+  assert.equal(v.shortTitle, 'Growth Mindset');
+});
+
+test('toVolume strips a colon separator with a parenthesised subtitle', () => {
+  const v = toVolume(post({
+    title: 'Weekly Waffle #14: (Luck, Struggle and the cards of Life)',
+    slug: 'weekly-waffle-14'
+  }));
+  assert.equal(v.shortTitle, 'Luck, Struggle and the cards of Life');
+});
+
+test('toVolume still strips the already-working dash-after-number case', () => {
+  const v = toVolume(post({ title: 'Weekly Waffle #19 – The Life of a Camel', slug: 'weekly-waffle-19' }));
+  assert.equal(v.shortTitle, 'The Life of a Camel');
+});
+
+test('toVolume handles a bare "Weekly Waffle #9" with no separator or subtitle', () => {
+  const v = toVolume(post({ title: 'Weekly Waffle #9', slug: 'weekly-waffle-9' }));
+  assert.equal(v.shortTitle, 'Weekly Waffle');
+});
+
+test('toVolume leaves a non-series title with an empty title as an empty shortTitle', () => {
+  const v = toVolume(post({ title: '', slug: 'no-title-essay' }));
+  assert.equal(v.series, false);
+  assert.equal(v.shortTitle, '');
+});
+
+test('toVolume does not unwrap parentheses that appear mid-string, not wrapping the whole remainder', () => {
+  const v = toVolume(post({
+    title: 'Weekly Waffle #20: Time flies (mostly) when you are having fun',
+    slug: 'weekly-waffle-20'
+  }));
+  assert.equal(v.shortTitle, 'Time flies (mostly) when you are having fun');
+});
+
 test('toVolume dimensions are deterministic and within the approved ranges', () => {
   const a = toVolume(post()), b = toVolume(post());
   assert.deepEqual([a.width, a.height, a.depth], [b.width, b.height, b.depth]);

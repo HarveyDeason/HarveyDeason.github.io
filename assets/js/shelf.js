@@ -5,7 +5,10 @@
 
 const SERIES_RE = /^\s*weekly\s*waffle\b/i;
 const VOLUME_RE = /#\s*(\d+)/;
-const SERIES_PREFIX_RE = /^\s*weekly\s*waffle\s*#?\s*\d*\s*[—–:-]?\s*/i;
+// Separator left dangling after the volume number is stripped (dash, colon,
+// or just whitespace) — the dash can sit before OR after "#N" in live titles.
+const TRAILING_SEPARATOR_RE = /^\s*[—–:-]?\s*/;
+const WRAPPED_IN_PARENS_RE = /^\((.*)\)$/;
 const SINGLE_CLOTHS = ['oxblood','navy','tan','plum'];
 
 // FNV-style rolling hash. Stable across sessions so a book never changes
@@ -25,8 +28,18 @@ export function toVolume(post){
   const volMatch = series ? title.match(VOLUME_RE) : null;
   const volume   = volMatch ? volMatch[1].padStart(2, '0') : '';
 
-  let shortTitle = series ? title.replace(SERIES_PREFIX_RE, '').trim() : title.trim();
-  if(!shortTitle) shortTitle = 'Weekly Waffle';
+  let shortTitle;
+  if(series && volMatch){
+    // Anchor on the volume number itself, not on the literal series name —
+    // titles put the separator dash before or after "#N" inconsistently.
+    const rest = title.slice(volMatch.index + volMatch[0].length);
+    shortTitle = rest.replace(TRAILING_SEPARATOR_RE, '').trim();
+    const wrapped = shortTitle.match(WRAPPED_IN_PARENS_RE);
+    if(wrapped) shortTitle = wrapped[1].trim();
+    if(!shortTitle) shortTitle = 'Weekly Waffle';
+  } else {
+    shortTitle = title.trim();
+  }
 
   return {
     slug: post.slug,
