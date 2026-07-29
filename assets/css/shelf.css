@@ -1,0 +1,166 @@
+/* ——— The Journal bookcase ———
+   Books are real 3D boxes: a spine face plus a top face hinged at the head and
+   laid back into the case. Cloth colours live here, not in shelf.js, so light
+   and dark are handled by tokens like everything else on the site. The blurb
+   panel is anchored to the shelf (one per row), not to the book — a book is
+   its own containing block and sits at row edges, so a book-anchored panel
+   would overhang the container on the first/last book of a row. */
+
+.bookcase{
+  --cloth-series:#1d3a2b;  --cloth-oxblood:#7a2e2a; --cloth-navy:#2f4858;
+  --cloth-tan:#6b4423;     --cloth-plum:#3d3a5c;
+  --gilt:var(--accent-gold);
+  --board:linear-gradient(180deg,#cfc7ba 0%,#b7ac9c 42%,#9c907e 100%);
+  --book-top:linear-gradient(180deg,#efe7d6,#cfc3ab);
+  padding:48px 0 0;
+}
+:root[data-mode="dark"] .bookcase{
+  --cloth-series:#22412f;  --cloth-oxblood:#8a3833; --cloth-navy:#365468;
+  --cloth-tan:#7a5029;     --cloth-plum:#474168;
+  --board:linear-gradient(180deg,#3a332c 0%,#2a241e 42%,#191512 100%);
+  --book-top:linear-gradient(180deg,#3a352c,#241f19);
+}
+
+.shelf{
+  display:flex; align-items:flex-end; gap:2px;
+  perspective:1600px; perspective-origin:50% -14%;
+  padding-left:6px; min-height:200px;
+}
+.shelf-board{
+  position:relative; height:16px; background:var(--board);
+  border-radius:0 0 3px 3px; margin-bottom:34px;
+  box-shadow:0 -14px 24px -14px rgb(0 0 0 / .5);
+}
+.shelf-board::before{
+  content:""; position:absolute; inset:0 0 auto; height:2px; background:rgb(255 255 255 / .35);
+}
+
+.book{
+  position:relative; flex:0 0 auto; width:var(--w); height:var(--h);
+  transform-style:preserve-3d; transform-origin:bottom center;
+  text-decoration:none; cursor:pointer;
+  transition:transform .5s cubic-bezier(.2,.85,.25,1), filter .5s;
+}
+.book[data-cloth="series"] { --cloth:var(--cloth-series);  --ink:var(--gilt); }
+.book[data-cloth="oxblood"]{ --cloth:var(--cloth-oxblood); --ink:#f2ede5; }
+.book[data-cloth="navy"]   { --cloth:var(--cloth-navy);    --ink:#f2ede5; }
+.book[data-cloth="tan"]    { --cloth:var(--cloth-tan);     --ink:#f2ede5; }
+.book[data-cloth="plum"]   { --cloth:var(--cloth-plum);    --ink:#f2ede5; }
+
+.book-top{
+  position:absolute; top:0; left:0; right:0; height:var(--d);
+  transform-origin:center top; transform:rotateX(90deg);
+  background:var(--book-top); border-radius:1px;
+}
+
+.spine{
+  position:absolute; inset:0; border-radius:2px 1px 1px 2px; overflow:hidden;
+  background:linear-gradient(90deg,
+    rgb(0 0 0 / .55) 0%, rgb(0 0 0 / .18) 8%, rgb(255 255 255 / .16) 26%,
+    var(--cloth) 48%, var(--cloth) 70%, rgb(0 0 0 / .28) 92%, rgb(0 0 0 / .6) 100%), var(--cloth);
+  box-shadow:inset 7px 0 12px -8px rgb(255 255 255 / .30),
+             inset -9px 0 14px -8px rgb(0 0 0 / .62),
+             inset 0 8px 12px -10px rgb(255 255 255 / .22),
+             inset 0 -10px 14px -10px rgb(0 0 0 / .5);
+}
+/* fine woven cloth — kept subtle to avoid moiré at spine widths */
+.spine::after{
+  content:""; position:absolute; inset:0; opacity:.055; pointer-events:none;
+  background:
+    repeating-linear-gradient(0deg,  rgb(255 255 255 / .6) 0 .5px, transparent .5px 2px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / .6)       0 .5px, transparent .5px 2px);
+}
+
+.hub{
+  position:absolute; left:0; right:0; height:6px;
+  background:linear-gradient(180deg, rgb(0 0 0 / .30), rgb(255 255 255 / .16) 45%, rgb(0 0 0 / .30));
+}
+.rule{ position:absolute; left:4px; right:4px; height:1px; background:var(--gilt); opacity:.75; }
+.panel{
+  position:absolute; left:3px; right:3px; border-radius:1px;
+  display:flex; align-items:center; justify-content:center;
+  /* .34 not .18: gilt (#a9863f) on series cloth (#1d3a2b) measured 4.17:1
+     against the 4.5:1 AA minimum for text this size, and series books are most
+     of the shelf. Deepening the wash takes it to ~4.7:1 without touching the
+     gilt itself, which is a site-wide accent. Dark mode already clears AA. */
+  background:rgb(0 0 0 / .34); box-shadow:inset 0 0 0 1px rgb(169 134 63 / .33);
+}
+:root[data-mode="dark"] .panel{ background:rgb(0 0 0 / .20); }
+.ttl{
+  writing-mode:vertical-rl; text-orientation:mixed; transform:rotate(180deg);
+  font:600 10.5px/1 'Geist','Segoe UI',system-ui,sans-serif; letter-spacing:.07em;
+  color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-height:94%;
+}
+.vol{
+  position:absolute; left:0; right:0; text-align:center;
+  font:700 10px/1 'Geist','Segoe UI',system-ui,sans-serif;
+  letter-spacing:.04em; font-variant-numeric:tabular-nums; color:var(--gilt);
+}
+
+/* ——— pull-out ——— */
+.shelf:hover .book,
+.shelf:focus-within .book{ filter:brightness(.7) saturate(.85); }
+/* Specificity matters here: `.shelf:hover .book` scores 3, so a bare
+   `.book.is-open` (2) would lose and the open book would stay dimmed.
+   The two descendant forms below outscore it. */
+.book.is-open,
+.shelf:hover .book.is-open,
+.shelf:focus-within .book.is-open{
+  transform:translateZ(80px) translateY(-14px) rotateY(-7deg);
+  filter:brightness(1.06); z-index:9;
+}
+.book:focus-visible{ outline:2px solid var(--ring); outline-offset:4px; }
+
+.shelf-blurb{
+  /* The space is reserved so revealing a blurb never shifts the shelves below
+     it. Kept tight, with the excerpt clamped to two lines, so an idle bookcase
+     is not mostly gaps — that reads badly on a phone, where there are more
+     shelves and so more reserved blocks. */
+  position:relative; width:100%; min-height:62px; box-sizing:border-box;
+  display:flex; flex-direction:column; gap:4px; justify-content:center;
+  margin:10px 0 14px; padding:10px 14px; border-radius:10px;
+  background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow-lg);
+  opacity:0; transform:translateY(6px); pointer-events:none; visibility:hidden;
+  transition:opacity .3s cubic-bezier(.2,.85,.25,1), transform .3s cubic-bezier(.2,.85,.25,1),
+    visibility 0s .3s;
+}
+.shelf-blurb.is-showing{
+  opacity:1; transform:translateY(0); visibility:visible;
+  transition:opacity .3s cubic-bezier(.2,.85,.25,1), transform .3s cubic-bezier(.2,.85,.25,1),
+    visibility 0s 0s;
+}
+.blurb-date{ font:500 11px ui-monospace,'Consolas',monospace; color:var(--muted-fg); }
+.blurb-title{ font-size:14px; font-weight:600; color:var(--foreground); }
+.blurb-excerpt{
+  font-size:12.5px; line-height:1.5; color:var(--muted-fg);
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
+}
+
+.sr-only{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+/* ——— loading ——— */
+.skeleton-book{
+  width:var(--w); height:var(--h); border-radius:2px;
+  background:var(--muted); opacity:.6;
+}
+
+/* ——— mobile ———
+   Deliberately no horizontal scroller here. packShelves (shelf.js) packs
+   each row using the book's own JS-computed width (30–46px, from the slug);
+   that arithmetic must stay the single source of truth, so CSS must not
+   force a different width (e.g. a min-width) onto .book. On narrow screens
+   the case simply wraps onto more shelves, like a real bookcase.
+   Do NOT add overflow-x/auto scrolling to .shelf, .bookcase, .shelf-blurb,
+   or any ancestor: the shelf-blurb sits in normal flow below the shelf
+   board and inflates scrollHeight; a scroll container up the tree computes
+   overflow-y:auto too (you can't mix visible-x with auto-y) and the whole
+   shelf gets scrolled vertically until every book is off-screen. */
+
+/* ——— reduced motion: the shelf is never built, but belt and braces ——— */
+@media(prefers-reduced-motion:reduce){
+  .book{ transition:none; }
+  .shelf-blurb{ transition:none; }
+}
