@@ -394,7 +394,9 @@ test('renderSpine escapes titles so quotes cannot break out of attributes', () =
   const v = toVolume(post({ title: 'A "quoted" <tag> & more', slug: 'x' }));
   const html = renderSpine(v);
   assert.ok(!html.includes('<tag>'));
-  assert.ok(html.includes('&quot;quoted&quot;') || html.includes('&amp;'));
+  assert.ok(html.includes('&lt;tag&gt;'));
+  assert.ok(html.includes('&quot;quoted&quot;'));
+  assert.ok(html.includes('&amp; more'));
 });
 
 test('renderBookcase emits one shelf and board per packed row', () => {
