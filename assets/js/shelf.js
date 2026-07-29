@@ -149,3 +149,109 @@ export function mountShelf(elId, posts, width){
   const volumes = posts.map(toVolume);
   el.innerHTML = renderBookcase(packShelves(volumes, w));
 }
+
+// Interaction. One book is "open" (pulled out) at a time.
+//
+// Pointer: hover opens, leaving the case closes.
+// Keyboard: roving tabindex, arrows traverse, focus opens, Enter follows the link.
+// Touch: first tap opens without navigating, second tap on the same book follows.
+export function initShelf(el){
+  if(!el || el.dataset.shelfWired === '1') return;
+  el.dataset.shelfWired = '1';
+
+  const books = () => Array.from(el.querySelectorAll('.book:not(.skeleton-book)'));
+  let openBook = null;
+
+  // Each shelf owns one blurb panel shared by its books, so opening a book
+  // repaints that panel rather than revealing a panel of its own.
+  function panelFor(book){
+    const shelf = book && book.closest('.shelf');
+    return shelf && shelf.nextElementSibling
+      && shelf.nextElementSibling.nextElementSibling;   // .shelf → .shelf-board → .shelf-blurb
+  }
+
+  function fill(panel, book){
+    if(!panel) return;
+    const set = (sel, text) => {
+      const n = panel.querySelector(sel);
+      if(n) n.textContent = text || '';
+    };
+    set('.blurb-date', book.getAttribute('data-date'));
+    set('.blurb-title', book.getAttribute('aria-label'));
+    set('.blurb-excerpt', book.getAttribute('data-excerpt'));
+  }
+
+  function open(book){
+    if(openBook === book) return;
+    if(openBook){
+      openBook.classList.remove('is-open');
+      const prev = panelFor(openBook);
+      // Only hide the old panel if the new book lives on a different shelf;
+      // otherwise it is the same element and we are about to repaint it.
+      if(prev && prev !== panelFor(book)) prev.classList.remove('is-showing');
+    }
+    openBook = book;
+    if(book){
+      book.classList.add('is-open');
+      const panel = panelFor(book);
+      fill(panel, book);
+      if(panel) panel.classList.add('is-showing');
+    }
+  }
+
+  function focusBook(book){
+    if(!book) return;
+    books().forEach(b => b.tabIndex = -1);
+    book.tabIndex = 0;
+    book.focus();
+  }
+
+  // ——— pointer ———
+  el.addEventListener('pointerover', e => {
+    if(e.pointerType === 'touch') return;
+    const book = e.target.closest('.book');
+    if(book && !book.classList.contains('skeleton-book')) open(book);
+  });
+  el.addEventListener('pointerleave', e => {
+    if(e.pointerType === 'touch') return;
+    open(null);
+  });
+
+  // ——— keyboard ———
+  el.addEventListener('focusin', e => {
+    const book = e.target.closest('.book');
+    if(book) open(book);
+  });
+  el.addEventListener('keydown', e => {
+    const book = e.target.closest('.book');
+    if(!book) return;
+    const all = books();
+    const i = all.indexOf(book);
+
+    if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      e.preventDefault();
+      focusBook(all[e.key === 'ArrowRight' ? Math.min(i + 1, all.length - 1) : Math.max(i - 1, 0)]);
+      return;
+    }
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      const shelves = Array.from(el.querySelectorAll('.shelf'));
+      const here = book.closest('.shelf');
+      const next = shelves[shelves.indexOf(here) + (e.key === 'ArrowDown' ? 1 : -1)];
+      if(!next) return;
+      const row = Array.from(next.querySelectorAll('.book'));
+      const within = Array.from(here.querySelectorAll('.book')).indexOf(book);
+      focusBook(row[Math.min(within, row.length - 1)]);
+      return;
+    }
+    if(e.key === 'Escape'){ open(null); book.blur(); }
+  });
+
+  // ——— touch: first tap opens, second follows ———
+  el.addEventListener('click', e => {
+    const book = e.target.closest('.book');
+    if(!book) return;
+    if(matchMedia('(pointer:fine)').matches) return;   // mouse users navigate on first click
+    if(openBook !== book){ e.preventDefault(); open(book); }
+  });
+}
