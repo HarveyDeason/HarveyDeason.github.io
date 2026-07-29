@@ -930,7 +930,10 @@ export function observeShelf(elId, posts){
     if(w === lastWidth) return;
     lastWidth = w;
     mountShelf(elId, posts, w);
-    delete el.dataset.shelfWired;
+    // initShelf delegates from `el` itself, which survives the innerHTML
+    // replacement above, so the listeners are still attached and still see the
+    // new children. Deliberately do NOT clear `el.dataset.shelfWired` and
+    // re-run it: that would stack a duplicate set of listeners on every resize.
     initShelf(el);
   };
 
@@ -940,6 +943,40 @@ export function observeShelf(elId, posts){
     timer = setTimeout(render, 120);
   }).observe(el);
 }
+```
+
+- [ ] **Step 1b: Harden `initShelf` against the re-render**
+
+Because `observeShelf` replaces the bookcase's children while listeners stay
+attached to `el`, two things in `initShelf` need tightening. Both were raised in
+the Task 6 review.
+
+In `panelFor`, stop walking a fixed sibling chain — after a re-render or any
+markup reorder it can silently land on the wrong element. Scope the lookup to
+the shelf's own row instead:
+
+```js
+  function panelFor(book){
+    const shelf = book && book.closest('.shelf');
+    if(!shelf) return null;
+    // Walk forward to the first .shelf-blurb, rather than assuming a fixed
+    // .shelf → .shelf-board → .shelf-blurb chain.
+    let n = shelf.nextElementSibling;
+    while(n && !n.classList.contains('shelf-blurb')){
+      if(n.classList.contains('shelf')) return null;   // ran into the next row
+      n = n.nextElementSibling;
+    }
+    return n || null;
+  }
+```
+
+And guard the retained `openBook` reference, which points at a detached node
+after a re-render:
+
+```js
+  function open(book){
+    if(openBook && !el.contains(openBook)) openBook = null;   // survived a re-render
+    if(openBook === book) return;
 ```
 
 - [ ] **Step 2: Use it from the page**
