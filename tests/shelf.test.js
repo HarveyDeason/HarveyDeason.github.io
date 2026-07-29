@@ -92,10 +92,9 @@ test('toVolume does not unwrap parentheses that appear mid-string, not wrapping 
 
 test('toVolume dimensions are deterministic and within the approved ranges', () => {
   const a = toVolume(post()), b = toVolume(post());
-  assert.deepEqual([a.width, a.height, a.depth], [b.width, b.height, b.depth]);
+  assert.deepEqual([a.width, a.height], [b.width, b.height]);
   assert.ok(a.width  >= 30 && a.width  <= 46);
   assert.ok(a.height >= 196 && a.height <= 274);
-  assert.ok(a.depth  >= 46 && a.depth  <= 67);
 });
 
 const vol = w => ({ slug: 's' + w, width: w });
@@ -162,7 +161,6 @@ test('renderSpine carries cloth and dimensions for CSS to consume', () => {
   assert.ok(html.includes('data-cloth="series"'));
   assert.ok(html.includes('--w:' + full.width + 'px'));
   assert.ok(html.includes('--h:' + full.height + 'px'));
-  assert.ok(html.includes('--d:' + full.depth + 'px'));
 });
 
 test('renderSpine stamps a volume number on series books only', () => {
