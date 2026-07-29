@@ -166,8 +166,15 @@ export function initShelf(el){
   // repaints that panel rather than revealing a panel of its own.
   function panelFor(book){
     const shelf = book && book.closest('.shelf');
-    return shelf && shelf.nextElementSibling
-      && shelf.nextElementSibling.nextElementSibling;   // .shelf → .shelf-board → .shelf-blurb
+    if(!shelf) return null;
+    // Walk forward to the first .shelf-blurb, rather than assuming a fixed
+    // .shelf → .shelf-board → .shelf-blurb chain.
+    let n = shelf.nextElementSibling;
+    while(n && !n.classList.contains('shelf-blurb')){
+      if(n.classList.contains('shelf')) return null;   // ran into the next row
+      n = n.nextElementSibling;
+    }
+    return n || null;
   }
 
   function fill(panel, book){
@@ -182,6 +189,7 @@ export function initShelf(el){
   }
 
   function open(book){
+    if(openBook && !el.contains(openBook)) openBook = null;   // survived a re-render
     if(openBook === book) return;
     if(openBook){
       openBook.classList.remove('is-open');
@@ -254,4 +262,32 @@ export function initShelf(el){
     if(matchMedia('(pointer:fine)').matches) return;   // mouse users navigate on first click
     if(openBook !== book){ e.preventDefault(); open(book); }
   });
+}
+
+// Repacks when the container width changes. Packing is deterministic, so we
+// skip re-rendering unless the width actually moved — this keeps the open book
+// from being torn out from under the pointer during vertical scroll on mobile,
+// where toolbars change the viewport height but not the width.
+export function observeShelf(elId, posts){
+  const el = document.getElementById(elId);
+  if(!el) return;
+
+  let lastWidth = 0, timer = null;
+  const render = () => {
+    const w = el.clientWidth;
+    if(w === lastWidth) return;
+    lastWidth = w;
+    mountShelf(elId, posts, w);
+    // initShelf delegates from `el` itself, which survives the innerHTML
+    // replacement above, so the listeners are still attached and still see the
+    // new children. Deliberately do NOT clear `el.dataset.shelfWired` and
+    // re-run it: that would stack a duplicate set of listeners on every resize.
+    initShelf(el);
+  };
+
+  render();
+  new ResizeObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(render, 120);
+  }).observe(el);
 }

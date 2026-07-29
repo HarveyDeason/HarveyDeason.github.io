@@ -30,7 +30,7 @@
   <script type="module">
     import { mountLayout } from '/assets/js/layout.js';
     import { fetchPosts, mountPosts, renderSkeletonRows } from '/assets/js/wordpress.js';
-    import { mountShelf, initShelf, renderSkeletonShelf } from '/assets/js/shelf.js';
+    import { observeShelf, renderSkeletonShelf } from '/assets/js/shelf.js';
     import { initMotion } from '/assets/js/motion.js';
     import { initPalette } from '/assets/js/palette.js';
 
@@ -45,11 +45,7 @@
 
     const postsPromise = fetchPosts({ perPage: 20 });
     postsPromise
-      .then(p => {
-        if(reduce){ mountPosts('journal', p); return; }
-        mountShelf('journal', p);
-        initShelf(journal);
-      })
+      .then(p => reduce ? mountPosts('journal', p) : observeShelf('journal', p))
       .catch(() => { journal.innerHTML =
         '<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
 
