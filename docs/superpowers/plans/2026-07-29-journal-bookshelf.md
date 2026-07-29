@@ -741,8 +741,15 @@ git commit -m "feat: render the Journal as a bookcase"
 - Modify: `writing/index.html` (call `initShelf` after mount)
 
 **Interfaces:**
-- Consumes: the DOM contract from Task 4 (`.bookcase`, `.shelf`, `.book[data-slug]`, `.blurb`), `.is-open` from Task 5
+- Consumes: the DOM contract from Task 4 as revised in Task 5b — `.bookcase`, `.shelf`, `.shelf-board`, `.shelf-blurb`, and `a.book[data-slug][data-date][data-excerpt][aria-label]`. `.is-open` (on a book) and `.is-showing` (on a shelf-blurb) come from Task 5/5b CSS.
 - Produces: `initShelf(el) → void`. Idempotent — safe to call again after a re-render.
+
+**Revised 2026-07-29:** the blurb is no longer inside each book. There is now ONE
+`.shelf-blurb` per shelf, rendered empty. Opening a book must populate its own
+shelf's panel from that book's `data-date`, `aria-label` and `data-excerpt`, then
+add `is-showing`. Closing must remove `is-showing` from that panel. Because books
+in a row share one panel, moving between books in the same row repaints the panel
+rather than toggling a different element.
 
 - [ ] **Step 1: Write `initShelf`**
 
@@ -761,11 +768,41 @@ export function initShelf(el){
   const books = () => Array.from(el.querySelectorAll('.book:not(.skeleton-book)'));
   let openBook = null;
 
+  // Each shelf owns one blurb panel shared by its books, so opening a book
+  // repaints that panel rather than revealing a panel of its own.
+  function panelFor(book){
+    const shelf = book && book.closest('.shelf');
+    return shelf && shelf.nextElementSibling
+      && shelf.nextElementSibling.nextElementSibling;   // .shelf → .shelf-board → .shelf-blurb
+  }
+
+  function fill(panel, book){
+    if(!panel) return;
+    const set = (sel, text) => {
+      const n = panel.querySelector(sel);
+      if(n) n.textContent = text || '';
+    };
+    set('.blurb-date', book.getAttribute('data-date'));
+    set('.blurb-title', book.getAttribute('aria-label'));
+    set('.blurb-excerpt', book.getAttribute('data-excerpt'));
+  }
+
   function open(book){
     if(openBook === book) return;
-    if(openBook) openBook.classList.remove('is-open');
+    if(openBook){
+      openBook.classList.remove('is-open');
+      const prev = panelFor(openBook);
+      // Only hide the old panel if the new book lives on a different shelf;
+      // otherwise it is the same element and we are about to repaint it.
+      if(prev && prev !== panelFor(book)) prev.classList.remove('is-showing');
+    }
     openBook = book;
-    if(book) book.classList.add('is-open');
+    if(book){
+      book.classList.add('is-open');
+      const panel = panelFor(book);
+      fill(panel, book);
+      if(panel) panel.classList.add('is-showing');
+    }
   }
 
   function focusBook(book){
