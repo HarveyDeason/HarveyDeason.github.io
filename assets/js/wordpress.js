@@ -33,7 +33,7 @@ function decode(s){
     return ENTITIES[m] ?? m;
   });
 }
-function stripTags(s){ return decode(String(s||'').replace(/<[^>]*>/g,'')).trim(); }
+function stripTags(s){ return decode(String(s||'')).replace(/<[^>]*>/g,'').trim(); }
 
 export function normalizePost(o){
   const media = o._embedded && o._embedded['wp:featuredmedia'];

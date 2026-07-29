@@ -62,3 +62,23 @@ test('normalizePost leaves unknown entities intact rather than mangling them', (
   const p = normalizePost({ ...api, title: { rendered: 'A &notanentity; B' } });
   assert.equal(p.title, 'A &notanentity; B');
 });
+
+test('normalizePost does not let entity-encoded markup survive as HTML in title', () => {
+  const p = normalizePost({ ...api, title: { rendered: '&lt;img src=x onerror=alert(1)&gt;' } });
+  assert.ok(!p.title.includes('<img'));
+});
+
+test('normalizePost does not let entity-encoded markup survive as HTML in excerpt', () => {
+  const p = normalizePost({ ...api, excerpt: { rendered: '&lt;img src=x onerror=alert(1)&gt;' } });
+  assert.ok(!p.excerpt.includes('<img'));
+});
+
+test('normalizePost does not let numeric-entity-encoded markup survive as HTML', () => {
+  const p = normalizePost({ ...api, title: { rendered: '&#60;script&#62;alert(1)&#60;/script&#62;' } });
+  assert.ok(!p.title.includes('<script'));
+});
+
+test('normalizePost still decodes a legitimate mathematical comparison readably', () => {
+  const p = normalizePost({ ...api, title: { rendered: '5 &lt; 10' } });
+  assert.ok(p.title.includes('5 < 10'));
+});
