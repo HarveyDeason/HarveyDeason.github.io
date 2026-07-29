@@ -44,7 +44,7 @@
     const journal = document.getElementById('journal');
     journal.innerHTML = reduce ? renderSkeletonRows(6) : renderSkeletonShelf(12);
 
-    const postsPromise = fetchPosts({ perPage: 20 });
+    const postsPromise = fetchPosts({ all: true });
     postsPromise
       .then(p => reduce ? mountPosts('journal', p) : observeShelf('journal', p))
       .catch(() => { journal.innerHTML =

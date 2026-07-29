@@ -76,8 +76,12 @@
 
     const writing = document.getElementById('latest-writing');
     writing.innerHTML = renderSkeletonRows(3);
-    const postsPromise = fetchPosts({ perPage:3 });
-    postsPromise.then(p => mountPosts('latest-writing', p))
+    // Fetch the whole archive once: the page shows the latest three, but the
+    // command palette gets the same promise and must be able to search all of
+    // them. Slicing here rather than limiting the request is what keeps those
+    // two needs from fighting.
+    const postsPromise = fetchPosts({ all:true });
+    postsPromise.then(p => mountPosts('latest-writing', p.slice(0, 3)))
       .catch(()=>{ writing.innerHTML='<p class="sub">The journal is momentarily unavailable. <a class="link-btn" href="https://harveydeason.wordpress.com/">Read on WordPress →</a></p>'; });
 
     initPalette({ tools:toolsPromise, postsPromise });

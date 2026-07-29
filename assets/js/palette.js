@@ -75,7 +75,10 @@ export function initPalette(opts = {}){
     Promise.resolve(toolsP)
       .then(tools => { items = items.concat((tools || []).map(toolItem)); if(isOpen) render(); })
       .catch(() => {});
-    const postsP = opts.postsPromise || fetchPosts({ perPage:20 });
+    // Search must cover the whole archive, never just what a page happens to
+    // display. Callers that pass postsPromise are expected to pass an all:true
+    // one for the same reason.
+    const postsP = opts.postsPromise || fetchPosts({ all:true });
     Promise.resolve(postsP)
       .then(posts => { items = items.concat((posts || []).map(postItem)); if(isOpen) render(); })
       .catch(() => {});

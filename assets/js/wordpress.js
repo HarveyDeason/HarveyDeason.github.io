@@ -109,11 +109,27 @@ const CACHE_TTL = 10 * 60 * 1000;
 function cacheGet(k){ try{const r=JSON.parse(localStorage.getItem(k)); if(r&&Date.now()-r.t<CACHE_TTL) return r.v;}catch{} return null; }
 function cacheSet(k,v){ try{localStorage.setItem(k,JSON.stringify({t:Date.now(),v}));}catch{} }
 
-export async function fetchPosts({ perPage = 10, fetchFn = fetch } = {}){
-  const key = `wp:list:${perPage}`; const hit = cacheGet(key); if(hit) return hit;
-  const res = await fetchFn(`${BASE}?_embed&per_page=${perPage}`);
+// WordPress caps per_page at 100. `all:true` follows X-WP-TotalPages so the
+// shelf and the command palette see every post rather than silently stopping
+// at the first page — the bookcase makes a truncated archive obvious.
+export async function fetchPosts({ perPage = 10, all = false, fetchFn = fetch } = {}){
+  const key = `wp:list:${all ? 'all' : perPage}`;
+  const hit = cacheGet(key); if(hit) return hit;
+
+  const size = all ? 100 : perPage;
+  const res = await fetchFn(`${BASE}?_embed&per_page=${size}`);
   if(!res.ok) throw new Error('WordPress API error '+res.status);
-  const posts = (await res.json()).map(normalizePost);
+  let posts = (await res.json()).map(normalizePost);
+
+  if(all){
+    const pages = Number(res.headers?.get?.('X-WP-TotalPages')) || 1;
+    for(let page = 2; page <= pages; page++){
+      const more = await fetchFn(`${BASE}?_embed&per_page=${size}&page=${page}`);
+      if(!more.ok) break;                       // keep what we have rather than failing the page
+      posts = posts.concat((await more.json()).map(normalizePost));
+    }
+  }
+
   cacheSet(key, posts); return posts;
 }
 

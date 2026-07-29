@@ -49,7 +49,11 @@
 
 .book-top{
   position:absolute; top:0; left:0; right:0; height:var(--d);
-  transform-origin:center top; transform:rotateX(90deg);
+  /* NEGATIVE 90: the top face has to fold AWAY from the reader, back into the
+     case. Folding it forward (+90) puts it nearer the camera, so perspective
+     draws it wider than its own spine and it reads as a bar overhanging the
+     book rather than as the top of one. */
+  transform-origin:center top; transform:rotateX(-90deg);
   background:var(--book-top); border-radius:1px;
 }
 
