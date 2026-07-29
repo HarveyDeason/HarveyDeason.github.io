@@ -33,7 +33,29 @@ function decode(s){
     return ENTITIES[m] ?? m;
   });
 }
-function stripTags(s){ return decode(String(s||'')).replace(/<[^>]*>/g,'').trim(); }
+// Tags become a space (not empty) so text on either side of a block boundary
+// (`</p><p>`, `<br>`, headings) doesn't get concatenated into one run-on word.
+// Runs of whitespace — including U+00A0, which decode() can produce from a
+// numeric &#160;/&#xA0; entity — then collapse to a single space.
+function stripTags(s){
+  return decode(String(s||''))
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[ \t\n\r ]+/g, ' ')
+    .trim();
+}
+
+// WordPress bakes a "Continue reading &lsquo;Post Title&rsquo;" read-more link
+// into excerpt.rendered. Once tags are stripped that sentence fragment is left
+// dangling at the end of the excerpt, duplicating the title shown just above
+// it in the blurb panel. Only strip it when it's a genuine trailing WP tail —
+// "Continue reading" immediately followed by a quoted title running to the
+// end of the string (straight or curly quotes, optional trailing ellipsis/
+// arrow) — so prose that merely contains the words "continue reading"
+// mid-sentence is left alone.
+const CONTINUE_READING_RE = /\s*Continue reading\s*[“"][^”"]*[”"]\s*[…→]*\s*$/i;
+function stripContinueReading(s){
+  return String(s || '').replace(CONTINUE_READING_RE, '').trim();
+}
 
 // Escapes plain-text values for safe interpolation into an HTML string.
 // Escape & first so entities introduced by the later replacements aren't
@@ -51,7 +73,7 @@ export function normalizePost(o){
     slug: o.slug,
     dateISO: o.date,
     title: stripTags(o.title?.rendered ?? ''),
-    excerpt: stripTags(o.excerpt?.rendered ?? ''),
+    excerpt: stripContinueReading(stripTags(o.excerpt?.rendered ?? '')),
     cover: (media && media[0] && media[0].source_url) || null,
     html: o.content?.rendered ?? '',
   };

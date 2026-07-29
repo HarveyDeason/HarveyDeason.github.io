@@ -120,3 +120,60 @@ test('esc helper renders ordinary punctuation readably without double-escaping',
   assert.ok(html.includes('Tools &amp; Toys’s Guide'), 'ampersand escaped once, apostrophe shown as-is');
   assert.ok(!html.includes('&amp;amp;'), 'must not double-escape the ampersand');
 });
+
+// --- excerpt normalisation: block-boundary spacing + "Continue reading" tail ---
+
+test('normalizePost inserts a single space at a paragraph boundary instead of running words together', () => {
+  const p = normalizePost({ ...api, excerpt: { rendered: '<p>One.</p><p>Two.</p>' } });
+  assert.equal(p.excerpt, 'One. Two.');
+});
+
+test('normalizePost strips a trailing WordPress "Continue reading" read-more clause, preserving the sentence before it', () => {
+  const p = normalizePost({
+    ...api,
+    excerpt: {
+      rendered: '<p>This is the real sentence.</p><a class="more-link">Continue reading "Weekly Waffle #12 (Silence is Golden)"</a>'
+    }
+  });
+  assert.equal(p.excerpt, 'This is the real sentence.');
+});
+
+test('normalizePost strips a trailing "Continue reading" clause wrapped in curly quotes', () => {
+  const p = normalizePost({
+    ...api,
+    excerpt: {
+      rendered: '<p>This is the real sentence.</p><a class="more-link">Continue reading “Weekly Waffle #12 (Silence is Golden)”</a>'
+    }
+  });
+  assert.equal(p.excerpt, 'This is the real sentence.');
+});
+
+test('normalizePost does not truncate an excerpt that legitimately contains "continue reading" mid-sentence', () => {
+  const p = normalizePost({
+    ...api,
+    excerpt: { rendered: '<p>You should continue reading this book before bed, it only gets better.</p>' }
+  });
+  assert.equal(p.excerpt, 'You should continue reading this book before bed, it only gets better.');
+});
+
+// Mirrors the existing unterminated-tag tests above: with no closing `>`,
+// stripTags' tag-strip regex can't match, so the decoded `<` legitimately
+// survives in the plain-text field. The security guarantee is that it can
+// never reach the DOM as live markup — renderPostCard must escape it at the
+// interpolation sink. This confirms decode-then-strip ordering (and the
+// space-not-empty tag replacement) hasn't reopened that hole for excerpts.
+test('normalizePost excerpt regression: entity-encoded unterminated markup still does not survive as live HTML', () => {
+  const p = normalizePost({ ...api, excerpt: { rendered: '5 &lt;img src=x onerror=alert(1)' } });
+  assert.equal(p.excerpt, '5 <img src=x onerror=alert(1)');
+  const html = renderPostCard(p);
+  assert.ok(!html.includes('<img'), 'no live <img tag should reach the HTML output');
+  assert.ok(html.includes('&lt;img src=x onerror=alert(1)'), 'the dangerous text should appear escaped');
+});
+
+test('normalizePost excerpt regression: ampersand and apostrophe render readably without double-escaping', () => {
+  const p = normalizePost({ ...api, excerpt: { rendered: '<p>Tools &amp; Toys&#8217;s Guide</p>' } });
+  assert.equal(p.excerpt, "Tools & Toys’s Guide");
+  const html = renderPostCard(p);
+  assert.ok(html.includes('Tools &amp; Toys’s Guide'), 'ampersand escaped once, apostrophe shown as-is');
+  assert.ok(!html.includes('&amp;amp;'), 'must not double-escape the ampersand');
+});
