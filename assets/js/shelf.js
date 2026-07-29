@@ -140,3 +140,13 @@ export function renderSkeletonShelf(n = 12){
   }
   return `<div class="bookcase"><div class="shelf">${out}</div><div class="shelf-board"></div></div>`;
 }
+
+// Renders the case into `elId`. Width is injectable so callers (and resize
+// handlers) control packing without this module reading layout twice.
+export function mountShelf(elId, posts, width){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const w = width || el.clientWidth || 900;
+  const volumes = posts.map(toVolume);
+  el.innerHTML = renderBookcase(packShelves(volumes, w));
+}
