@@ -121,3 +121,31 @@ test('packShelves keeps a single over-wide book on its own row', () => {
 test('packShelves returns no rows for an empty journal', () => {
   assert.deepEqual(packShelves([], 800, 2), []);
 });
+
+test('packShelves with NaN container width puts every book on one row (fail-safe guard)', () => {
+  const books = [vol(40), vol(40), vol(40), vol(40)];
+  const rows = packShelves(books, NaN, 2);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].length, 4);
+  assert.deepEqual(rows[0], books);
+});
+
+test('packShelves with container width of 0 puts one book per row', () => {
+  const books = [vol(40), vol(30), vol(46)];
+  const rows = packShelves(books, 0, 2);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].length, 1);
+  assert.equal(rows[1].length, 1);
+  assert.equal(rows[2].length, 1);
+  assert.deepEqual(rows[0], [books[0]]);
+  assert.deepEqual(rows[1], [books[1]]);
+  assert.deepEqual(rows[2], [books[2]]);
+});
+
+test('packShelves concatenates back to the input array in order (order preservation)', () => {
+  const books = [vol(30), vol(45), vol(35), vol(50), vol(40), vol(25)];
+  const rows = packShelves(books, 120, 2);
+  const concatenated = rows.flat();
+  assert.deepEqual(concatenated, books);
+  assert.equal(concatenated.length, 6);
+});

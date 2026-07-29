@@ -60,6 +60,13 @@ export function toVolume(post){
 // width always produce the same rows, so a resize back to a previous width
 // restores the previous layout exactly.
 export function packShelves(volumes, containerWidth, gap = 2){
+  // Normalize non-finite widths to Infinity so degenerate cases fail safe:
+  // NaN comparisons would leave books on one row by accident; we want it explicit.
+  if(!Number.isFinite(containerWidth)) containerWidth = Infinity;
+
+  // A width of 0 or less yields one book per row — intentional, as the first
+  // book in a row is always accepted regardless of width.
+
   const rows = [];
   let row = [], used = 0;
 
