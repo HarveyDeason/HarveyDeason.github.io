@@ -260,6 +260,7 @@ export function initShelf(el){
     const book = e.target.closest('.book');
     if(!book || book.classList.contains('skeleton-book')) return;
     if(matchMedia('(pointer:fine)').matches) return;   // mouse navigates on first click
+    if(touchArmed && !el.contains(touchArmed)) touchArmed = null;   // survived a re-render
     if(touchArmed !== book){ e.preventDefault(); touchArmed = book; open(book); }
   });
 }

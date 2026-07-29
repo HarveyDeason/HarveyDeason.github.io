@@ -59,7 +59,8 @@ function stripContinueReading(s){
 
 // Escapes plain-text values for safe interpolation into an HTML string.
 // Escape & first so entities introduced by the later replacements aren't
-// double-escaped. Mirrors the `esc` helper in assets/js/shelf.js.
+// double-escaped. Exported because assets/js/shelf.js escapes with it too —
+// keep it in one place, it is what keeps WordPress text out of innerHTML.
 export function esc(s){
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
