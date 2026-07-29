@@ -96,13 +96,34 @@ and is the obvious material if the pull-out panel later shows a thumbnail.
 `ResizeObserver` repacks on resize; packing is pure and deterministic, so the
 same width always yields the same rows.
 
-Below 640px, spines take a wider minimum so titles stay legible, and the case
-scrolls rather than compressing further.
+On narrow screens the case does **not** scroll sideways: `packShelves` simply
+wraps the books onto more shelves. Spines keep their natural JS-derived width.
+
+> **Revised 2026-07-29, during implementation.** The original design said narrow
+> screens would give spines a wider minimum and let the case scroll sideways.
+> Built as specified, every book became invisible below 640px: `overflow-x:auto`
+> on a shelf forces `overflow-y` from `visible` to `auto`, so the shelf became a
+> vertical scroll container; the blurb hangs below its book and inflated
+> `scrollHeight` to 718px against a 274px shelf, which scrolled the books out of
+> view. The CSS minimum width was also contradicting the widths `packShelves`
+> had budgeted. Harvey ruled for wrapping onto more shelves. Do not reintroduce
+> an overflow scroller on `.shelf`, `.bookcase`, or any ancestor of the blurb.
 
 ## Interaction
 
 - **Fine pointer** (`@media (pointer:fine)`) — hover dims the row and slides one
   book forward; a blurb panel fades in with date and excerpt. Click opens the post.
+
+The blurb is anchored to the **shelf**, not to the book: one panel per shelf,
+appearing in a fixed position beneath the row and populated from whichever book
+is open.
+
+> **Revised 2026-07-29, during implementation.** A per-book blurb centred on its
+> spine (`left:50%; translateX(-50%)`) is 200px wide, so on the first or last
+> book of a row it extended past the container and gave the whole page a
+> horizontal scrollbar at roughly 555–820px wide. Anchoring per shelf makes
+> overflow structurally impossible and stops the panel jumping around as the
+> reader moves along the spines. Harvey's call.
 - **Keyboard** — roving `tabindex`; arrow keys move along and between shelves,
   Enter opens. Focus drives the same pull-out as hover, so the blurb is not
   mouse-only.
