@@ -42,3 +42,23 @@ test('renderSkeletonRows returns n post-row placeholders with shimmer skeletons'
   assert.ok(html.includes('class="post"'));
   assert.ok((html.match(/skeleton/g) || []).length >= 2);
 });
+
+test('normalizePost decodes decimal numeric entities beyond the named table', () => {
+  const p = normalizePost({ ...api, title: { rendered: 'Weekly Waffle &#128512; &#8211; #8' } });
+  assert.equal(p.title, 'Weekly Waffle 😀 – #8');
+});
+
+test('normalizePost decodes hex numeric entities', () => {
+  const p = normalizePost({ ...api, title: { rendered: 'Dash &#x2014; here' } });
+  assert.equal(p.title, 'Dash — here');
+});
+
+test('normalizePost still decodes named entities', () => {
+  const p = normalizePost({ ...api, title: { rendered: 'Tools &amp; Toys&hellip;' } });
+  assert.equal(p.title, 'Tools & Toys…');
+});
+
+test('normalizePost leaves unknown entities intact rather than mangling them', () => {
+  const p = normalizePost({ ...api, title: { rendered: 'A &notanentity; B' } });
+  assert.equal(p.title, 'A &notanentity; B');
+});

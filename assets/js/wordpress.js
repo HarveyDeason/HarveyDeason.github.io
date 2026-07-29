@@ -1,20 +1,38 @@
 const SITE = 'harveydeason.wordpress.com';
 const BASE = `https://public-api.wordpress.com/wp/v2/sites/${SITE}/posts`;
 
+// Named entities only — numeric forms are handled generically by decode().
 const ENTITIES = {
   '&amp;':'&',
-  '&#038;':'&',
-  '&#8211;':'–',
-  '&#8212;':'—',
-  '&#8217;':'’',
-  '&#8216;':'‘',
-  '&#8220;':'“',
-  '&#8221;':'”',
-  '&#8230;':'…',
+  '&lt;':'<',
+  '&gt;':'>',
+  '&quot;':'"',
+  '&apos;':"'",
+  '&ndash;':'–',
+  '&mdash;':'—',
+  '&lsquo;':'‘',
+  '&rsquo;':'’',
+  '&ldquo;':'“',
+  '&rdquo;':'”',
   '&hellip;':'…',
   '&nbsp;':' '
 };
-function decode(s){ return String(s||'').replace(/&#?\w+;/g, m => ENTITIES[m] ?? m); }
+
+// Decodes named entities via the table above and any numeric entity (decimal
+// or hex) generically, so characters outside the table — emoji especially —
+// survive instead of arriving as literal junk. No DOM, so this runs in node.
+function decode(s){
+  return String(s||'').replace(/&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g, (m, body) => {
+    if(body[0] === '#'){
+      const cp = (body[1] === 'x' || body[1] === 'X')
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
+      if(!Number.isFinite(cp) || cp < 1 || cp > 0x10FFFF) return m;
+      return String.fromCodePoint(cp);
+    }
+    return ENTITIES[m] ?? m;
+  });
+}
 function stripTags(s){ return decode(String(s||'').replace(/<[^>]*>/g,'')).trim(); }
 
 export function normalizePost(o){
