@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashSlug, toVolume, packShelves } from '../assets/js/shelf.js';
+import { hashSlug, toVolume, packShelves, renderSpine, renderBookcase, renderSkeletonShelf } from '../assets/js/shelf.js';
 
 const post = (over = {}) => ({
   slug: 'weekly-waffle-12', dateISO: '2024-10-06T09:00:00',
@@ -148,4 +148,55 @@ test('packShelves concatenates back to the input array in order (order preservat
   const concatenated = rows.flat();
   assert.deepEqual(concatenated, books);
   assert.equal(concatenated.length, 6);
+});
+
+const full = toVolume(post());
+const single = toVolume(post({ title: 'The Unlived Life', slug: 'the-unlived-life' }));
+
+test('renderSpine links to the in-site post reader', () => {
+  assert.ok(renderSpine(full).includes('href="/writing/post.html?slug=weekly-waffle-12"'));
+});
+
+test('renderSpine carries cloth and dimensions for CSS to consume', () => {
+  const html = renderSpine(full);
+  assert.ok(html.includes('data-cloth="series"'));
+  assert.ok(html.includes('--w:' + full.width + 'px'));
+  assert.ok(html.includes('--h:' + full.height + 'px'));
+  assert.ok(html.includes('--d:' + full.depth + 'px'));
+});
+
+test('renderSpine stamps a volume number on series books only', () => {
+  assert.ok(renderSpine(full).includes('class="vol"'));
+  assert.ok(!renderSpine(single).includes('class="vol"'));
+});
+
+test('renderSpine escapes titles so quotes cannot break out of attributes', () => {
+  const v = toVolume(post({ title: 'A "quoted" <tag> & more', slug: 'x' }));
+  const html = renderSpine(v);
+  assert.ok(!html.includes('<tag>'));
+  assert.ok(html.includes('&lt;tag&gt;'));
+  assert.ok(html.includes('&quot;quoted&quot;'));
+  assert.ok(html.includes('&amp; more'));
+});
+
+test('renderBookcase emits one shelf and board per packed row', () => {
+  const html = renderBookcase([[full, single], [full]]);
+  assert.equal((html.match(/class="shelf"/g) || []).length, 2);
+  assert.equal((html.match(/class="shelf-board"/g) || []).length, 2);
+});
+
+test('renderBookcase gives exactly one book a roving tabindex of 0', () => {
+  const html = renderBookcase([[full, single], [full]]);
+  assert.equal((html.match(/tabindex="0"/g) || []).length, 1);
+  assert.equal((html.match(/tabindex="-1"/g) || []).length, 2);
+});
+
+test('renderBookcase renders an empty-journal message rather than an empty case', () => {
+  assert.ok(renderBookcase([]).includes('No posts yet'));
+});
+
+test('renderSkeletonShelf produces aria-hidden placeholder spines', () => {
+  const html = renderSkeletonShelf(4);
+  assert.equal((html.match(/class="book skeleton-book"/g) || []).length, 4);
+  assert.ok(html.includes('aria-hidden="true"'));
 });

@@ -82,3 +82,61 @@ export function packShelves(volumes, containerWidth, gap = 2){
   if(row.length) rows.push(row);
   return rows;
 }
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtDate(iso){
+  try { return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
+  catch { return ''; }
+}
+
+// A single book. Hubs and rules are decorative; the panel carries the title.
+// Positions are proportional to height so tall and short books stay in family.
+export function renderSpine(v, tabindex = -1){
+  const h = v.height;
+  return `<a class="book" href="/writing/post.html?slug=${encodeURIComponent(v.slug)}"` +
+    ` data-slug="${esc(v.slug)}" data-cloth="${esc(v.cloth)}" tabindex="${tabindex}"` +
+    ` aria-label="${esc(v.title)}"` +
+    ` style="--w:${v.width}px;--h:${v.height}px;--d:${v.depth}px">` +
+      `<span class="book-top"></span>` +
+      `<span class="spine">` +
+        `<span class="hub" style="top:${Math.round(h * 0.14)}px"></span>` +
+        `<span class="hub" style="bottom:${Math.round(h * 0.20)}px"></span>` +
+        `<span class="rule" style="top:7px"></span>` +
+        `<span class="rule" style="bottom:7px"></span>` +
+        `<span class="panel" style="top:${Math.round(h * 0.205)}px;bottom:${Math.round(h * 0.275)}px">` +
+          `<span class="ttl">${esc(v.shortTitle)}</span>` +
+        `</span>` +
+        (v.volume ? `<span class="vol" style="bottom:${Math.round(h * 0.10)}px">${esc(v.volume)}</span>` : '') +
+      `</span>` +
+      `<span class="blurb" role="note">` +
+        `<span class="blurb-date">${esc(fmtDate(v.dateISO))}</span>` +
+        `<span class="blurb-title">${esc(v.title)}</span>` +
+        `<span class="blurb-excerpt">${esc(v.excerpt)}</span>` +
+      `</span>` +
+    `</a>`;
+}
+
+export function renderBookcase(rows){
+  if(!rows.length) return '<p class="sub">No posts yet.</p>';
+  let seen = 0;
+  const shelves = rows.map(row => {
+    const books = row.map(v => renderSpine(v, seen++ === 0 ? 0 : -1)).join('');
+    return `<div class="shelf">${books}</div><div class="shelf-board"></div>`;
+  }).join('');
+  return `<div class="bookcase">${shelves}</div>`;
+}
+
+// Placeholder spines shown while the feed loads, so the case does not pop in.
+export function renderSkeletonShelf(n = 12){
+  let out = '';
+  for(let i = 0; i < n; i++){
+    const w = 30 + (i % 5) * 4, h = 196 + (i % 7) * 13;
+    out += `<span class="book skeleton-book" aria-hidden="true" style="--w:${w}px;--h:${h}px"></span>`;
+  }
+  return `<div class="bookcase"><div class="shelf">${out}</div><div class="shelf-board"></div></div>`;
+}
