@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePost, renderPostCard, renderSkeletonRows, esc } from '../assets/js/wordpress.js';
+import { normalizePost, renderPostCard, renderSkeletonRows, esc, fetchPosts } from '../assets/js/wordpress.js';
 
 const api = {
   id: 42, slug: 'weekly-waffle-19', date: '2026-01-10T09:00:00',
@@ -176,4 +176,52 @@ test('normalizePost excerpt regression: ampersand and apostrophe render readably
   const html = renderPostCard(p);
   assert.ok(html.includes('Tools &amp; Toys’s Guide'), 'ampersand escaped once, apostrophe shown as-is');
   assert.ok(!html.includes('&amp;amp;'), 'must not double-escape the ampersand');
+});
+
+// —— fetchPosts pagination ——
+const page = (n, headers = {}) => ({
+  ok: true,
+  headers: { get: k => headers[k] ?? null },
+  json: async () => Array.from({ length: n }, (_, i) => ({ ...api, id: i, slug: 's' + i }))
+});
+
+test('fetchPosts without all:true requests a single page at perPage', async () => {
+  const urls = [];
+  const fetchFn = async u => { urls.push(u); return page(3); };
+  const posts = await fetchPosts({ perPage: 3, fetchFn });
+  assert.equal(urls.length, 1);
+  assert.ok(urls[0].includes('per_page=3'));
+  assert.equal(posts.length, 3);
+});
+
+test('fetchPosts with all:true follows every page reported by X-WP-TotalPages', async () => {
+  const urls = [];
+  const fetchFn = async u => {
+    urls.push(u);
+    return page(100, { 'X-WP-TotalPages': '3' });
+  };
+  const posts = await fetchPosts({ all: true, fetchFn });
+  assert.equal(urls.length, 3);                       // page 1 + pages 2 and 3
+  assert.ok(urls[0].includes('per_page=100'));
+  assert.ok(urls[1].includes('page=2'));
+  assert.ok(urls[2].includes('page=3'));
+  assert.equal(posts.length, 300);
+});
+
+test('fetchPosts with all:true stops at one page when there is only one', async () => {
+  let calls = 0;
+  const fetchFn = async () => { calls++; return page(37, { 'X-WP-TotalPages': '1' }); };
+  const posts = await fetchPosts({ all: true, fetchFn });
+  assert.equal(calls, 1);
+  assert.equal(posts.length, 37);
+});
+
+test('fetchPosts with all:true keeps the pages it already has if a later one fails', async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls++;
+    return calls === 1 ? page(100, { 'X-WP-TotalPages': '2' }) : { ok: false, status: 500 };
+  };
+  const posts = await fetchPosts({ all: true, fetchFn });
+  assert.equal(posts.length, 100);                    // partial archive beats an empty page
 });
