@@ -122,11 +122,18 @@
   background:var(--muted); opacity:.6;
 }
 
-/* ——— mobile: wider spines so titles stay legible ——— */
+/* ——— mobile ———
+   Deliberately no horizontal scroller here. packShelves (shelf.js) packs
+   each row using the book's own JS-computed width (30–46px, from the slug);
+   that arithmetic must stay the single source of truth, so CSS must not
+   force a different width (e.g. a min-width) onto .book. On narrow screens
+   the case simply wraps onto more shelves, like a real bookcase.
+   Do NOT add overflow-x/auto scrolling to .shelf, .bookcase, or any
+   ancestor of .blurb: .blurb hangs below the book (top:calc(100% + 18px)),
+   so it inflates scrollHeight; a scroll container up the tree computes
+   overflow-y:auto too (you can't mix visible-x with auto-y) and the whole
+   shelf gets scrolled vertically until every book is off-screen. */
 @media(max-width:640px){
-  .shelf{ overflow-x:auto; scrollbar-width:none; }
-  .shelf::-webkit-scrollbar{ display:none; }
-  .book{ min-width:42px; }
   .blurb{ width:200px; }
 }
 
