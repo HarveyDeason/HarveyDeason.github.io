@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashSlug, toVolume } from '../assets/js/shelf.js';
+import { hashSlug, toVolume, packShelves } from '../assets/js/shelf.js';
 
 const post = (over = {}) => ({
   slug: 'weekly-waffle-12', dateISO: '2024-10-06T09:00:00',
@@ -96,4 +96,28 @@ test('toVolume dimensions are deterministic and within the approved ranges', () 
   assert.ok(a.width  >= 30 && a.width  <= 46);
   assert.ok(a.height >= 196 && a.height <= 274);
   assert.ok(a.depth  >= 46 && a.depth  <= 67);
+});
+
+const vol = w => ({ slug: 's' + w, width: w });
+
+test('packShelves wraps books onto rows that fit the container', () => {
+  const rows = packShelves([vol(40), vol(40), vol(40)], 100, 2);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].length, 2);   // 40 + 2 + 40 = 82 fits; adding a third = 124 does not
+  assert.equal(rows[1].length, 1);
+});
+
+test('packShelves is stable — same input and width gives the same rows', () => {
+  const books = [vol(40), vol(30), vol(46), vol(35)];
+  assert.deepEqual(packShelves(books, 120, 2), packShelves(books, 120, 2));
+});
+
+test('packShelves keeps a single over-wide book on its own row', () => {
+  const rows = packShelves([vol(500)], 100, 2);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].length, 1);
+});
+
+test('packShelves returns no rows for an empty journal', () => {
+  assert.deepEqual(packShelves([], 800, 2), []);
 });

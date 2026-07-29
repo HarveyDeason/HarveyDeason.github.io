@@ -55,3 +55,23 @@ export function toVolume(post){
     depth:  46 + (h % 4) * 7
   };
 }
+
+// Greedy left-to-right packing. Deterministic: the same volumes at the same
+// width always produce the same rows, so a resize back to a previous width
+// restores the previous layout exactly.
+export function packShelves(volumes, containerWidth, gap = 2){
+  const rows = [];
+  let row = [], used = 0;
+
+  for(const v of volumes){
+    const cost = row.length ? gap + v.width : v.width;
+    if(row.length && used + cost > containerWidth){
+      rows.push(row);
+      row = [v]; used = v.width;
+    } else {
+      row.push(v); used += cost;
+    }
+  }
+  if(row.length) rows.push(row);
+  return rows;
+}
