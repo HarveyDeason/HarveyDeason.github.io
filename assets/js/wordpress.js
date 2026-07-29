@@ -35,6 +35,15 @@ function decode(s){
 }
 function stripTags(s){ return decode(String(s||'')).replace(/<[^>]*>/g,'').trim(); }
 
+// Escapes plain-text values for safe interpolation into an HTML string.
+// Escape & first so entities introduced by the later replacements aren't
+// double-escaped. Mirrors the `esc` helper in assets/js/shelf.js.
+export function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 export function normalizePost(o){
   const media = o._embedded && o._embedded['wp:featuredmedia'];
   return {
@@ -53,7 +62,7 @@ function fmtDate(iso){ try { return new Date(iso).toLocaleDateString('en-GB',{da
 export function renderPostCard(p){
   return `<a class="post" href="/writing/post.html?slug=${encodeURIComponent(p.slug)}">
     <span class="date mono">${fmtDate(p.dateISO)}</span>
-    <span class="t"><h3>${p.title}</h3><p>${p.excerpt}</p></span>
+    <span class="t"><h3>${esc(p.title)}</h3><p>${esc(p.excerpt)}</p></span>
     <span class="a">→</span>
   </a>`;
 }
@@ -133,7 +142,7 @@ export function mountSinglePost(elId, post){
   if(!post){ el.innerHTML='<p class="sub">Post not found. <a class="link-btn" href="/writing/">Back to the Journal →</a></p>'; return; }
   el.innerHTML = `<article class="post-article">
     <p class="post-meta mono">${new Date(post.dateISO).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</p>
-    <h1 class="post-title">${post.title}</h1>
+    <h1 class="post-title">${esc(post.title)}</h1>
     <div class="post-body">${sanitizeHtml(post.html)}</div>
   </article>`;
 }
