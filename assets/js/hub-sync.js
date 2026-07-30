@@ -52,6 +52,10 @@ export function conflictFields(mine, theirs) {
   keys.delete('updatedAt');
   const out = [];
   for (const k of keys) {
+    // Key-order-sensitive for nested objects, so two semantically-equal ones
+    // written with different key order would read as differing. Fine here:
+    // these records are flat scalars plus arrays (whose order IS meaningful),
+    // and the result only names fields in a prompt the user is already reading.
     if (JSON.stringify((mine || {})[k]) !== JSON.stringify((theirs || {})[k])) out.push(k);
   }
   return out.sort();
