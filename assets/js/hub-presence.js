@@ -31,12 +31,28 @@ export function ofTool(records, tool) {
   return (records || []).filter(r => r && (r.tool || 'hub') === tool);
 }
 
-function ageMs(rec, nowMs) { return nowMs - Date.parse(rec && rec.lastSeen || 0); }
+// The fallback must yield NaN for a missing lastSeen, not a real date: `||`
+// binds tighter than the ternary would suggest, so `rec.lastSeen || 0` falls
+// back to the NUMBER 0, and Date.parse(0) reads as Date.parse("0"), which is
+// 1 January 2000 — not NaN. That happened to make the "missing lastSeen" test
+// pass, but for the wrong reason (a 26-year-old record ages out normally,
+// never exercising the Number.isNaN guard below). Fall back to '' instead,
+// which Date.parse genuinely cannot parse.
+function ageMs(rec, nowMs) { return nowMs - Date.parse((rec && rec.lastSeen) || ''); }
+
+// A clock-skewed-ahead lastSeen (a laptop waking from sleep before NTP
+// resync, most commonly) makes ageMs NEGATIVE. Negative is < the live
+// timeout (so it reads as live forever) and is not >= the sweep threshold
+// (so it can never be swept either) — an immortal presence record that shows
+// "Also here" and can hold an editing lock nobody can ever clear. Treat a
+// timestamp more than a full timeout ahead of "now" as dead, the same as one
+// that is too old, while leaving ordinary sub-second clock skew unaffected.
+const FUTURE_SKEW_MS = PRESENCE_TIMEOUT_MS;
 
 export function livePresences(records, sessionId, nowMs) {
   return (records || [])
     .filter(r => r && r.sessionId && r.sessionId !== sessionId)
-    .filter(r => ageMs(r, nowMs) < PRESENCE_TIMEOUT_MS)
+    .filter(r => { const a = ageMs(r, nowMs); return a < PRESENCE_TIMEOUT_MS && a > -FUTURE_SKEW_MS; })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
@@ -54,6 +70,9 @@ export function sweepable(records, nowMs) {
     // is false — so without this check a corrupt/half-written file would
     // never age past the sweep threshold and would litter the shared folder
     // forever. Treat an unparseable heartbeat as dead, not immortal.
-    .filter(r => Number.isNaN(ageMs(r, nowMs)) || ageMs(r, nowMs) >= PRESENCE_SWEEP_MS)
+    // A far-future lastSeen (clock skew) is dead too, same reasoning as
+    // livePresences above: negative age is neither NaN nor >= the sweep
+    // threshold, so without this it would never be swept.
+    .filter(r => { const a = ageMs(r, nowMs); return Number.isNaN(a) || a >= PRESENCE_SWEEP_MS || a <= -FUTURE_SKEW_MS; })
     .map(r => r.sessionId);
 }

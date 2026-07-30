@@ -81,3 +81,21 @@ test('a record with an unparseable lastSeen is never live but is sweepable', () 
 test('presenceFileName is derived from sessionId', () => {
   assert.equal(presenceFileName('s1'), 's1.json');
 });
+
+// A laptop waking from sleep before NTP resync routinely reports lastSeen in
+// the future. Without a future-skew check, that record's age is negative:
+// less than the live timeout (so it never expires) and not >= the sweep
+// threshold (so it can never be cleaned up either) — an immortal presence
+// that shows "Also here: Tom" and can hold an editing lock forever.
+test('a record with a far-future lastSeen (clock skew) is dead, not immortal', () => {
+  const records = [rec('s2', 'Tom', -(PRESENCE_TIMEOUT_MS + 1))]; // negative msAgo == in the future
+  assert.equal(livePresences(records, 's1', NOW).length, 0, 'excluded from live presence');
+  assert.deepEqual(sweepable(records, NOW), ['s2'], 'included in sweepable so it can be cleaned up');
+});
+
+test('ordinary sub-second clock skew ahead of now is still live', () => {
+  const records = [rec('s2', 'Tom', -500)]; // 500ms in the future
+  assert.equal(livePresences(records, 's1', NOW).length, 1);
+  assert.deepEqual(sweepable(records, NOW), []);
+});
+
