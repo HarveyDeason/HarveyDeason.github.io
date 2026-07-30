@@ -69,6 +69,7 @@ function movableDir(files = {}, opts = {}) {
         } }),
       };
     },
+    removeEntry: async name => { delete files[name]; order.push('remove:' + name); },
   };
   return dir;
 }
@@ -92,6 +93,20 @@ test('writeFileAtomic falls back to direct write without move support', async ()
   const dir = movableDir({}, { noMove: true });
   await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
   assert.equal(dir.files['hub-data.json'], '{"a":1}');
+});
+
+test('writeFileAtomic removes the .tmp file when verification fails, and still throws', async () => {
+  const dir = movableDir({});
+  await assert.rejects(() => writeFileAtomic(dir, 'hub-data.json', 'not json{'),
+    err => err.message.includes('verification failed') && err.cause instanceof SyntaxError && err.hubFile === 'hub-data.json');
+  assert.equal(dir.files['hub-data.json.tmp'], undefined);
+});
+
+test('writeFileAtomic: the no-move fallback never creates a .tmp file', async () => {
+  const dir = movableDir({}, { noMove: true });
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json.tmp'], undefined);
+  assert.ok(!dir.order.some(o => o.includes('.tmp')));
 });
 
 function makeEngine(dir, extra = {}) {
