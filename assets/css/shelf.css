@@ -1,7 +1,10 @@
 /* ——— The Journal bookcase ———
-   Books are real 3D boxes: a spine face plus a top face hinged at the head and
-   laid back into the case. Cloth colours live here, not in shelf.js, so light
-   and dark are handled by tokens like everything else on the site. The blurb
+   Books are flat spines, deliberately. They had projected top faces once; each
+   book is its own 3D context aimed at one shared vanishing point, so the tops
+   sheared sideways and leant across neighbouring spines, worst at the ends of a
+   row. Depth now comes from the bookends instead, which sit outboard of every
+   book and so have nothing to overlap. Cloth colours live here, not in shelf.js,
+   so light and dark are handled by tokens like everything else on the site. The blurb
    panel is anchored to the shelf (one per row), not to the book — a book is
    its own containing block and sits at row edges, so a book-anchored panel
    would overhang the container on the first/last book of a row. */
@@ -25,6 +28,18 @@
   /* perspective is retained only for the pull-out's translateZ */
   padding-left:6px; min-height:200px;
 }
+/* Rodin's Thinker, rendered from a mesh scan. Decorative only — aria-hidden,
+   empty alt — and rendered by JS on the final shelf at desktop widths only.
+   Height is tied to BOOKEND_SLOT in shelf.js via the asset's 393:520 aspect;
+   change one and you must change the other. */
+.bookend{
+  flex:0 0 auto; align-self:flex-end; height:152px; width:auto;
+  filter:drop-shadow(0 3px 5px rgb(0 0 0 / .35));
+  user-select:none; pointer-events:none;
+}
+.bookend.flip{ transform:scaleX(-1); }
+:root[data-mode="dark"] .bookend{ filter:drop-shadow(0 3px 6px rgb(0 0 0 / .6)) brightness(1.18); }
+
 .shelf-board{
   position:relative; height:16px; background:var(--board);
   border-radius:0 0 3px 3px; margin-bottom:34px;
@@ -158,3 +173,10 @@
   .book{ transition:none; }
   .shelf-blurb{ transition:none; }
 }
+
+/* Attribution for the bookend scan. Kept visible rather than hidden in a
+   comment: a CC-BY-style credit has to be legible to a reader to count. */
+.shelf-credit{
+  font-size:12px; color:var(--muted-fg); margin:26px 0 0;
+}
+.shelf-credit em{ font-style:italic; }

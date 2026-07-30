@@ -111,12 +111,30 @@ export function renderSpine(v, tabindex = -1){
     `</a>`;
 }
 
-export function renderBookcase(rows){
+// Rendered width of one bookend, and the space a pair needs including gaps.
+// Tied to the height in shelf.css (152px) by the asset's 393:520 aspect ratio;
+// if you change one, change the other. mountShelf reserves this before packing.
+export const BOOKEND_SLOT = 2 * 115 + 2 * 2;
+
+// A bookend at each end of the FINAL row only. The rows above are full, so
+// their books already terminate each other; the last row is the one that stops
+// early and needs something to stop against.
+function bookendHtml(side){
+  return `<img class="bookend${side === 'right' ? ' flip' : ''}" ` +
+    `src="/assets/img/bookend-thinker.webp" alt="" aria-hidden="true" ` +
+    `width="115" height="152" decoding="async">`;
+}
+
+export function renderBookcase(rows, opts = {}){
   if(!rows.length) return '<p class="sub">No posts yet.</p>';
   let seen = 0;
-  const shelves = rows.map(row => {
+  const last = rows.length - 1;
+  const shelves = rows.map((row, i) => {
     const books = row.map(v => renderSpine(v, seen++ === 0 ? 0 : -1)).join('');
-    return `<div class="shelf">${books}</div><div class="shelf-board"></div>` +
+    const ends = opts.bookends && i === last;
+    return `<div class="shelf">` +
+        (ends ? bookendHtml('left') : '') + books + (ends ? bookendHtml('right') : '') +
+      `</div><div class="shelf-board"></div>` +
       `<div class="shelf-blurb" role="note" aria-live="polite">` +
         `<span class="blurb-date"></span><span class="blurb-title"></span><span class="blurb-excerpt"></span>` +
       `</div>`;
@@ -136,12 +154,31 @@ export function renderSkeletonShelf(n = 12){
 
 // Renders the case into `elId`. Width is injectable so callers (and resize
 // handlers) control packing without this module reading layout twice.
+// Bookends are desktop-only. This is gated HERE rather than with a CSS media
+// query on purpose: the packing arithmetic has to agree with what is actually
+// rendered. Hiding them in CSS while still reserving their width would be the
+// same class of mistake that once made every book invisible below 640px.
+export const BOOKEND_MIN_WIDTH = 860;
+
 export function mountShelf(elId, posts, width){
   const el = document.getElementById(elId);
   if(!el) return;
   const w = width || el.clientWidth || 900;
+  const bookends = w >= BOOKEND_MIN_WIDTH;
   const volumes = posts.map(toVolume);
-  el.innerHTML = renderBookcase(packShelves(volumes, w));
+  const rows = packShelves(volumes, w);
+
+  // The final row carries the bookends too. If they will not fit beside its
+  // books, move the last book down rather than let the row overflow the case.
+  if(bookends && rows.length){
+    for(let guard = 0; guard < 8; guard++){
+      const row = rows[rows.length - 1];
+      const used = row.reduce((t, v, i) => t + v.width + (i ? 2 : 0), 0);
+      if(row.length < 2 || used + BOOKEND_SLOT <= w) break;
+      rows.push([row.pop()]);
+    }
+  }
+  el.innerHTML = renderBookcase(rows, { bookends });
 }
 
 // Interaction. One book is "open" (pulled out) at a time.

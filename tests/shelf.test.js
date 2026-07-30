@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashSlug, toVolume, packShelves, renderSpine, renderBookcase, renderSkeletonShelf } from '../assets/js/shelf.js';
+import { hashSlug, toVolume, packShelves, renderSpine, renderBookcase, renderSkeletonShelf,
+         BOOKEND_SLOT, BOOKEND_MIN_WIDTH } from '../assets/js/shelf.js';
 
 const post = (over = {}) => ({
   slug: 'weekly-waffle-12', dateISO: '2024-10-06T09:00:00',
@@ -246,4 +247,36 @@ test('renderSkeletonShelf produces aria-hidden placeholder spines', () => {
   const html = renderSkeletonShelf(4);
   assert.equal((html.match(/class="book skeleton-book"/g) || []).length, 4);
   assert.ok(html.includes('aria-hidden="true"'));
+});
+
+// —— bookends (desktop-only, final shelf only) ——
+test('renderBookcase omits bookends unless asked for them', () => {
+  const html = renderBookcase([[full, single], [full]]);
+  assert.ok(!html.includes('class="bookend'));
+});
+
+test('renderBookcase puts a pair of bookends on the final shelf only', () => {
+  const html = renderBookcase([[full, single], [full]], { bookends: true });
+  assert.equal((html.match(/class="bookend"/g) || []).length, 1);        // left
+  assert.equal((html.match(/class="bookend flip"/g) || []).length, 1);   // right, mirrored
+  // both live in the last .shelf, not the first
+  const shelves = html.split('<div class="shelf">');
+  assert.ok(!shelves[1].includes('bookend'));
+  assert.ok(shelves[2].includes('bookend'));
+});
+
+test('bookends are decorative: empty alt and hidden from assistive tech', () => {
+  const html = renderBookcase([[full]], { bookends: true });
+  assert.ok(html.includes('alt=""'));
+  assert.ok(html.includes('aria-hidden="true"'));
+});
+
+test('a single-shelf case still gets exactly one pair', () => {
+  const html = renderBookcase([[full, single]], { bookends: true });
+  assert.equal((html.match(/class="bookend/g) || []).length, 2);
+});
+
+test('BOOKEND_SLOT covers a mirrored pair plus their gaps', () => {
+  assert.equal(BOOKEND_SLOT, 234);          // 2 x 115px wide + 2 x 2px gap
+  assert.ok(BOOKEND_MIN_WIDTH > BOOKEND_SLOT);   // never reserve more than the case has
 });
