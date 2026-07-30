@@ -58,18 +58,22 @@ export async function writeFile(dir, name, contents) {
 // file only ever goes from one complete state to another.
 export async function writeFileAtomic(dir, name, contents) {
   const tmp = name + '.tmp';
-  // Check for move() support before writing the temp file at all — the
-  // ledger lives in a shared drive folder end users browse, so a stray
-  // .tmp left by the no-move fallback is visible litter, not just untidiness.
-  const probeHandle = await dir.getFileHandle(name, { create: true });
-  if (typeof probeHandle.move !== 'function') {
+  // Write the temp file first and probe move() support on the TEMP handle,
+  // never the destination: getFileHandle(name, { create: true }) on the real
+  // destination would create it immediately, per spec, before a verified
+  // copy exists to swap in — leaving a zero-byte file the moment anything
+  // (crash, closed tab, failed verification) interrupts the save between
+  // probe and move. The real file must only ever go from one complete state
+  // to another.
+  await writeFile(dir, tmp, contents);
+  const tmpHandle = await dir.getFileHandle(tmp, { create: false });
+  if (typeof tmpHandle.move !== 'function') {
     // Older Chromium without FileSystemFileHandle.move(): a direct write is
     // still better than leaving the change unsaved.
+    try { await dir.removeEntry(tmp); } catch (removeErr) { /* stray .tmp left, nothing more we can do */ }
     await writeFile(dir, name, contents);
     return;
   }
-  await writeFile(dir, tmp, contents);
-  const tmpHandle = await dir.getFileHandle(tmp, { create: false });
   const verify = await (await tmpHandle.getFile()).text();
   try { JSON.parse(verify); }
   catch (e) {

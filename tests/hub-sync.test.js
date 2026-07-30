@@ -57,6 +57,7 @@ function movableDir(files = {}, opts = {}) {
     files, order,
     getFileHandle: async (name, o) => {
       if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      if (o?.create && !(name in files)) { files[name] = ''; }
       return {
         getFile: async () => ({ text: async () => files[name] }),
         createWritable: async () => {
@@ -102,11 +103,23 @@ test('writeFileAtomic removes the .tmp file when verification fails, and still t
   assert.equal(dir.files['hub-data.json.tmp'], undefined);
 });
 
-test('writeFileAtomic: the no-move fallback never creates a .tmp file', async () => {
+test('writeFileAtomic: the real destination is never created before the move', async () => {
+  const dir = movableDir({});
+  await assert.rejects(() => writeFileAtomic(dir, 'hub-data.json', 'not json{'),
+    err => err.message.includes('verification failed'));
+  assert.equal(dir.files['hub-data.json'], undefined);
+  assert.equal(dir.files['hub-data.json.tmp'], undefined);
+});
+
+test('writeFileAtomic: the no-move fallback never leaves a .tmp file behind', async () => {
+  // The probe now writes <name>.tmp first (it must never touch the real
+  // destination to check move() support), so a .tmp is briefly created here
+  // and then removed before the direct-write fallback runs. What must never
+  // happen is a .tmp surviving as litter in the shared folder.
   const dir = movableDir({}, { noMove: true });
   await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
   assert.equal(dir.files['hub-data.json.tmp'], undefined);
-  assert.ok(!dir.order.some(o => o.includes('.tmp')));
 });
 
 function makeEngine(dir, extra = {}) {
