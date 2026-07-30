@@ -87,12 +87,46 @@ export async function writeFile(dir, name, contents) {
   }
 }
 
+// Sweeping is best-effort tidiness, never load-bearing for correctness — a
+// crashed tab's litter sits harmlessly until someone reconnects and sweeps it.
+// 10 minutes comfortably outlives the retry backoff (longest delay 30s) so an
+// in-flight session's own temp file is never mistaken for litter.
+const TMP_SWEEP_AGE_MS = 10 * 60 * 1000;
+
+async function sweepStaleTmp(dir, name) {
+  // Best-effort only: a failure here must never fail the save it follows.
+  try {
+    if (typeof dir.values !== 'function') return;
+    const prefix = name + '.';
+    const now = Date.now();
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'file' || !entry.name.startsWith(prefix) || !entry.name.endsWith('.tmp')) continue;
+      try {
+        const fh = await dir.getFileHandle(entry.name, { create: false });
+        const file = await fh.getFile();
+        if (now - file.lastModified >= TMP_SWEEP_AGE_MS) {
+          await dir.removeEntry(entry.name);
+        }
+      } catch (e) { /* another client got there first, or it's not actually removable — leave it */ }
+    }
+  } catch (e) { /* enumeration itself failed; nothing more we can do */ }
+}
+
 // The ledger is the team's single source of truth: a crash or lock partway
 // through a direct write leaves everyone with a truncated file. Write to a
 // temp name, prove it parses, and only then move it into place — so the real
 // file only ever goes from one complete state to another.
-export async function writeFileAtomic(dir, name, contents) {
-  const tmp = name + '.tmp';
+//
+// sessionId makes the temp name unique per session: a shared `name + '.tmp'`
+// means every session on every machine writes the SAME temp file, so two
+// sessions saving around the same time can interleave — one session's write
+// lands on top of another's, and the "verify" read can see a mix of both (or
+// entirely the other session's content), which then gets moved over the real
+// ledger. That is silent data loss at best and a wedged, unparseable ledger
+// for the whole team at worst. A per-session name means sessions never share
+// a temp file, so they can never collide on it.
+export async function writeFileAtomic(dir, name, contents, sessionId) {
+  const tmp = name + '.' + (sessionId || Math.random().toString(36).slice(2)) + '.tmp';
   // Write the temp file first and probe move() support on the TEMP handle,
   // never the destination: getFileHandle(name, { create: true }) on the real
   // destination would create it immediately, per spec, before a verified
@@ -104,18 +138,29 @@ export async function writeFileAtomic(dir, name, contents) {
   const tmpHandle = await dir.getFileHandle(tmp, { create: false });
   if (typeof tmpHandle.move !== 'function') {
     // Older Chromium without FileSystemFileHandle.move(): a direct write is
-    // still better than leaving the change unsaved.
-    try { await dir.removeEntry(tmp); } catch (removeErr) { /* stray .tmp left, nothing more we can do */ }
+    // still better than leaving the change unsaved. Keep the verified-good
+    // temp file until the direct write has SUCCEEDED — writeFile's
+    // getFileHandle(name, { create: true }) creates a zero-length file
+    // immediately, so removing our only good copy first and then hitting the
+    // same transient lock the retry loop exists for would leave the ledger
+    // at 0 bytes, unparseable, and the whole team wedged until someone
+    // deletes it by hand.
+    console.warn('writeFileAtomic: no move() support, falling back to a direct (non-atomic) write for ' + name);
     await writeFile(dir, name, contents);
+    try { await dir.removeEntry(tmp); } catch (removeErr) { /* stray .tmp left, nothing more we can do */ }
     return;
   }
   const verify = await (await tmpHandle.getFile()).text();
-  try { JSON.parse(verify); }
-  catch (e) {
+  // A JSON.parse check only proves the temp file is SOME valid JSON — it
+  // would happily accept a different session's complete ledger if that
+  // session's write interleaved with ours on the same temp name. Compare
+  // against exactly what we wrote instead: that subsumes "is it parseable"
+  // and also catches "is it ours".
+  if (verify !== contents) {
     // Best-effort cleanup: a failure here must never mask the real
     // verification error below.
     try { await dir.removeEntry(tmp); } catch (removeErr) { /* stray .tmp left, nothing more we can do */ }
-    const err = new Error('Atomic write verification failed for ' + name, { cause: e });
+    const err = new Error('Atomic write verification failed for ' + name + ': content changed underneath us before the move');
     err.hubFile = name;
     throw err;
   }
@@ -123,6 +168,11 @@ export async function writeFileAtomic(dir, name, contents) {
   // against Chrome docs — which is what makes this swap atomic; do not add
   // an existence check. Requires Chrome 111+ for files outside the OPFS.
   await tmpHandle.move(name);
+  // Session-unique temp names mean a crashed tab's own leftovers no longer
+  // get silently clobbered by its next save — so nothing removes them for
+  // us. Sweep other sessions' old litter for this same ledger now that we
+  // know the folder is reachable and writable.
+  await sweepStaleTmp(dir, name);
 }
 
 const BACKUP_RE = /^(.+)-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/;
@@ -161,6 +211,15 @@ export function createSyncEngine(cfg) {
   const retryDelays = cfg.retryDelays || [3000, 10000, 30000];
   let retryTimer = null, retryIndex = 0;
 
+  // writeBackup runs before the ledger write that can fail, so a transient
+  // lock on that write sends the retry loop back through saveNow from the
+  // top — and without this memo, a single lock event backs up the exact same
+  // (unchanged) disk content up to 4 times, burning a chunk of the team's
+  // keep=20 backup history on duplicates of one moment. Track the raw
+  // content we last actually backed up, per engine instance, and skip when
+  // it hasn't changed.
+  let lastBackedUpRaw = null;
+
   function clearRetry() {
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   }
@@ -176,17 +235,28 @@ export function createSyncEngine(cfg) {
 
   // A single rolling backup is one mistake deep. With several people in the
   // ledger, the mistake worth recovering from is often not the most recent one.
+  //
+  // A backup is a courtesy, not the save itself: a read-only or missing
+  // backups/ folder, a locked backup file, or a failed prune must never take
+  // down the ledger save it was meant to protect. So the entire body is
+  // wrapped — every await in here can throw straight into saveNow otherwise.
   async function writeBackup(dir, raw) {
-    const getBackupDir = cfg.backupDir;
-    if (!getBackupDir) { await writeFile(dir, cfg.backupName, raw); return; }
-    const bdir = await getBackupDir();
-    if (!bdir) { await writeFile(dir, cfg.backupName, raw); return; }
-    await writeFile(bdir, backupFileName(cfg.fileName, new Date().toISOString()), raw);
-    const names = [];
-    for await (const entry of bdir.values()) if (entry.kind === 'file') names.push(entry.name);
-    const keep = cfg.backupKeep == null ? 20 : cfg.backupKeep;
-    for (const stale of prunableBackups(names, keep, cfg.fileName)) {
-      try { await bdir.removeEntry(stale); } catch (e) { /* another client got there first */ }
+    if (raw === lastBackedUpRaw) return;
+    try {
+      const getBackupDir = cfg.backupDir;
+      if (!getBackupDir) { await writeFile(dir, cfg.backupName, raw); lastBackedUpRaw = raw; return; }
+      const bdir = await getBackupDir();
+      if (!bdir) { await writeFile(dir, cfg.backupName, raw); lastBackedUpRaw = raw; return; }
+      await writeFile(bdir, backupFileName(cfg.fileName, new Date().toISOString()), raw);
+      lastBackedUpRaw = raw;
+      const names = [];
+      for await (const entry of bdir.values()) if (entry.kind === 'file') names.push(entry.name);
+      const keep = cfg.backupKeep == null ? 20 : cfg.backupKeep;
+      for (const stale of prunableBackups(names, keep, cfg.fileName)) {
+        try { await bdir.removeEntry(stale); } catch (e) { /* another client got there first */ }
+      }
+    } catch (e) {
+      console.warn('backup failed, continuing with ledger save', e);
     }
   }
 
@@ -218,7 +288,7 @@ export function createSyncEngine(cfg) {
     }
     const st = cfg.getState();
     st.savedAt = new Date().toISOString();
-    await writeFileAtomic(dir, cfg.fileName, JSON.stringify(st, null, 2));
+    await writeFileAtomic(dir, cfg.fileName, JSON.stringify(st, null, 2), cfg.sessionId);
     await cfg.afterSave(touched);
     cfg.onStatus('synced');
     return true;
