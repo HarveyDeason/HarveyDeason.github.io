@@ -267,7 +267,18 @@ export function createSyncEngine(cfg) {
     try {
       const fh = await dir.getFileHandle(cfg.fileName, { create: false });
       txt = await (await fh.getFile()).text();
-    } catch (e) { return { status: 'missing' }; }
+    } catch (e) {
+      // NotFoundError means the ledger genuinely doesn't exist yet (first
+      // run) — writing local state over nothing is correct. Anything else
+      // (NotAllowedError from a permission that lapsed after a browser
+      // restart, NoModificationAllowedError, a transient I/O error from a
+      // network share hiccup, ...) means the ledger is very likely still
+      // there, we just couldn't read it right now — treating that as
+      // "missing" would skip the backup and the merge and overwrite
+      // everyone else's work with stale local state.
+      if (e && e.name === 'NotFoundError') return { status: 'missing' };
+      return { status: 'unreadable' };
+    }
     try { return { status: 'ok', data: JSON.parse(txt), raw: txt }; }
     catch (e) { return { status: 'corrupt' }; }
   }
@@ -281,6 +292,17 @@ export function createSyncEngine(cfg) {
       // Final: no amount of retrying fixes a file someone has to go and mend.
       cfg.onStatus('error', cfg.fileName + ' is unreadable — not overwriting. Fix or remove it, then reconnect.', true);
       return false;
+    }
+    if (disk.status === 'unreadable') {
+      // Transient, unlike corrupt: a network blip, a lapsed permission, a
+      // momentary lock. Write nothing — no backup, no merge, no overwrite —
+      // and throw so loop()'s existing catch/backoff retries this shortly.
+      // A direct engine.saveNow(...) caller (outside loop()) sees a rejected
+      // promise rather than a silent `true`/`synced` that never happened.
+      const err = new Error(cfg.fileName + ' could not be read right now (not overwriting)');
+      err.name = 'LedgerUnreadableError';
+      err.hubFile = cfg.fileName;
+      throw err;
     }
     if (disk.status === 'ok') {
       await writeBackup(dir, disk.raw);

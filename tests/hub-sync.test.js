@@ -267,6 +267,95 @@ test('engine: readLedger distinguishes missing / corrupt / ok', async () => {
   assert.equal((await e3.readLedger()).status, 'ok');
 });
 
+// A directory whose getFileHandle throws something other than NotFoundError
+// on a read attempt — a lapsed permission, a network share hiccup, a
+// momentary lock. Any create:true call (a write) is itself an error: once
+// readLedger reports 'unreadable', saveNow must never attempt to write
+// anything, so a mock write attempt failing loudly here is a deliberate
+// tripwire, not an accident.
+function unreadableFileDir(files = {}, errorName = 'NotAllowedError') {
+  const stats = { attempts: 0 };
+  return {
+    files, stats,
+    getFileHandle: async (name, o) => {
+      stats.attempts++;
+      if (!o?.create) { const e = new Error('permission lapsed'); e.name = errorName; throw e; }
+      throw new Error('unexpected write attempt: saveNow must write nothing when the ledger is unreadable');
+    },
+  };
+}
+
+test('engine: readLedger maps a genuine absence (NotFoundError) to missing, and anything else to unreadable', async () => {
+  const { engine: eMissing } = makeEngine(fakeDir({}));
+  assert.equal((await eMissing.readLedger()).status, 'missing');
+
+  const { engine: ePermission } = makeEngine(unreadableFileDir({}, 'NotAllowedError'));
+  assert.equal((await ePermission.readLedger()).status, 'unreadable');
+
+  const { engine: eLocked } = makeEngine(unreadableFileDir({}, 'NoModificationAllowedError'));
+  assert.equal((await eLocked.readLedger()).status, 'unreadable');
+
+  const { engine: eOther } = makeEngine(unreadableFileDir({}, 'UnknownError'));
+  assert.equal((await eOther.readLedger()).status, 'unreadable');
+});
+
+// First-run behaviour must be exactly preserved: a genuinely absent ledger
+// (NotFoundError) is 'missing', and saveNow still writes local state over it.
+test('engine: a genuinely missing ledger (NotFoundError) still writes local state — first-run behaviour preserved', async () => {
+  const dir = fakeDir({});
+  const { engine, getState } = makeEngine(dir);
+  assert.equal(await engine.saveNow([]), true);
+  assert.equal(dir.files['x.json'], JSON.stringify(getState(), null, 2));
+});
+
+// The core of the fix: an unreadable ledger (permission lapse, network
+// blip, transient lock) must never be treated like a missing one. No
+// backup, no merge, no overwrite — saveNow must write nothing at all, and
+// must throw (rather than return false) so the caller can tell "nothing
+// happened, try again" apart from "the write happened but something else
+// also failed".
+test('engine: an unreadable ledger writes nothing — no backup, no ledger overwrite — and throws (retryable)', async () => {
+  const dir = unreadableFileDir({
+    'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}',
+    'x.backup.json': 'previous-backup-content',
+  }, 'NotAllowedError');
+  const { engine } = makeEngine(dir);
+  await assert.rejects(() => engine.saveNow([]),
+    err => err.name === 'LedgerUnreadableError' && err.hubFile === 'x.json');
+  assert.equal(dir.files['x.json'], '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}', 'ledger left untouched');
+  assert.equal(dir.files['x.backup.json'], 'previous-backup-content', 'no backup taken');
+});
+
+// The loop() retry/backoff path exists precisely so a thrown, transient
+// failure gets tried again without the user having to make another change.
+// An unreadable ledger must ride that path; a corrupt one (final today,
+// unchanged by this fix) must not.
+test('engine: an unreadable ledger is retried by the loop', async () => {
+  const dir = unreadableFileDir({}, 'NotAllowedError');
+  const events = [];
+  const { engine } = makeEngine(dir, {
+    retryDelays: [10, 20],
+    onStatus: (s, m, final) => events.push([s, final]),
+  });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(dir.stats.attempts, 3, 'initial attempt plus one retry per delay');
+  assert.deepEqual(events.map(e => e[0]), ['saving', 'error', 'saving', 'error', 'saving', 'error']);
+  assert.deepEqual(events.filter(e => e[0] === 'error').map(e => e[1]), [false, false, true]);
+});
+
+test('engine: a corrupt ledger is NOT retried by the loop (final=true on the first failure)', async () => {
+  const dir = fakeDir({ 'x.json': 'not json' });
+  const events = [];
+  const { engine } = makeEngine(dir, {
+    retryDelays: [10, 20],
+    onStatus: (s, m, final) => events.push([s, final]),
+  });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 200));
+  assert.deepEqual(events, [['saving', undefined], ['error', true]], 'one attempt, immediately final, no retry scheduled');
+});
+
 test('engine: saveNow writes backup of previous disk content, then ledger', async () => {
   const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
   const { engine } = makeEngine(dir);
