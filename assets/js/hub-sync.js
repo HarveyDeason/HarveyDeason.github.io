@@ -34,6 +34,37 @@ export function mergeTombstones(a, b) {
   return out;
 }
 
+// ── Concurrent-edit safety ────────────────────────────────────────────────
+// mergeState resolves collisions per *record*, not per *field*, so when two
+// people edit the same comment the loser's text disappears silently. Presence
+// makes that rare; this makes it safe, independently — presence can always be
+// defeated by a crashed tab or a skewed clock.
+
+export function detectConflict(loadedRecord, diskRecords) {
+  if (!loadedRecord || !loadedRecord.id) return null;
+  const disk = (diskRecords || []).find(r => r && r.id === loadedRecord.id);
+  if (!disk) return null;
+  return (disk.updatedAt || '') > (loadedRecord.updatedAt || '') ? disk : null;
+}
+
+export function conflictFields(mine, theirs) {
+  const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
+  keys.delete('updatedAt');
+  const out = [];
+  for (const k of keys) {
+    if (JSON.stringify((mine || {})[k]) !== JSON.stringify((theirs || {})[k])) out.push(k);
+  }
+  return out.sort();
+}
+
+// enteredBy is the only identity the tool stamps automatically, because it is
+// the only one it actually knows: who was at the keyboard. raisedBy and
+// closedBy describe real-world work that is routinely done by someone else, so
+// they stay hand-entered.
+export function stampEnteredBy(comment, name) {
+  return { ...comment, enteredBy: name || '' };
+}
+
 export async function writeFile(dir, name, contents) {
   const fh = await dir.getFileHandle(name, { create: true });
   const w = await fh.createWritable();

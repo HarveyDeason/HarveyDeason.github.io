@@ -1,6 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeById, mergeList, mergeTombstones } from '../assets/js/hub-sync.js';
+import { detectConflict, conflictFields, stampEnteredBy } from '../assets/js/hub-sync.js';
+
+const C = (id, updatedAt, extra = {}) => ({ id, updatedAt, ...extra });
+
+test('detectConflict flags a disk record edited since load', () => {
+  const mine = C('c1', '2026-07-30T10:00:00Z');
+  const disk = [C('c1', '2026-07-30T11:00:00Z')];
+  assert.equal(detectConflict(mine, disk).updatedAt, '2026-07-30T11:00:00Z');
+});
+
+test('detectConflict returns null when disk is same-age or older, or absent', () => {
+  const mine = C('c1', '2026-07-30T10:00:00Z');
+  assert.equal(detectConflict(mine, [C('c1', '2026-07-30T10:00:00Z')]), null);
+  assert.equal(detectConflict(mine, [C('c1', '2026-07-30T09:00:00Z')]), null);
+  assert.equal(detectConflict(mine, []), null);
+});
+
+test('conflictFields lists differing fields and ignores updatedAt', () => {
+  const mine   = C('c1', '2026-07-30T10:00:00Z', { actionTaken: 'Mine',   status: 'closed' });
+  const theirs = C('c1', '2026-07-30T11:00:00Z', { actionTaken: 'Theirs', status: 'closed' });
+  assert.deepEqual(conflictFields(mine, theirs), ['actionTaken']);
+});
+
+test('conflictFields catches a field present on one side only', () => {
+  const mine   = C('c1', '2026-07-30T10:00:00Z', { actionTaken: 'Mine' });
+  const theirs = C('c1', '2026-07-30T11:00:00Z', {});
+  assert.deepEqual(conflictFields(mine, theirs), ['actionTaken']);
+});
+
+test('stampEnteredBy sets enteredBy and never touches raisedBy or closedBy', () => {
+  const out = stampEnteredBy({ id: 'c1', raisedBy: 'Site foreman', closedBy: '' }, 'Harvey');
+  assert.equal(out.enteredBy, 'Harvey');
+  assert.equal(out.raisedBy, 'Site foreman');
+  assert.equal(out.closedBy, '');
+});
 
 const R = (id, updatedAt, v) => ({ id, updatedAt, v });
 
