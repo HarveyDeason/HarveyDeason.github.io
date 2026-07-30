@@ -29,6 +29,42 @@ test('mergeTombstones takes max per id', () => {
 
 import { createSyncEngine } from '../assets/js/hub-sync.js';
 import { writeFileAtomic } from '../assets/js/hub-sync.js';
+import { backupFileName, prunableBackups } from '../assets/js/hub-sync.js';
+
+test('backupFileName is filesystem-safe and sorts chronologically', () => {
+  assert.equal(backupFileName('hub-data.json', '2026-07-30T14:22:05.000Z'),
+    'hub-data-2026-07-30T14-22-05.json');
+  const a = backupFileName('hub-data.json', '2026-07-30T09:00:00.000Z');
+  const b = backupFileName('hub-data.json', '2026-07-30T14:22:05.000Z');
+  assert.ok(a < b, 'string order must match time order');
+});
+
+test('prunableBackups keeps the newest N and returns the rest', () => {
+  const names = [
+    'hub-data-2026-07-30T09-00-00.json',
+    'hub-data-2026-07-30T10-00-00.json',
+    'hub-data-2026-07-30T11-00-00.json',
+  ];
+  assert.deepEqual(prunableBackups(names, 2, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 5, 'hub-data.json'), []);
+});
+
+test('prunableBackups ignores unrelated files', () => {
+  const names = ['notes.txt', 'hub-data-2026-07-30T09-00-00.json'];
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+});
+
+// The Comments Hub and Product Brain share one backups/ folder. An unscoped
+// prune would silently delete the other tool's history.
+test('prunableBackups never touches another ledger\'s backups', () => {
+  const names = [
+    'hub-data-2026-07-30T09-00-00.json',
+    'brain-data-2026-07-30T08-00-00.json',
+    'brain-data-2026-07-30T09-00-00.json',
+  ];
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 1, 'brain-data.json'), ['brain-data-2026-07-30T08-00-00.json']);
+});
 
 function fakeDir(files = {}, opts = {}) {
   const stats = { writes: [], openWriters: 0, maxConcurrent: 0 };
@@ -122,6 +158,31 @@ test('writeFileAtomic: the no-move fallback never leaves a .tmp file behind', as
   assert.equal(dir.files['hub-data.json.tmp'], undefined);
 });
 
+// A backups/ directory mock: real enough for writeBackup's needs (create:true
+// fidelity like fakeDir, async values() iteration, removeEntry) without
+// weakening the create:true check that hid the Task 1 bug.
+function backupsDir(files = {}) {
+  const removed = [];
+  const dir = {
+    files, removed,
+    getFileHandle: async (name, o) => {
+      if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      return {
+        getFile: async () => ({ text: async () => files[name] }),
+        createWritable: async () => {
+          let buf = '';
+          return { write: async c => { buf = c; }, close: async () => { files[name] = buf; } };
+        },
+      };
+    },
+    values: async function* () {
+      for (const name of Object.keys(files)) yield { kind: 'file', name };
+    },
+    removeEntry: async name => { delete files[name]; removed.push(name); },
+  };
+  return dir;
+}
+
 function makeEngine(dir, extra = {}) {
   let state = { savedAt: '', items: [], tombstones: {} };
   const events = [];
@@ -151,6 +212,41 @@ test('engine: saveNow writes backup of previous disk content, then ledger', asyn
   assert.equal(await engine.saveNow([]), true);
   assert.ok(dir.files['x.backup.json'].includes('old'));
   assert.ok(dir.files['x.json'].includes('savedAt'));
+});
+
+test('engine: with cfg.backupDir, saveNow writes a dated backup there instead of x.backup.json', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
+  const bdir = backupsDir();
+  const { engine } = makeEngine(dir, { backupDir: () => bdir });
+  assert.equal(await engine.saveNow([]), true);
+  assert.equal(dir.files['x.backup.json'], undefined, 'no rolling backup written to the main dir');
+  const names = Object.keys(bdir.files);
+  assert.equal(names.length, 1);
+  assert.ok(/^x-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(names[0]));
+  assert.ok(bdir.files[names[0]].includes('old'));
+});
+
+test('engine: backupDir rotation prunes down to backupKeep, scoped to this ledger only', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[],"tombstones":{}}' });
+  const bdir = backupsDir({
+    'x-2026-07-30T09-00-00.json': 'a',
+    'x-2026-07-30T10-00-00.json': 'b',
+    'other-2026-07-30T05-00-00.json': 'untouched',
+  });
+  const { engine } = makeEngine(dir, { backupDir: () => bdir, backupKeep: 2 });
+  assert.equal(await engine.saveNow([]), true);
+  const names = Object.keys(bdir.files);
+  assert.equal(names.length, 3, 'kept the 2 newest x- backups plus the new one, pruned the oldest x- backup');
+  assert.ok(names.includes('other-2026-07-30T05-00-00.json'), 'another ledger\'s backups are never pruned');
+  assert.ok(!names.includes('x-2026-07-30T09-00-00.json'), 'oldest x- backup was pruned');
+  assert.deepEqual(bdir.removed, ['x-2026-07-30T09-00-00.json']);
+});
+
+test('engine: without cfg.backupDir (Product Brain), the single-backup behaviour is unchanged', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
+  const { engine } = makeEngine(dir);
+  assert.equal(await engine.saveNow([]), true);
+  assert.ok(dir.files['x.backup.json'].includes('old'));
 });
 
 test('engine: corrupt ledger blocks save with error status, saveNow returns false', async () => {

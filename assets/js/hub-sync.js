@@ -90,6 +90,27 @@ export async function writeFileAtomic(dir, name, contents) {
   await tmpHandle.move(name);
 }
 
+const BACKUP_RE = /^(.+)-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/;
+
+export function backupFileName(baseName, nowIso) {
+  const stem = baseName.replace(/\.json$/, '');
+  // Colons are illegal in Windows filenames; dashes keep string order == time order.
+  const stamp = String(nowIso).slice(0, 19).replace(/:/g, '-');
+  return stem + '-' + stamp + '.json';
+}
+
+// baseName scopes the prune to one ledger: the Comments Hub and Product Brain
+// share a backups/ folder, and an unscoped prune would delete the other tool's
+// history the moment either passed 20 saves.
+export function prunableBackups(names, keep, baseName) {
+  const prefix = baseName ? baseName.replace(/\.json$/, '') + '-' : '';
+  const backups = (names || [])
+    .filter(n => BACKUP_RE.test(n) && (!prefix || n.startsWith(prefix)))
+    .sort();
+  const n = Math.max(0, keep);
+  return n === 0 ? backups : backups.slice(0, Math.max(0, backups.length - n));
+}
+
 export function createSyncEngine(cfg) {
   let running = false, pending = false, pendingAll = false;
   let pendingIds = new Set();
@@ -115,6 +136,22 @@ export function createSyncEngine(cfg) {
     if (retryTimer && typeof retryTimer.unref === 'function') retryTimer.unref();   // never hold a test process open
   }
 
+  // A single rolling backup is one mistake deep. With several people in the
+  // ledger, the mistake worth recovering from is often not the most recent one.
+  async function writeBackup(dir, raw) {
+    const getBackupDir = cfg.backupDir;
+    if (!getBackupDir) { await writeFile(dir, cfg.backupName, raw); return; }
+    const bdir = await getBackupDir();
+    if (!bdir) { await writeFile(dir, cfg.backupName, raw); return; }
+    await writeFile(bdir, backupFileName(cfg.fileName, new Date().toISOString()), raw);
+    const names = [];
+    for await (const entry of bdir.values()) if (entry.kind === 'file') names.push(entry.name);
+    const keep = cfg.backupKeep == null ? 20 : cfg.backupKeep;
+    for (const stale of prunableBackups(names, keep, cfg.fileName)) {
+      try { await bdir.removeEntry(stale); } catch (e) { /* another client got there first */ }
+    }
+  }
+
   async function readLedger() {
     const dir = cfg.getDir();
     if (!dir) return { status: 'missing' };
@@ -138,7 +175,7 @@ export function createSyncEngine(cfg) {
       return false;
     }
     if (disk.status === 'ok') {
-      await writeFile(dir, cfg.backupName, disk.raw);
+      await writeBackup(dir, disk.raw);
       cfg.setState(cfg.merge(cfg.getState(), disk.data));
     }
     const st = cfg.getState();
