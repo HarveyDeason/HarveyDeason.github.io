@@ -49,6 +49,11 @@ export function editorOf(records, commentId, sessionId, nowMs) {
 
 export function sweepable(records, nowMs) {
   return (records || [])
-    .filter(r => r && r.sessionId && ageMs(r, nowMs) >= PRESENCE_SWEEP_MS)
+    .filter(r => r && r.sessionId)
+    // A missing or unparseable lastSeen makes ageMs NaN, and NaN >= anything
+    // is false — so without this check a corrupt/half-written file would
+    // never age past the sweep threshold and would litter the shared folder
+    // forever. Treat an unparseable heartbeat as dead, not immortal.
+    .filter(r => Number.isNaN(ageMs(r, nowMs)) || ageMs(r, nowMs) >= PRESENCE_SWEEP_MS)
     .map(r => r.sessionId);
 }

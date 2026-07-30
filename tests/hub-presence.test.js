@@ -61,6 +61,23 @@ test('sweepable returns only long-dead sessions', () => {
   assert.deepEqual(sweepable(records, NOW), ['s3']);
 });
 
+test('livePresences keeps a session exactly at the timeout as stale (strict <)', () => {
+  const records = [rec('s2', 'Sarah', PRESENCE_TIMEOUT_MS)];
+  assert.equal(livePresences(records, 's1', NOW).length, 0);
+});
+
+test('a record with a missing lastSeen is never live but is sweepable', () => {
+  const records = [{ sessionId: 's3', name: 'Corrupt', tool: 'hub', editingCommentId: null, lastSeen: undefined }];
+  assert.equal(livePresences(records, 's1', NOW).length, 0);
+  assert.deepEqual(sweepable(records, NOW), ['s3']);
+});
+
+test('a record with an unparseable lastSeen is never live but is sweepable', () => {
+  const records = [{ sessionId: 's3', name: 'Corrupt', tool: 'hub', editingCommentId: null, lastSeen: 'not-a-date' }];
+  assert.equal(livePresences(records, 's1', NOW).length, 0);
+  assert.deepEqual(sweepable(records, NOW), ['s3']);
+});
+
 test('presenceFileName is derived from sessionId', () => {
   assert.equal(presenceFileName('s1'), 's1.json');
 });
