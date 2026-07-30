@@ -101,7 +101,10 @@ export function backupFileName(baseName, nowIso) {
 
 // baseName scopes the prune to one ledger: the Comments Hub and Product Brain
 // share a backups/ folder, and an unscoped prune would delete the other tool's
-// history the moment either passed 20 saves.
+// history the moment either passed 20 saves. This is a startsWith(stem + '-')
+// match, not collision-proof in general: a future ledger named e.g. "hub.json"
+// would have its "hub-" prefix match "hub-data-*.json" backups too, so keep
+// ledger stems from being a prefix of one another when adding a third one.
 export function prunableBackups(names, keep, baseName) {
   const prefix = baseName ? baseName.replace(/\.json$/, '') + '-' : '';
   const backups = (names || [])

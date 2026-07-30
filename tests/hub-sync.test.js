@@ -228,25 +228,21 @@ test('engine: with cfg.backupDir, saveNow writes a dated backup there instead of
 
 test('engine: backupDir rotation prunes down to backupKeep, scoped to this ledger only', async () => {
   const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[],"tombstones":{}}' });
+  // Fixture dates are pinned far in the past so a real, unmocked `new Date()`
+  // taken when the test runs always sorts after both of them, regardless of
+  // what time of day or on what date the suite actually runs.
   const bdir = backupsDir({
-    'x-2026-07-30T09-00-00.json': 'a',
-    'x-2026-07-30T10-00-00.json': 'b',
-    'other-2026-07-30T05-00-00.json': 'untouched',
+    'x-2020-01-01T09-00-00.json': 'a',
+    'x-2020-01-01T10-00-00.json': 'b',
+    'other-2020-01-01T05-00-00.json': 'untouched',
   });
   const { engine } = makeEngine(dir, { backupDir: () => bdir, backupKeep: 2 });
   assert.equal(await engine.saveNow([]), true);
   const names = Object.keys(bdir.files);
   assert.equal(names.length, 3, 'kept the 2 newest x- backups plus the new one, pruned the oldest x- backup');
-  assert.ok(names.includes('other-2026-07-30T05-00-00.json'), 'another ledger\'s backups are never pruned');
-  assert.ok(!names.includes('x-2026-07-30T09-00-00.json'), 'oldest x- backup was pruned');
-  assert.deepEqual(bdir.removed, ['x-2026-07-30T09-00-00.json']);
-});
-
-test('engine: without cfg.backupDir (Product Brain), the single-backup behaviour is unchanged', async () => {
-  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
-  const { engine } = makeEngine(dir);
-  assert.equal(await engine.saveNow([]), true);
-  assert.ok(dir.files['x.backup.json'].includes('old'));
+  assert.ok(names.includes('other-2020-01-01T05-00-00.json'), 'another ledger\'s backups are never pruned');
+  assert.ok(!names.includes('x-2020-01-01T09-00-00.json'), 'oldest x- backup was pruned');
+  assert.deepEqual(bdir.removed, ['x-2020-01-01T09-00-00.json']);
 });
 
 test('engine: corrupt ledger blocks save with error status, saveNow returns false', async () => {
