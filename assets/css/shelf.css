@@ -1,7 +1,10 @@
 /* ——— The Journal bookcase ———
-   Books are real 3D boxes: a spine face plus a top face hinged at the head and
-   laid back into the case. Cloth colours live here, not in shelf.js, so light
-   and dark are handled by tokens like everything else on the site. The blurb
+   Books are flat spines, deliberately. They had projected top faces once; each
+   book is its own 3D context aimed at one shared vanishing point, so the tops
+   sheared sideways and leant across neighbouring spines, worst at the ends of a
+   row. Depth now comes from the bookends instead, which sit outboard of every
+   book and so have nothing to overlap. Cloth colours live here, not in shelf.js,
+   so light and dark are handled by tokens like everything else on the site. The blurb
    panel is anchored to the shelf (one per row), not to the book — a book is
    its own containing block and sits at row edges, so a book-anchored panel
    would overhang the container on the first/last book of a row. */
