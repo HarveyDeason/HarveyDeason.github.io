@@ -25,6 +25,18 @@
   /* perspective is retained only for the pull-out's translateZ */
   padding-left:6px; min-height:200px;
 }
+/* Rodin's Thinker, rendered from a mesh scan. Decorative only — aria-hidden,
+   empty alt — and rendered by JS on the final shelf at desktop widths only.
+   Height is tied to BOOKEND_SLOT in shelf.js via the asset's 393:520 aspect;
+   change one and you must change the other. */
+.bookend{
+  flex:0 0 auto; align-self:flex-end; height:152px; width:auto;
+  filter:drop-shadow(0 3px 5px rgb(0 0 0 / .35));
+  user-select:none; pointer-events:none;
+}
+.bookend.flip{ transform:scaleX(-1); }
+:root[data-mode="dark"] .bookend{ filter:drop-shadow(0 3px 6px rgb(0 0 0 / .6)) brightness(1.18); }
+
 .shelf-board{
   position:relative; height:16px; background:var(--board);
   border-radius:0 0 3px 3px; margin-bottom:34px;
