@@ -34,6 +34,48 @@ export function mergeTombstones(a, b) {
   return out;
 }
 
+export async function writeFile(dir, name, contents) {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  try {
+    await w.write(contents);
+    await w.close();
+  } catch (e) {
+    // A half-open writable holds an OS lock and a .crswap swap file, and
+    // every later createWritable() on this file then fails with
+    // InvalidStateError — one transient lock would otherwise poison all
+    // future saves. Always release it, and never let abort's own failure
+    // hide the error that actually happened.
+    try { await w.abort(); } catch (abortErr) { /* stream already gone */ }
+    if (e && e.name) e.hubFile = name;   // so callers can name the file
+    throw e;
+  }
+}
+
+// The ledger is the team's single source of truth: a crash or lock partway
+// through a direct write leaves everyone with a truncated file. Write to a
+// temp name, prove it parses, and only then move it into place — so the real
+// file only ever goes from one complete state to another.
+export async function writeFileAtomic(dir, name, contents) {
+  const tmp = name + '.tmp';
+  await writeFile(dir, tmp, contents);
+  const tmpHandle = await dir.getFileHandle(tmp, { create: false });
+  if (typeof tmpHandle.move !== 'function') {
+    // Older Chromium without FileSystemFileHandle.move(): a direct write is
+    // still better than leaving the change unsaved.
+    await writeFile(dir, name, contents);
+    return;
+  }
+  const verify = await (await tmpHandle.getFile()).text();
+  try { JSON.parse(verify); }
+  catch (e) {
+    const err = new Error('Atomic write verification failed for ' + name);
+    err.hubFile = name;
+    throw err;
+  }
+  await tmpHandle.move(name);
+}
+
 export function createSyncEngine(cfg) {
   let running = false, pending = false, pendingAll = false;
   let pendingIds = new Set();
@@ -57,24 +99,6 @@ export function createSyncEngine(cfg) {
     clearRetry();
     retryTimer = setTimeout(() => { retryTimer = null; pending = true; void loop(); }, delay);
     if (retryTimer && typeof retryTimer.unref === 'function') retryTimer.unref();   // never hold a test process open
-  }
-
-  async function writeFile(dir, name, contents) {
-    const fh = await dir.getFileHandle(name, { create: true });
-    const w = await fh.createWritable();
-    try {
-      await w.write(contents);
-      await w.close();
-    } catch (e) {
-      // A half-open writable holds an OS lock and a .crswap swap file, and
-      // every later createWritable() on this file then fails with
-      // InvalidStateError — one transient lock would otherwise poison all
-      // future saves. Always release it, and never let abort's own failure
-      // hide the error that actually happened.
-      try { await w.abort(); } catch (abortErr) { /* stream already gone */ }
-      if (e && e.name) e.hubFile = name;   // so callers can name the file
-      throw e;
-    }
   }
 
   async function readLedger() {
@@ -105,7 +129,7 @@ export function createSyncEngine(cfg) {
     }
     const st = cfg.getState();
     st.savedAt = new Date().toISOString();
-    await writeFile(dir, cfg.fileName, JSON.stringify(st, null, 2));
+    await writeFileAtomic(dir, cfg.fileName, JSON.stringify(st, null, 2));
     await cfg.afterSave(touched);
     cfg.onStatus('synced');
     return true;

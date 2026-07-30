@@ -28,6 +28,7 @@ test('mergeTombstones takes max per id', () => {
 });
 
 import { createSyncEngine } from '../assets/js/hub-sync.js';
+import { writeFileAtomic } from '../assets/js/hub-sync.js';
 
 function fakeDir(files = {}, opts = {}) {
   const stats = { writes: [], openWriters: 0, maxConcurrent: 0 };
@@ -49,6 +50,49 @@ function fakeDir(files = {}, opts = {}) {
   };
   return dir;
 }
+
+function movableDir(files = {}, opts = {}) {
+  const order = [];
+  const dir = {
+    files, order,
+    getFileHandle: async (name, o) => {
+      if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      return {
+        getFile: async () => ({ text: async () => files[name] }),
+        createWritable: async () => {
+          let buf = '';
+          return { write: async c => { buf = c; },
+                   close: async () => { files[name] = buf; order.push('write:' + name); } };
+        },
+        ...(opts.noMove ? {} : { move: async newName => {
+          files[newName] = files[name]; delete files[name]; order.push('move:' + name + '->' + newName);
+        } }),
+      };
+    },
+  };
+  return dir;
+}
+
+test('writeFileAtomic writes tmp then moves into place', async () => {
+  const dir = movableDir({});
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+  assert.equal(dir.files['hub-data.json.tmp'], undefined);
+  assert.deepEqual(dir.order, ['write:hub-data.json.tmp', 'move:hub-data.json.tmp->hub-data.json']);
+});
+
+test('writeFileAtomic refuses to move unparseable content', async () => {
+  const dir = movableDir({});
+  await assert.rejects(() => writeFileAtomic(dir, 'hub-data.json', 'not json{'),
+    err => err.message.includes('verification failed'));
+  assert.equal(dir.files['hub-data.json'], undefined);
+});
+
+test('writeFileAtomic falls back to direct write without move support', async () => {
+  const dir = movableDir({}, { noMove: true });
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+});
 
 function makeEngine(dir, extra = {}) {
   let state = { savedAt: '', items: [], tombstones: {} };
