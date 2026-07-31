@@ -95,9 +95,16 @@ All in `tools-src/comments-hub.html`, which is **gitignored** — it will not ap
   not one per row, which would regenerate every Excel file per comment.
 - **Task 8** — Verification and publish.
 
-Note for Task 7: `resequenceRefs` sorts by `dateRaised`, so importing older-dated site
-comments **interleaves them into the ref sequence** rather than appending. Correct, but
-surprising — worth telling Harvey when he first sees it.
+**Superseded — ref interleaving was a real bug and has been fixed.** `resequenceRefs` used
+to sort by `dateRaised`, so importing older-dated site comments could take low ref numbers
+and **silently renumber a comment someone had just typed** (verified: a typed `HUB-0004`
+became `HUB-0006` after an import merged). That matters because refs are printed into the
+Excel logs uploaded to ACC monthly — a ref quoted in an already-distributed log coming to
+mean a different comment is a traceability break, and reads as data corruption.
+
+Refs are now assigned in **creation order** (`createdAt`, with fallbacks for legacy
+comments that predate the field), so **a ref, once issued, never changes**. Display
+ordering is unaffected — the logs sort by date separately.
 
 ---
 
