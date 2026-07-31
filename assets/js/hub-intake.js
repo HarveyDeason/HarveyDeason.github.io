@@ -353,3 +353,209 @@ export function parseIntakeWorkbook(workbook) {
   const { templateVersion, products } = parseListsSheet(workbook);
   return { templateVersion, products, rows };
 }
+
+// --- reviewRows: turning raw parsed rows into a reviewable list (Task 4) ---
+//
+// This module advises, it does not decide. Exactly one condition below is a
+// hard error — a missing description, because there is no comment without
+// one. Everything else (unknown category/source, an unresolved or
+// fuzzy-matched product, a possible duplicate) is a warning that a human
+// resolves in the review table (Tasks 5-7). A site team's imperfect
+// spreadsheet must always be importable after human review; do not add new
+// blocking conditions here without revisiting that principle.
+
+// Case-folded, punctuation-stripped, whitespace-collapsed comparison text —
+// shared by duplicate detection and fuzzy product matching so "Valve
+// leaking on line 3." and "Valve leaking on line 3" compare equal without
+// either caller re-implementing normalisation.
+function normaliseText(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Classic edit-distance DP, used only to derive a 0..1 similarity ratio
+// below — never exposed or compared as a raw distance, since "how different"
+// only makes sense relative to the strings' length.
+function levenshteinDistance(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+// 1 = identical after normalisation, 0 = nothing in common. Used to drive
+// two *advisory-only* warnings (possible duplicate comment, possible product
+// match) — never a block. "Replace valve V-101" and "Replace valve V-102"
+// are one character apart and are completely different comments; no fixed
+// threshold can be trusted to separate a typo from a different valve, so
+// this only ever surfaces a suggestion for a human to accept or dismiss. Do
+// not raise this into a blocking rule.
+function textSimilarity(a, b) {
+  const na = normaliseText(a);
+  const nb = normaliseText(b);
+  if (!na && !nb) return 1;
+  if (!na || !nb) return 0;
+  const distance = levenshteinDistance(na, nb);
+  return 1 - distance / Math.max(na.length, nb.length);
+}
+
+// Tunable after real use — kept as named constants rather than inlined so a
+// site team's actual data can inform them later without hunting through the
+// function body.
+const DUPLICATE_SIMILARITY_THRESHOLD = 0.85;
+const PRODUCT_FUZZY_MATCH_THRESHOLD = 0.6;
+
+const DEFAULT_PRIORITY = 'medium';
+
+// Resolves a row's typed/pasted product name to a product ID, in the order
+// the brief requires:
+//   1. Embedded ID from the template's own Lists sheet (parsed.products) —
+//      trusted even if the product has since been renamed in the hub,
+//      because it's exactly what Task 1 embedded the ID to survive.
+//   2. Exact, case-insensitive name match against the *current* hub state —
+//      for a hand-typed row that never carried an embedded ID.
+//   3. Fuzzy match against current state — a suggestion only, never applied
+//      silently; the caller decides whether to show/accept it.
+//   4. No match — left null; the UI offers "create new product".
+function resolveProduct(productName, parsedProducts, stateProducts) {
+  const name = normaliseText(productName);
+  if (!name) return { productId: null, suggestion: null };
+
+  const embedded = (parsedProducts || []).find(p => normaliseText(p.name) === name);
+  if (embedded) return { productId: embedded.id, suggestion: null };
+
+  const exact = (stateProducts || []).find(p => normaliseText(p.name) === name);
+  if (exact) return { productId: exact.id, suggestion: null };
+
+  let best = null;
+  let bestScore = 0;
+  for (const p of stateProducts || []) {
+    const score = textSimilarity(productName, p.name);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  if (best && bestScore >= PRODUCT_FUZZY_MATCH_THRESHOLD) {
+    return { productId: null, suggestion: { productId: best.id, name: best.name, score: bestScore } };
+  }
+  return { productId: null, suggestion: null };
+}
+
+// Finds the best-matching OPEN comment on the SAME resolved product. A
+// closed comment is history, not a live duplicate; a similar comment on a
+// different product is a different thing entirely (see module-level note on
+// textSimilarity for why this stays advisory).
+function findDuplicate(description, productId, comments) {
+  if (!productId) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const c of comments || []) {
+    if (c.status !== 'open') continue;
+    if (!(c.productIds || []).includes(productId)) continue;
+    const score = textSimilarity(description, c.description);
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best && bestScore >= DUPLICATE_SIMILARITY_THRESHOLD ? best.ref : null;
+}
+
+function isKnownListValue(value, list) {
+  const name = normaliseText(value);
+  if (!name) return true; // blank is not "unknown" — nothing to flag here
+  return (list || []).some(entry => normaliseText(entry) === name);
+}
+
+// Turns raw parsed rows (from parseIntakeWorkbook, or hand-built for tests)
+// into a reviewable list: defaults applied, products resolved, issues and
+// possible duplicates surfaced — but nothing rejected outright except a
+// missing description. See module header for the reasoning.
+export function reviewRows(parsed, state, todayIso) {
+  const parsedProducts = (parsed && parsed.products) || [];
+  const stateProducts = (state && state.products) || [];
+  const lists = (state && state.lists) || {};
+  const comments = (state && state.comments) || [];
+
+  return ((parsed && parsed.rows) || []).map(raw => {
+    const issues = [];
+
+    const description = String(raw.description == null ? '' : raw.description).trim();
+    if (!description) {
+      issues.push({ field: 'description', level: 'error', message: 'Description is required.' });
+    }
+
+    // Silent defaults: Task 3's parseDateCell already yields '' for an
+    // unparseable or empty date, so there is nothing left to parse here —
+    // only a default to apply.
+    const dateRaised = raw.dateRaised || todayIso;
+    const priority = raw.priority || DEFAULT_PRIORITY;
+
+    if (!isKnownListValue(raw.category, lists.categories)) {
+      issues.push({
+        field: 'category', level: 'warn', fix: 'add-to-list',
+        message: `"${raw.category}" is not in the category list.`,
+      });
+    }
+    if (!isKnownListValue(raw.source, lists.sources)) {
+      issues.push({
+        field: 'source', level: 'warn', fix: 'add-to-list',
+        message: `"${raw.source}" is not in the source list.`,
+      });
+    }
+
+    const { productId, suggestion } = resolveProduct(raw.product, parsedProducts, stateProducts);
+    if (!productId) {
+      issues.push(suggestion
+        ? {
+            field: 'product', level: 'warn', fix: 'confirm-suggestion',
+            message: `No exact match for "${raw.product}" — did you mean "${suggestion.name}"?`,
+            suggestion,
+          }
+        : {
+            field: 'product', level: 'warn', fix: 'create-new-product',
+            message: `"${raw.product}" does not match any known product.`,
+          });
+    }
+
+    const duplicateOf = findDuplicate(description, productId, comments);
+    if (duplicateOf) {
+      issues.push({
+        field: 'description', level: 'warn', fix: 'confirm-duplicate',
+        message: `Looks similar to an existing open comment (${duplicateOf}). Advisory only — confirm this is a new issue.`,
+      });
+    }
+
+    const status = issues.some(i => i.level === 'error')
+      ? 'error'
+      : issues.length ? 'warn' : 'ok';
+
+    return {
+      raw,
+      values: {
+        product: raw.product, affectedTypes: raw.affectedTypes, category: raw.category,
+        source: raw.source, dateRaised, raisedBy: raw.raisedBy, priority, description,
+      },
+      productId,
+      status,
+      issues,
+      duplicateOf,
+    };
+  });
+}

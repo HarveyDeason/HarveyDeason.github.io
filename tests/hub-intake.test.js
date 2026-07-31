@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INTAKE_TEMPLATE_VERSION, INTAKE_COLUMNS, buildIntakeTemplateModel, parseIntakeWorkbook,
+  reviewRows,
 } from '../assets/js/hub-intake.js';
 import { renderWorkbook } from '../assets/js/xlsx-render.js';
 
@@ -284,4 +285,77 @@ test('a returned workbook with no Lists sheet at all parses gracefully', async (
   const parsed = parseIntakeWorkbook(wb);
   assert.deepEqual(parsed.products, []);
   assert.equal(parsed.templateVersion, undefined);
+});
+
+// --- reviewRows (Task 4): turning raw parsed rows into a reviewable list ---
+
+const parsedRow = (over = {}) => ({
+  product: 'Pump House', affectedTypes: ['P&ID'], category: 'New valve',
+  source: 'Site feedback', dateRaised: '2026-07-20', raisedBy: 'Site foreman',
+  priority: 'high', description: 'Valve leaking on line 3', ...over,
+});
+
+test('resolves the product by embedded ID without any name matching', () => {
+  const parsed = { products: [{ id: 'p1', name: 'Renamed Since' }], rows: [parsedRow({ product: 'Renamed Since' })] };
+  const rows = reviewRows(parsed, STATE, '2026-07-31');
+  assert.equal(rows[0].productId, 'p1');
+  assert.equal(rows[0].status, 'ok');
+});
+
+test('missing description is a hard error that cannot be accepted', () => {
+  const parsed = { products: [], rows: [parsedRow({ description: '   ' })] };
+  const rows = reviewRows(parsed, STATE, '2026-07-31');
+  assert.equal(rows[0].status, 'error');
+  assert.ok(rows[0].issues.some(i => i.field === 'description' && i.level === 'error'));
+});
+
+test('missing date defaults to today and missing priority to medium', () => {
+  const parsed = { products: [], rows: [parsedRow({ dateRaised: '', priority: '' })] };
+  const rows = reviewRows(parsed, STATE, '2026-07-31');
+  assert.equal(rows[0].values.dateRaised, '2026-07-31');
+  assert.equal(rows[0].values.priority, 'medium');
+});
+
+test('an unknown category warns and offers to add it, never blocks', () => {
+  const parsed = { products: [], rows: [parsedRow({ category: 'Coating defect' })] };
+  const rows = reviewRows(parsed, STATE, '2026-07-31');
+  const issue = rows[0].issues.find(i => i.field === 'category');
+  assert.equal(issue.level, 'warn');
+  assert.equal(issue.fix, 'add-to-list');
+  assert.notEqual(rows[0].status, 'error');
+});
+
+test('an unresolvable product warns rather than erroring', () => {
+  const parsed = { products: [], rows: [parsedRow({ product: 'Nowhere Works' })] };
+  const rows = reviewRows(parsed, STATE, '2026-07-31');
+  assert.equal(rows[0].productId, null);
+  assert.equal(rows[0].status, 'warn');
+});
+
+// Advisory only: "Replace valve V-101" and "Replace valve V-102" are one
+// character apart and completely different comments.
+test('a near-identical open comment on the same product is flagged, not blocked', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Valve leaking on line 3.' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].duplicateOf, 'HUB-0007');
+  assert.notEqual(rows[0].status, 'error', 'duplicates are advisory');
+});
+
+test('a similar CLOSED comment is not flagged as a duplicate', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'closed',
+      description: 'Valve leaking on line 3.' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  assert.equal(reviewRows(parsed, state, '2026-07-31')[0].duplicateOf, null);
+});
+
+test('similar text on a DIFFERENT product is not a duplicate', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p2'], status: 'open',
+      description: 'Valve leaking on line 3.' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  assert.equal(reviewRows(parsed, state, '2026-07-31')[0].duplicateOf, null);
 });
