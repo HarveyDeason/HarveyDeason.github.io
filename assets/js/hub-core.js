@@ -151,6 +151,7 @@ export const COMMENT_COLUMNS = [
   { key: 'dateClosed', header: 'Date closed', width: 12 },
   { key: 'actionTaken', header: 'Action taken', width: 40 },
   { key: 'closedBy', header: 'Closed by', width: 14 },
+  { key: 'edited', header: 'Edited', width: 20 },
   { key: 'photos', header: 'Photos', width: 30 },
 ];
 
@@ -208,6 +209,24 @@ export function photosCell(comment) {
   return `${photos.length} ${noun}: ${photos.map(p => p.file).join(', ')}`;
 }
 
+// Comment text (description, category, source) is often typed up by whoever
+// is at the keyboard on behalf of a site team, not the person who actually
+// raised or reworded it — the same reasoning stampEnteredBy in hub-sync.js
+// applies to enteredBy. Unlike enteredBy, an edit stamp must survive on the
+// record and travel to the distributed workbook (see editedCell below), so a
+// silent reword by someone else is never invisible to the rest of the team.
+export function stampEdit(comment, name, nowIso) {
+  return { ...comment, editedBy: name || '', editedAt: nowIso || '' };
+}
+
+// Only the date, not the full timestamp, so the cell reads at a glance in a
+// printed or emailed log: "Name (2026-07-31)". Empty for a comment that has
+// never been edited, so the column stays quiet for the common case.
+export function editedCell(comment) {
+  if (!comment || !comment.editedBy || !comment.editedAt) return '';
+  return `${comment.editedBy} (${String(comment.editedAt).slice(0, 10)})`;
+}
+
 function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function commentRow(c, state) {
@@ -221,7 +240,7 @@ function commentRow(c, state) {
       priority: titleCase(c.priority || ''), description: c.description,
       pidRevision: c.pidRevision || '', status: statusLabel(c.status),
       dateClosed: c.dateClosed || '', actionTaken: c.actionTaken || '', closedBy: c.closedBy || '',
-      photos: photosCell(c),
+      edited: editedCell(c), photos: photosCell(c),
     },
     statusKey: c.status, high: c.priority === 'high' && c.status !== 'closed',
   };

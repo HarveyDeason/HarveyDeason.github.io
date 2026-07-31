@@ -5,7 +5,7 @@ import { emptyState, mergeState, DEFAULT_CATEGORIES } from '../assets/js/hub-cor
 import { formatRef, nextRef, resequenceRefs } from '../assets/js/hub-core.js';
 import { buildProductWorkbookModel, buildMasterWorkbookModel, buildFilteredWorkbookModel,
   COMMENT_COLUMNS, statusLabel, sanitizeFilename, photoFileName,
-  addPhotoToComment, removePhotoFromComment, photosCell } from '../assets/js/hub-core.js';
+  addPhotoToComment, removePhotoFromComment, photosCell, stampEdit, editedCell } from '../assets/js/hub-core.js';
 import { expandFamilyPatterns, familiesFromRegister, familyProductId, familyMembership,
   expandProductFilter } from '../assets/js/hub-core.js';
 import { excelSheetName, buildFamilyWorkbookModel, staleFamilyMemberFiles } from '../assets/js/hub-core.js';
@@ -363,6 +363,46 @@ test('photosCell: empty, singular, plural', () => {
 test('COMMENT_COLUMNS ends with the Photos column', () => {
   const last = COMMENT_COLUMNS[COMMENT_COLUMNS.length - 1];
   assert.deepEqual(last, { key: 'photos', header: 'Photos', width: 30 });
+});
+
+test('stampEdit sets editedBy/editedAt and does not mutate its input', () => {
+  const c0 = C('c1', 't', { description: 'orig' });
+  const snapshot = JSON.stringify(c0);
+  const c1 = stampEdit(c0, 'Sarah', '2026-07-31T09:00:00Z');
+  assert.equal(c1.editedBy, 'Sarah');
+  assert.equal(c1.editedAt, '2026-07-31T09:00:00Z');
+  assert.equal(JSON.stringify(c0), snapshot); // input untouched
+});
+
+test('stampEdit leaves raisedBy, closedBy and enteredBy untouched', () => {
+  const c0 = C('c1', 't', { raisedBy: 'A N Other', closedBy: 'HD', enteredBy: 'Someone Else' });
+  const c1 = stampEdit(c0, 'Sarah', '2026-07-31T09:00:00Z');
+  assert.equal(c1.raisedBy, 'A N Other');
+  assert.equal(c1.closedBy, 'HD');
+  assert.equal(c1.enteredBy, 'Someone Else');
+});
+
+test('editedCell: empty for never-edited, "Name (date)" for edited', () => {
+  assert.equal(editedCell(C('c1', 't')), '');
+  assert.equal(editedCell(stampEdit(C('c1', 't'), 'Sarah', '2026-07-31T09:00:00Z')), 'Sarah (2026-07-31)');
+});
+
+test('COMMENT_COLUMNS includes an Edited column', () => {
+  assert.ok(COMMENT_COLUMNS.some(c => c.key === 'edited' && c.header === 'Edited'));
+});
+
+test('product and master workbook models carry the Edited column and keep their filenames', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01')],
+    comments: [stampEdit(C('c1', 't', { productIds: ['p1'] }), 'Sarah', '2026-07-31T09:00:00Z')] };
+  const prod = buildProductWorkbookModel(state, 'p1', new Map(), '2026-07-31');
+  assert.equal(prod.filename, 'OSB-01 Comments.xlsx');
+  assert.ok(prod.sheets[1].columns.some(c => c.key === 'edited'));
+  assert.equal(prod.sheets[1].rows[0].cells.edited, 'Sarah (2026-07-31)');
+  const master = buildMasterWorkbookModel(state, new Map(), '2026-07-31');
+  assert.equal(master.filename, 'Master Log.xlsx');
+  assert.ok(master.sheets[1].columns.some(c => c.key === 'edited'));
+  assert.equal(master.sheets[1].rows[0].cells.edited, 'Sarah (2026-07-31)');
 });
 
 test('every workbook log sheet carries the photos cell', () => {
