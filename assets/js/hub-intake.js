@@ -477,6 +477,26 @@ function findDuplicate(description, productId, comments) {
   return best && bestScore >= DUPLICATE_SIMILARITY_THRESHOLD ? best.ref : null;
 }
 
+// Finds a comment on the SAME resolved product whose normalised description
+// is an EXACT match — same product, identical text once case, punctuation
+// and whitespace differences are ironed out. Unlike findDuplicate (advisory
+// fuzzy match, open comments only), this checks every comment on the
+// product, open or closed: re-importing a sheet whose comments were since
+// closed out is still a re-import, not new information. An exact match is
+// not a coincidence the way a one-character-apart fuzzy match is — "Replace
+// valve V-101" vs "Replace valve V-102" normalise to two different strings
+// and will never trip this, only textSimilarity's advisory warning.
+function findExactDuplicate(description, productId, comments) {
+  if (!productId) return null;
+  const target = normaliseText(description);
+  if (!target) return null;
+  for (const c of comments || []) {
+    if (!(c.productIds || []).includes(productId)) continue;
+    if (normaliseText(c.description) === target) return c.ref;
+  }
+  return null;
+}
+
 function isKnownListValue(value, list) {
   const name = normaliseText(value);
   if (!name) return true; // blank is not "unknown" — nothing to flag here
@@ -542,6 +562,14 @@ export function reviewRows(parsed, state, todayIso) {
       });
     }
 
+    const exactDuplicateOf = findExactDuplicate(description, productId, comments);
+    if (exactDuplicateOf) {
+      issues.push({
+        field: 'description', level: 'warn', fix: 'confirm-exact-duplicate',
+        message: `Identical to an existing comment (${exactDuplicateOf}). This looks like a re-import.`,
+      });
+    }
+
     const status = issues.some(i => i.level === 'error')
       ? 'error'
       : issues.length ? 'warn' : 'ok';
@@ -556,6 +584,7 @@ export function reviewRows(parsed, state, todayIso) {
       status,
       issues,
       duplicateOf,
+      exactDuplicateOf,
     };
   });
 }

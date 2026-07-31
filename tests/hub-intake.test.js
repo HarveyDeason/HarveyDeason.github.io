@@ -359,3 +359,79 @@ test('similar text on a DIFFERENT product is not a duplicate', () => {
   const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
   assert.equal(reviewRows(parsed, state, '2026-07-31')[0].duplicateOf, null);
 });
+
+// --- exactDuplicateOf: re-import protection ---
+// Separate from duplicateOf (advisory fuzzy match). An exact match on
+// productId + normalised description is not a coincidence — it's a re-import.
+
+test('an identical description on the same product sets exactDuplicateOf to the existing ref', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Valve leaking on line 3' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].exactDuplicateOf, 'HUB-0007');
+});
+
+test('exact match tolerates case and punctuation differences', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Valve leaking on line 3.' }] };
+  const parsed = {
+    products: [{ id: 'p1', name: 'Pump House' }],
+    rows: [parsedRow({ description: 'valve leaking on line 3' })],
+  };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].exactDuplicateOf, 'HUB-0007');
+});
+
+test('exact match is found against a CLOSED comment too, not just open ones', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'closed',
+      description: 'Valve leaking on line 3' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].exactDuplicateOf, 'HUB-0007');
+});
+
+test('identical text on a DIFFERENT product is not an exact duplicate', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p2'], status: 'open',
+      description: 'Valve leaking on line 3' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].exactDuplicateOf, null);
+});
+
+test('near-identical text (V-101 vs V-102) is never an exact duplicate', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Replace valve V-101' }] };
+  const parsed = {
+    products: [{ id: 'p1', name: 'Pump House' }],
+    rows: [parsedRow({ description: 'Replace valve V-102' })],
+  };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].exactDuplicateOf, null);
+  assert.equal(rows[0].duplicateOf, 'HUB-0007', 'still advisory-flagged as similar');
+});
+
+test('a row with an unresolved product cannot be an exact duplicate', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Valve leaking on line 3' }] };
+  const parsed = { products: [], rows: [parsedRow({ product: 'Nowhere Works' })] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].productId, null);
+  assert.equal(rows[0].exactDuplicateOf, null);
+});
+
+test('exactDuplicateOf does not disturb existing fuzzy duplicateOf behaviour', () => {
+  const state = { ...STATE, comments: [
+    { id: 'c1', ref: 'HUB-0007', productIds: ['p1'], status: 'open',
+      description: 'Valve leaking on line 3, needs urgent attention' }] };
+  const parsed = { products: [{ id: 'p1', name: 'Pump House' }], rows: [parsedRow()] };
+  const rows = reviewRows(parsed, state, '2026-07-31');
+  assert.equal(rows[0].duplicateOf, null, 'below the 0.85 similarity threshold, as before');
+  assert.equal(rows[0].exactDuplicateOf, null);
+});
