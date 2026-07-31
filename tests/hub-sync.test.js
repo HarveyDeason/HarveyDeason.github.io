@@ -89,7 +89,7 @@ test('prunableBackups ignores unrelated files', () => {
   assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
 });
 
-// The Comments Hub and Product Brain share one backups/ folder. An unscoped
+// The Comments Hub and Decision Register share one backups/ folder. An unscoped
 // prune would silently delete the other tool's history.
 test('prunableBackups never touches another ledger\'s backups', () => {
   const names = [

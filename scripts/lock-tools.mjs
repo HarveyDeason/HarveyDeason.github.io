@@ -60,8 +60,18 @@ export async function encryptToolPayload(plaintext, keyB64) {
   return encryptText(plaintext, keyB64);
 }
 
+/**
+ * Display titles that the slug cannot produce. A tool can be renamed without
+ * changing its URL — the slug stays put so nobody's bookmark breaks — which
+ * means the two drift apart deliberately.
+ */
+const TITLE_OVERRIDES = {
+  'product-brain': 'Decision Register',
+};
+
 /** Turns a slug like "pid-tag-register" into "Pid Tag Register" for a page <title>. */
 export function titleFromSlug(slug) {
+  if (TITLE_OVERRIDES[slug]) return TITLE_OVERRIDES[slug];
   return slug
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

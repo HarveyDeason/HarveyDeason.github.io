@@ -1,5 +1,5 @@
 // assets/js/brain-core.js
-// Pure logic for the Product Brain: state, merge, compressed text storage,
+// Pure logic for the Decision Register: state, merge, compressed text storage,
 // extraction assembly, search documents, snippets, supersession. Node-testable.
 import { mergeById, mergeList, mergeTombstones } from './hub-sync.js';
 import { sanitizeFilename, photosCell } from './hub-core.js';

@@ -24,7 +24,12 @@ export function presenceRecord({ name, sessionId, tool, editingCommentId, nowIso
   };
 }
 
-// The presence/ folder is shared by the Comments Hub and Product Brain, so a
+// The tool id stays 'brain' though the tool is now called the Decision Register:
+// it is written into presence files that live on a shared drive, so changing it
+// would make running sessions invisible to each other mid-flight. Same reason
+// brain-data.json keeps its name — renaming it would orphan everyone's data.
+//
+// The presence/ folder is shared by the Comments Hub and Decision Register, so a
 // caller asking "who is editing record X" must narrow to its own tool first —
 // otherwise a decision id could be read as a comment id.
 export function ofTool(records, tool) {

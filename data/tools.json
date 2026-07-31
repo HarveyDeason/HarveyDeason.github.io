@@ -5,5 +5,5 @@
   { "slug":"steelwork-checker","name":"Steelwork Checker","blurb":"Point load, UDL, flooring and stair configurations checked against British Standards.","href":"/tools/steelwork-checker.html","tags":["Structural","British Standards"],"locked":true },
   { "slug":"schedule-sync","name":"Schedule Sync","blurb":"Match a shared column across two Excel schedules and carry the data you choose from one to the other.","href":"/tools/schedule-sync.html","tags":["Data","Excel"],"locked":true },
   { "slug":"comments-hub","name":"Comments Hub","blurb":"One place to log comments and updates against OSB items and Standard products — tagged, tracked to close-out, and distributed as formatted Excel logs.","href":"/tools/comments-hub.html","tags":["QA","Tracking"],"locked":true },
-  { "slug":"product-brain","name":"Product Brain","blurb":"The searchable memory for standard products — decision records with the who and why, HAZOPs and minutes indexed to the word, one search across everything.","href":"/tools/product-brain.html","tags":["Knowledge","Search"],"locked":true }
+  { "slug":"product-brain","name":"Decision Register","blurb":"The written record for standard products — decisions with the who and why, HAZOPs and minutes indexed to the word, one search across everything.","href":"/tools/product-brain.html","tags":["Records","Search"],"locked":true }
 ]

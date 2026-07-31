@@ -1,5 +1,5 @@
 // assets/js/hub-sync.js
-// Shared sync logic for the Comments Hub and Product Brain: generic ledger
+// Shared sync logic for the Comments Hub and Decision Register: generic ledger
 // merging here, and (Task 3) the single-flight save engine. Pure and
 // node-testable; no DOM.
 
@@ -184,7 +184,7 @@ export function backupFileName(baseName, nowIso) {
   return stem + '-' + stamp + '.json';
 }
 
-// baseName scopes the prune to one ledger: the Comments Hub and Product Brain
+// baseName scopes the prune to one ledger: the Comments Hub and Decision Register
 // share a backups/ folder, and an unscoped prune would delete the other tool's
 // history the moment either passed 20 saves. This is a startsWith(stem + '-')
 // match, not collision-proof in general: a future ledger named e.g. "hub.json"

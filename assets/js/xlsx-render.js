@@ -1,7 +1,7 @@
 // assets/js/xlsx-render.js
 // Turns a workbook model ({filename, sheets:[{name, kind, columns, rows}]})
 // into an xlsx buffer. Shared by the Comments Hub (comment logs) and the
-// Product Brain (decisions export) so the two never drift apart.
+// Decision Register (decisions export) so the two never drift apart.
 // ExcelJS is passed in rather than imported: both tools load the vendored
 // browser bundle as a global script.
 
