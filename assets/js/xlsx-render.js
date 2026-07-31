@@ -119,6 +119,19 @@ export async function renderWorkbook(model, ExcelJS, colors) {
           }
         });
       }
+      // Metadata as label/value pairs in a column pair well clear of the
+      // lists (which end at column 6). The importer finds these by LABEL, not
+      // by row, so adding a field later cannot shift the others out from
+      // under it. Without this the template version exists only in the model
+      // and never reaches the file, so a returned sheet could not be checked
+      // for drift at all.
+      const META_LABEL_COL = 8;
+      let metaRow = 1;
+      for (const [key, value] of Object.entries(sheet.meta || {})) {
+        ws.getCell(metaRow, META_LABEL_COL).value = key;
+        ws.getCell(metaRow, META_LABEL_COL + 1).value = value;
+        metaRow += 1;
+      }
       // veryHidden (not just hidden) means it can't be unhidden from the
       // Excel UI by right-clicking the sheet tabs — only via the VBA/object
       // model, which a site team filling in a form has no reason to touch.
