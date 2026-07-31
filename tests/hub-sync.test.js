@@ -1,6 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeById, mergeList, mergeTombstones } from '../assets/js/hub-sync.js';
+import { detectConflict, conflictFields, stampEnteredBy } from '../assets/js/hub-sync.js';
+
+const C = (id, updatedAt, extra = {}) => ({ id, updatedAt, ...extra });
+
+test('detectConflict flags a disk record edited since load', () => {
+  const mine = C('c1', '2026-07-30T10:00:00Z');
+  const disk = [C('c1', '2026-07-30T11:00:00Z')];
+  assert.equal(detectConflict(mine, disk).updatedAt, '2026-07-30T11:00:00Z');
+});
+
+test('detectConflict returns null when disk is same-age or older, or absent', () => {
+  const mine = C('c1', '2026-07-30T10:00:00Z');
+  assert.equal(detectConflict(mine, [C('c1', '2026-07-30T10:00:00Z')]), null);
+  assert.equal(detectConflict(mine, [C('c1', '2026-07-30T09:00:00Z')]), null);
+  assert.equal(detectConflict(mine, []), null);
+});
+
+test('conflictFields lists differing fields and ignores updatedAt', () => {
+  const mine   = C('c1', '2026-07-30T10:00:00Z', { actionTaken: 'Mine',   status: 'closed' });
+  const theirs = C('c1', '2026-07-30T11:00:00Z', { actionTaken: 'Theirs', status: 'closed' });
+  assert.deepEqual(conflictFields(mine, theirs), ['actionTaken']);
+});
+
+test('conflictFields catches a field present on one side only', () => {
+  const mine   = C('c1', '2026-07-30T10:00:00Z', { actionTaken: 'Mine' });
+  const theirs = C('c1', '2026-07-30T11:00:00Z', {});
+  assert.deepEqual(conflictFields(mine, theirs), ['actionTaken']);
+});
+
+test('stampEnteredBy sets enteredBy and never touches raisedBy or closedBy', () => {
+  const out = stampEnteredBy({ id: 'c1', raisedBy: 'Site foreman', closedBy: '' }, 'Harvey');
+  assert.equal(out.enteredBy, 'Harvey');
+  assert.equal(out.raisedBy, 'Site foreman');
+  assert.equal(out.closedBy, '');
+});
 
 const R = (id, updatedAt, v) => ({ id, updatedAt, v });
 
@@ -28,7 +63,51 @@ test('mergeTombstones takes max per id', () => {
 });
 
 import { createSyncEngine } from '../assets/js/hub-sync.js';
+import { writeFileAtomic } from '../assets/js/hub-sync.js';
+import { backupFileName, prunableBackups } from '../assets/js/hub-sync.js';
 
+test('backupFileName is filesystem-safe and sorts chronologically', () => {
+  assert.equal(backupFileName('hub-data.json', '2026-07-30T14:22:05.000Z'),
+    'hub-data-2026-07-30T14-22-05.json');
+  const a = backupFileName('hub-data.json', '2026-07-30T09:00:00.000Z');
+  const b = backupFileName('hub-data.json', '2026-07-30T14:22:05.000Z');
+  assert.ok(a < b, 'string order must match time order');
+});
+
+test('prunableBackups keeps the newest N and returns the rest', () => {
+  const names = [
+    'hub-data-2026-07-30T09-00-00.json',
+    'hub-data-2026-07-30T10-00-00.json',
+    'hub-data-2026-07-30T11-00-00.json',
+  ];
+  assert.deepEqual(prunableBackups(names, 2, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 5, 'hub-data.json'), []);
+});
+
+test('prunableBackups ignores unrelated files', () => {
+  const names = ['notes.txt', 'hub-data-2026-07-30T09-00-00.json'];
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+});
+
+// The Comments Hub and Product Brain share one backups/ folder. An unscoped
+// prune would silently delete the other tool's history.
+test('prunableBackups never touches another ledger\'s backups', () => {
+  const names = [
+    'hub-data-2026-07-30T09-00-00.json',
+    'brain-data-2026-07-30T08-00-00.json',
+    'brain-data-2026-07-30T09-00-00.json',
+  ];
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 1, 'brain-data.json'), ['brain-data-2026-07-30T08-00-00.json']);
+});
+
+// The real File System Access API's FileSystemFileHandle.move() overwrites
+// its destination unconditionally, and removeEntry() actually removes the
+// entry. A mock missing either forces every engine-level test onto the
+// no-move fallback branch (the bare `catch` around a missing removeEntry
+// swallows a TypeError silently) — the real, production atomic-write path
+// via createSyncEngine then has NO coverage at all, and the suite stays
+// green regardless of what that path does. fakeDir must be faithful here.
 function fakeDir(files = {}, opts = {}) {
   const stats = { writes: [], openWriters: 0, maxConcurrent: 0 };
   const dir = {
@@ -42,10 +121,125 @@ function fakeDir(files = {}, opts = {}) {
           stats.openWriters++; stats.maxConcurrent = Math.max(stats.maxConcurrent, stats.openWriters);
           let buf = '';
           return { write: async c => { await new Promise(r => setTimeout(r, opts.delay || 0)); buf = c; },
-                   close: async () => { stats.openWriters--; files[name] = buf; stats.writes.push(name); } };
+                   close: async () => { stats.openWriters--; files[name] = buf; stats.writes.push(name); },
+                   abort: async () => { stats.openWriters--; } };
+        },
+        ...(opts.noMove ? {} : { move: async newName => { files[newName] = files[name]; delete files[name]; } }),
+      };
+    },
+    removeEntry: async name => { delete files[name]; },
+  };
+  return dir;
+}
+
+function movableDir(files = {}, opts = {}) {
+  const order = [];
+  const dir = {
+    files, order,
+    getFileHandle: async (name, o) => {
+      if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      if (o?.create && !(name in files)) { files[name] = ''; }
+      return {
+        // opts.clobberOnRead simulates another session's write landing on the
+        // same temp name between our write and our verify-read: the file we
+        // read back is not the file we wrote.
+        getFile: async () => ({ text: async () => (opts.clobberOnRead && name.endsWith('.tmp')) ? opts.clobberOnRead : files[name] }),
+        createWritable: async () => {
+          if (opts.failDirectWriteOnce && !name.endsWith('.tmp') && !opts._directWriteFailed) {
+            opts._directWriteFailed = true;
+            const e = new Error('locked'); e.name = 'NoModificationAllowedError'; throw e;
+          }
+          let buf = '';
+          return { write: async c => { buf = c; },
+                   close: async () => { files[name] = buf; order.push('write:' + name); },
+                   abort: async () => {} };
+        },
+        ...(opts.noMove ? {} : { move: async newName => {
+          files[newName] = files[name]; delete files[name]; order.push('move:' + name + '->' + newName);
+        } }),
+      };
+    },
+    removeEntry: async name => { delete files[name]; order.push('remove:' + name); },
+  };
+  return dir;
+}
+
+test('writeFileAtomic writes tmp then moves into place', async () => {
+  const dir = movableDir({});
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}', 's1');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+  assert.equal(dir.files['hub-data.json.s1.tmp'], undefined);
+  assert.deepEqual(dir.order, ['write:hub-data.json.s1.tmp', 'move:hub-data.json.s1.tmp->hub-data.json']);
+});
+
+test('writeFileAtomic uses a random tmp name when no sessionId is given, and still cleans up', async () => {
+  const dir = movableDir({});
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+  assert.ok(dir.order[0].match(/^write:hub-data\.json\.[a-z0-9]+\.tmp$/), dir.order[0]);
+});
+
+// A JSON.parse-only verify check would accept ANY valid JSON on the temp
+// file, including a different session's complete ledger that happened to
+// land on the same (unqualified) temp name. Verification must check that the
+// bytes on disk are the exact bytes we wrote.
+test('writeFileAtomic refuses to move content that changed underneath us, and cleans up the tmp', async () => {
+  const dir = movableDir({}, { clobberOnRead: '{"other":"session-b-wrote-this"}' });
+  await assert.rejects(() => writeFileAtomic(dir, 'hub-data.json', '{"a":1}'),
+    err => err.message.includes('verification failed') && err.hubFile === 'hub-data.json');
+  assert.equal(dir.files['hub-data.json'], undefined, 'real destination is never created before the move');
+  assert.equal(dir.files['hub-data.json.tmp'], undefined, 'the mismatched tmp is cleaned up');
+});
+
+test('writeFileAtomic falls back to direct write without move support', async () => {
+  const dir = movableDir({}, { noMove: true });
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+});
+
+test('writeFileAtomic: the no-move fallback never leaves a .tmp file behind', async () => {
+  // The probe now writes <name>.tmp first (it must never touch the real
+  // destination to check move() support), so a .tmp is briefly created here
+  // and then removed before the direct-write fallback runs. What must never
+  // happen is a .tmp surviving as litter in the shared folder.
+  const dir = movableDir({}, { noMove: true });
+  await writeFileAtomic(dir, 'hub-data.json', '{"a":1}', 's1');
+  assert.equal(dir.files['hub-data.json'], '{"a":1}');
+  assert.equal(dir.files['hub-data.json.s1.tmp'], undefined);
+});
+
+test('writeFileAtomic: the no-move fallback keeps the verified tmp until the direct write succeeds', async () => {
+  // If the fallback removed the temp file BEFORE the direct write, and that
+  // direct write then hit the same transient lock the retry loop exists for,
+  // the ledger would be left at 0 bytes (writeFile's getFileHandle(name,
+  // {create:true}) creates a zero-length file immediately) — unparseable,
+  // wedging the whole team. The temp copy must survive a failed direct write.
+  const dir = movableDir({}, { noMove: true, failDirectWriteOnce: true });
+  await assert.rejects(() => writeFileAtomic(dir, 'hub-data.json', '{"a":1}', 's1'));
+  assert.equal(dir.files['hub-data.json.s1.tmp'], '{"a":1}', 'the good copy survives the failed direct write');
+});
+
+// A backups/ directory mock: real enough for writeBackup's needs (create:true
+// fidelity like fakeDir, async values() iteration, removeEntry) without
+// weakening the create:true check that hid the Task 1 bug.
+function backupsDir(files = {}) {
+  const removed = [];
+  const dir = {
+    files, removed,
+    getFileHandle: async (name, o) => {
+      if (!o?.create && !(name in files)) { const e = new Error('missing'); e.name = 'NotFoundError'; throw e; }
+      return {
+        getFile: async () => ({ text: async () => files[name] }),
+        createWritable: async () => {
+          let buf = '';
+          return { write: async c => { buf = c; }, close: async () => { files[name] = buf; } };
         },
       };
     },
+    values: async function* () {
+      for (const name of Object.keys(files)) yield { kind: 'file', name };
+    },
+    removeEntry: async name => { delete files[name]; removed.push(name); },
   };
   return dir;
 }
@@ -73,12 +267,200 @@ test('engine: readLedger distinguishes missing / corrupt / ok', async () => {
   assert.equal((await e3.readLedger()).status, 'ok');
 });
 
+// A directory whose getFileHandle throws something other than NotFoundError
+// on a read attempt — a lapsed permission, a network share hiccup, a
+// momentary lock. Any create:true call (a write) is itself an error: once
+// readLedger reports 'unreadable', saveNow must never attempt to write
+// anything, so a mock write attempt failing loudly here is a deliberate
+// tripwire, not an accident.
+function unreadableFileDir(files = {}, errorName = 'NotAllowedError') {
+  const stats = { attempts: 0 };
+  return {
+    files, stats,
+    getFileHandle: async (name, o) => {
+      stats.attempts++;
+      if (!o?.create) { const e = new Error('permission lapsed'); e.name = errorName; throw e; }
+      throw new Error('unexpected write attempt: saveNow must write nothing when the ledger is unreadable');
+    },
+  };
+}
+
+test('engine: readLedger maps a genuine absence (NotFoundError) to missing, and anything else to unreadable', async () => {
+  const { engine: eMissing } = makeEngine(fakeDir({}));
+  assert.equal((await eMissing.readLedger()).status, 'missing');
+
+  const { engine: ePermission } = makeEngine(unreadableFileDir({}, 'NotAllowedError'));
+  assert.equal((await ePermission.readLedger()).status, 'unreadable');
+
+  const { engine: eLocked } = makeEngine(unreadableFileDir({}, 'NoModificationAllowedError'));
+  assert.equal((await eLocked.readLedger()).status, 'unreadable');
+
+  const { engine: eOther } = makeEngine(unreadableFileDir({}, 'UnknownError'));
+  assert.equal((await eOther.readLedger()).status, 'unreadable');
+});
+
+// First-run behaviour must be exactly preserved: a genuinely absent ledger
+// (NotFoundError) is 'missing', and saveNow still writes local state over it.
+test('engine: a genuinely missing ledger (NotFoundError) still writes local state — first-run behaviour preserved', async () => {
+  const dir = fakeDir({});
+  const { engine, getState } = makeEngine(dir);
+  assert.equal(await engine.saveNow([]), true);
+  assert.equal(dir.files['x.json'], JSON.stringify(getState(), null, 2));
+});
+
+// The core of the fix: an unreadable ledger (permission lapse, network
+// blip, transient lock) must never be treated like a missing one. No
+// backup, no merge, no overwrite — saveNow must write nothing at all, and
+// must throw (rather than return false) so the caller can tell "nothing
+// happened, try again" apart from "the write happened but something else
+// also failed".
+test('engine: an unreadable ledger writes nothing — no backup, no ledger overwrite — and throws (retryable)', async () => {
+  const dir = unreadableFileDir({
+    'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}',
+    'x.backup.json': 'previous-backup-content',
+  }, 'NotAllowedError');
+  const { engine } = makeEngine(dir);
+  await assert.rejects(() => engine.saveNow([]),
+    err => err.name === 'LedgerUnreadableError' && err.hubFile === 'x.json');
+  assert.equal(dir.files['x.json'], '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}', 'ledger left untouched');
+  assert.equal(dir.files['x.backup.json'], 'previous-backup-content', 'no backup taken');
+});
+
+// The loop() retry/backoff path exists precisely so a thrown, transient
+// failure gets tried again without the user having to make another change.
+// An unreadable ledger must ride that path; a corrupt one (final today,
+// unchanged by this fix) must not.
+test('engine: an unreadable ledger is retried by the loop', async () => {
+  const dir = unreadableFileDir({}, 'NotAllowedError');
+  const events = [];
+  const { engine } = makeEngine(dir, {
+    retryDelays: [10, 20],
+    onStatus: (s, m, final) => events.push([s, final]),
+  });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(dir.stats.attempts, 3, 'initial attempt plus one retry per delay');
+  assert.deepEqual(events.map(e => e[0]), ['saving', 'error', 'saving', 'error', 'saving', 'error']);
+  assert.deepEqual(events.filter(e => e[0] === 'error').map(e => e[1]), [false, false, true]);
+});
+
+test('engine: a corrupt ledger is NOT retried by the loop (final=true on the first failure)', async () => {
+  const dir = fakeDir({ 'x.json': 'not json' });
+  const events = [];
+  const { engine } = makeEngine(dir, {
+    retryDelays: [10, 20],
+    onStatus: (s, m, final) => events.push([s, final]),
+  });
+  engine.queueSave([]);
+  await new Promise(r => setTimeout(r, 200));
+  assert.deepEqual(events, [['saving', undefined], ['error', true]], 'one attempt, immediately final, no retry scheduled');
+});
+
 test('engine: saveNow writes backup of previous disk content, then ledger', async () => {
   const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
   const { engine } = makeEngine(dir);
   assert.equal(await engine.saveNow([]), true);
   assert.ok(dir.files['x.backup.json'].includes('old'));
   assert.ok(dir.files['x.json'].includes('savedAt'));
+});
+
+// With a faithful move()/removeEntry(), a successful saveNow takes the real
+// atomic-write path (write tmp, verify, move) rather than silently falling
+// through to the no-move fallback. This is the production path and, before
+// fakeDir grew move()/removeEntry(), it had no engine-level coverage at all.
+test('engine: saveNow via the atomic path leaves no *.tmp litter and the ledger holds the expected content', async () => {
+  const dir = fakeDir({});
+  const { engine, getState } = makeEngine(dir);
+  assert.equal(await engine.saveNow([]), true);
+  const tmpNames = Object.keys(dir.files).filter(n => n.endsWith('.tmp'));
+  assert.deepEqual(tmpNames, [], 'no tmp file survives a successful save');
+  assert.equal(dir.files['x.json'], JSON.stringify(getState(), null, 2));
+});
+
+// Kept as an explicitly-named, deliberate variant (opts.noMove) so the
+// no-move fallback branch stays covered on purpose rather than by accident
+// of a mock that happened to be missing move().
+test('engine: saveNow still succeeds via the no-move fallback when move() is unsupported', async () => {
+  const dir = fakeDir({}, { noMove: true });
+  const { engine, getState } = makeEngine(dir);
+  assert.equal(await engine.saveNow([]), true);
+  assert.equal(dir.files['x.json'], JSON.stringify(getState(), null, 2));
+  const tmpNames = Object.keys(dir.files).filter(n => n.endsWith('.tmp'));
+  assert.deepEqual(tmpNames, [], 'the fallback cleans up its temp file too');
+});
+
+// Two sessions saving around the same time must never collide on one shared
+// temp name (Finding 3): each session's writeFileAtomic call gets its own
+// tmp file, so neither can clobber or partially-overwrite the other's.
+test('writeFileAtomic: two sessions writing concurrently with different sessionIds do not collide', async () => {
+  const dir = movableDir({});
+  // Both writes interleave against the SAME directory and base name. With a
+  // shared `name + '.tmp'` this would be exactly the scenario in Finding 3:
+  // one session's write lands on the other's tmp file, verification can pass
+  // against a mixed or foreign payload, and the wrong content gets moved
+  // into place. Distinct sessionIds mean each gets its own tmp file, so
+  // there is nothing to collide on.
+  const p1 = writeFileAtomic(dir, 'hub-data.json', '{"session":"a"}', 'session-a');
+  const p2 = writeFileAtomic(dir, 'hub-data.json', '{"session":"b"}', 'session-b');
+  await Promise.all([p1, p2]);
+  // Whichever finishes last wins the real file (expected — same last-write-
+  // wins semantics as before); what must never happen is either write
+  // throwing a verification error because it clobbered the other's tmp.
+  assert.ok(['{"session":"a"}', '{"session":"b"}'].includes(dir.files['hub-data.json']));
+  assert.equal(dir.files['hub-data.json.session-a.tmp'], undefined);
+  assert.equal(dir.files['hub-data.json.session-b.tmp'], undefined);
+});
+
+test('engine: with cfg.backupDir, saveNow writes a dated backup there instead of x.backup.json', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
+  const bdir = backupsDir();
+  const { engine } = makeEngine(dir, { backupDir: () => bdir });
+  assert.equal(await engine.saveNow([]), true);
+  assert.equal(dir.files['x.backup.json'], undefined, 'no rolling backup written to the main dir');
+  const names = Object.keys(bdir.files);
+  assert.equal(names.length, 1);
+  assert.ok(/^x-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/.test(names[0]));
+  assert.ok(bdir.files[names[0]].includes('old'));
+});
+
+test('engine: backupDir rotation prunes down to backupKeep, scoped to this ledger only', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[],"tombstones":{}}' });
+  // Fixture dates are pinned far in the past so a real, unmocked `new Date()`
+  // taken when the test runs always sorts after both of them, regardless of
+  // what time of day or on what date the suite actually runs.
+  const bdir = backupsDir({
+    'x-2020-01-01T09-00-00.json': 'a',
+    'x-2020-01-01T10-00-00.json': 'b',
+    'other-2020-01-01T05-00-00.json': 'untouched',
+  });
+  const { engine } = makeEngine(dir, { backupDir: () => bdir, backupKeep: 2 });
+  assert.equal(await engine.saveNow([]), true);
+  const names = Object.keys(bdir.files);
+  assert.equal(names.length, 3, 'kept the 2 newest x- backups plus the new one, pruned the oldest x- backup');
+  assert.ok(names.includes('other-2020-01-01T05-00-00.json'), 'another ledger\'s backups are never pruned');
+  assert.ok(!names.includes('x-2020-01-01T09-00-00.json'), 'oldest x- backup was pruned');
+  assert.deepEqual(bdir.removed, ['x-2020-01-01T09-00-00.json']);
+});
+
+// A backup is a courtesy, not the save itself (Finding 2). A read-only or
+// missing backups/ folder, a locked backup file, or a folder enumeration
+// failure must never abort the ledger save it was meant to protect.
+test('engine: a backup directory that throws on enumeration does not prevent the ledger save', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
+  const bdir = backupsDir({ 'x-2020-01-01T09-00-00.json': 'a' });
+  bdir.values = async function* () { throw new Error('folder unreadable'); };
+  const { engine } = makeEngine(dir, { backupDir: () => bdir, backupKeep: 2 });
+  assert.equal(await engine.saveNow([]), true, 'the ledger save still succeeds');
+  assert.ok(dir.files['x.json'].includes('savedAt'), 'the ledger itself was written');
+});
+
+test('engine: a backup directory whose writeFile throws does not prevent the ledger save', async () => {
+  const dir = fakeDir({ 'x.json': '{"savedAt":"","items":[{"id":"old"}],"tombstones":{}}' });
+  const bdir = backupsDir();
+  bdir.getFileHandle = async () => { throw new Error('backups dir is read-only'); };
+  const { engine } = makeEngine(dir, { backupDir: () => bdir, backupKeep: 2 });
+  assert.equal(await engine.saveNow([]), true, 'the ledger save still succeeds');
+  assert.ok(dir.files['x.json'].includes('savedAt'), 'the ledger itself was written');
 });
 
 test('engine: corrupt ledger blocks save with error status, saveNow returns false', async () => {

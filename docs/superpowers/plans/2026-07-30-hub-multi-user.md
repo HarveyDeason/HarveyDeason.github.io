@@ -175,7 +175,7 @@ One `hub-data.backup.json` is exactly one mistake deep. Keep the last 20 in a `b
 - Consumes: `writeFile` from Task 1.
 - Produces:
   - `backupFileName(baseName, nowIso) -> string` — e.g. `('hub-data.json', '2026-07-30T14:22:05.000Z')` → `'hub-data-2026-07-30T14-22-05.json'`.
-  - `prunableBackups(names, keep) -> string[]` — given backup filenames, returns those to delete, keeping the `keep` newest by name (names sort chronologically by construction).
+  - `prunableBackups(names, keep, baseName) -> string[]` — given backup filenames, returns those to delete, keeping the `keep` newest by name (names sort chronologically by construction). **`baseName` scopes it to one ledger's backups** — the Comments Hub and Product Brain share one `backups/` folder, so an unscoped prune would delete the other tool's history.
   - `createSyncEngine` gains optional `cfg.backupDir` (a directory handle getter, `() => dirHandle|null`) and `cfg.backupKeep` (default 20).
 
 - [ ] **Step 1: Write the failing test**
@@ -197,13 +197,25 @@ test('prunableBackups keeps the newest N and returns the rest', () => {
     'hub-data-2026-07-30T10-00-00.json',
     'hub-data-2026-07-30T11-00-00.json',
   ];
-  assert.deepEqual(prunableBackups(names, 2), ['hub-data-2026-07-30T09-00-00.json']);
-  assert.deepEqual(prunableBackups(names, 5), []);
+  assert.deepEqual(prunableBackups(names, 2, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 5, 'hub-data.json'), []);
 });
 
 test('prunableBackups ignores unrelated files', () => {
   const names = ['notes.txt', 'hub-data-2026-07-30T09-00-00.json'];
-  assert.deepEqual(prunableBackups(names, 0), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+});
+
+// The Comments Hub and Product Brain share one backups/ folder. An unscoped
+// prune would silently delete the other tool's history.
+test('prunableBackups never touches another ledger\'s backups', () => {
+  const names = [
+    'hub-data-2026-07-30T09-00-00.json',
+    'brain-data-2026-07-30T08-00-00.json',
+    'brain-data-2026-07-30T09-00-00.json',
+  ];
+  assert.deepEqual(prunableBackups(names, 0, 'hub-data.json'), ['hub-data-2026-07-30T09-00-00.json']);
+  assert.deepEqual(prunableBackups(names, 1, 'brain-data.json'), ['brain-data-2026-07-30T08-00-00.json']);
 });
 ```
 
@@ -226,8 +238,14 @@ export function backupFileName(baseName, nowIso) {
   return stem + '-' + stamp + '.json';
 }
 
-export function prunableBackups(names, keep) {
-  const backups = (names || []).filter(n => BACKUP_RE.test(n)).sort();
+// baseName scopes the prune to one ledger: the Comments Hub and Product Brain
+// share a backups/ folder, and an unscoped prune would delete the other tool's
+// history the moment either passed 20 saves.
+export function prunableBackups(names, keep, baseName) {
+  const prefix = baseName ? baseName.replace(/\.json$/, '') + '-' : '';
+  const backups = (names || [])
+    .filter(n => BACKUP_RE.test(n) && (!prefix || n.startsWith(prefix)))
+    .sort();
   const n = Math.max(0, keep);
   return n === 0 ? backups : backups.slice(0, Math.max(0, backups.length - n));
 }
@@ -255,7 +273,8 @@ and add inside `createSyncEngine`, above `saveNow`:
     await writeFile(bdir, backupFileName(cfg.fileName, new Date().toISOString()), raw);
     const names = [];
     for await (const entry of bdir.values()) if (entry.kind === 'file') names.push(entry.name);
-    for (const stale of prunableBackups(names, cfg.backupKeep == null ? 20 : cfg.backupKeep)) {
+    const keep = cfg.backupKeep == null ? 20 : cfg.backupKeep;
+    for (const stale of prunableBackups(names, keep, cfg.fileName)) {
       try { await bdir.removeEntry(stale); } catch (e) { /* another client got there first */ }
     }
   }
