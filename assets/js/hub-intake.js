@@ -152,6 +152,88 @@ function cellToString(value) {
   return String(value).trim();
 }
 
+// Excel's date epoch: serial 0 is 1899-12-30 (not 1900-01-01 — Excel's
+// famous leap-year bug is baked into the format, and this offset already
+// accounts for it). A cell that has actually round-tripped through an xlsx
+// file commonly comes back as a plain number rather than a Date object, even
+// when it was written/rendered as a date — this is the shape real returned
+// templates take, which cellToString()/Date handling above never sees.
+const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// A plausible date serial: 1 is 1899-12-31, 100000 is far beyond any
+// realistic Date Raised (year ~2173). Anything outside this range is not a
+// date that was ever meant to land in this column — treat it as unparseable
+// rather than inventing a nonsense date.
+const MIN_DATE_SERIAL = 1;
+const MAX_DATE_SERIAL = 100000;
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function isoFromUtcParts(y, m, d) {
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+// Coerces a raw Date Raised cell value into an ISO YYYY-MM-DD string, or ''
+// if it can't be confidently parsed. Handles every shape a real returned
+// intake file can carry: a JS Date (from a date-formatted cell that survived
+// the round trip), an Excel serial number (the common case for a
+// date-formatted cell once it's been through a save/reload), an ISO-ish
+// string already, and a UK day-first string typed by hand. Deliberately does
+// NOT fall back to JS's native Date parsing for strings, which reads
+// ambiguous dates as US month-first and would silently swap day/month for a
+// UK water-industry team.
+function parseDateCell(value) {
+  if (value == null) return '';
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === 'object') {
+    if ('result' in value) return parseDateCell(value.result);
+    if ('text' in value) return parseDateCell(String(value.text));
+    if (Array.isArray(value.richText)) return parseDateCell(value.richText.map(rt => rt.text).join(''));
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < MIN_DATE_SERIAL || value > MAX_DATE_SERIAL) return '';
+    const ms = EXCEL_EPOCH_MS + Math.round(value) * MS_PER_DAY;
+    const d = new Date(ms);
+    return isoFromUtcParts(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+
+  const text = String(value).trim();
+  if (!text) return '';
+
+  // Already ISO-ish (YYYY-MM-DD, optionally with a time component tacked on).
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return isoFromUtcParts(Number(y), Number(m), Number(d));
+  }
+
+  // UK day-first, e.g. "29/07/2026" or "29-07-2026". Day first is not
+  // optional here: reading it month-first would silently corrupt the date
+  // rather than fail loudly, which is worse.
+  const ukMatch = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (ukMatch) {
+    const [, dd, mm, yyyy] = ukMatch;
+    const day = Number(dd);
+    const month = Number(mm);
+    const year = Number(yyyy);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return isoFromUtcParts(year, month, day);
+    }
+    return '';
+  }
+
+  return '';
+}
+
 function isYes(value) {
   return TRUTHY_YES_NO.has(normaliseHeader(value));
 }
@@ -245,9 +327,10 @@ export function parseIntakeWorkbook(workbook) {
     let hasContent = false;
     for (const col of INTAKE_COLUMNS) {
       const colNumber = header.indexByKey[col.key];
-      const text = colNumber ? cellToString(row.getCell(colNumber).value) : '';
+      const rawValue = colNumber ? row.getCell(colNumber).value : null;
+      const text = col.key === 'dateRaised' ? parseDateCell(rawValue) : cellToString(rawValue);
       values[col.key] = text;
-      if (text) hasContent = true;
+      if (colNumber && cellToString(rawValue)) hasContent = true;
     }
     if (!hasContent) continue;
 

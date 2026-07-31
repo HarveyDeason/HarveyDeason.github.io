@@ -79,6 +79,10 @@ export async function renderWorkbook(model, ExcelJS, colors) {
       ws.views = [{ state: 'frozen', ySplit: 1 }];
 
       const descCol = sheet.columns.findIndex(c => c.key === 'description') + 1;
+      // A date-formatted cell both shows the site team a proper date (rather
+      // than a raw serial number) and is more likely to come back as a Date
+      // object instead of a serial once they've edited and re-saved it.
+      const dateCol = sheet.columns.findIndex(c => c.key === 'dateRaised') + 1;
       const rowCount = sheet.rowCount || 0;
       for (let i = 0; i < rowCount; i++) {
         // Only the very first blank row gets pre-filled (e.g. a single
@@ -87,6 +91,7 @@ export async function renderWorkbook(model, ExcelJS, colors) {
         const r = ws.addRow(values);
         r.alignment = { vertical: 'top' };
         if (descCol) r.getCell(descCol).alignment = { vertical: 'top', wrapText: true };
+        if (dateCol) r.getCell(dateCol).numFmt = 'dd/mm/yyyy';
       }
 
       // Validation is applied down every blank row (not just the first) so

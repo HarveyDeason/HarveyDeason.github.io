@@ -196,6 +196,84 @@ test('a Date-typed cell in the date-raised column comes back as an ISO YYYY-MM-D
   assert.equal(parsed.rows[0].dateRaised, '2026-07-20');
 });
 
+// --- Date Raised coercion: a real returned file commonly carries an Excel
+// serial number in this column (not a Date object), even when the cell was
+// rendered/formatted as a date — see xlsx-render.js's dateCol numFmt and the
+// full round-trip test below, which is what actually exercises that path.
+
+test('an Excel serial number in the date-raised column converts to the right ISO date', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  // 46232 days after the Excel epoch (1899-12-30, verified independently):
+  // 1899-12-30 + 46232 days = 2026-07-29.
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             46232, 'Site foreman', 'high', 'Valve leaking']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows[0].dateRaised, '2026-07-29');
+});
+
+test('a Date object in the date-raised column still works', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             new Date(Date.UTC(2026, 6, 29)), 'Site foreman', 'high', 'Valve leaking']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows[0].dateRaised, '2026-07-29');
+});
+
+test('a UK-formatted date string parses day-first, not US month-first', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  // 29/07/2026 must read as 29 July, not get silently reinterpreted
+  // month-first (which for an ambiguous UK date corrupts the value instead
+  // of failing loudly). Assert the month explicitly, not just the ISO string.
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             '29/07/2026', 'Site foreman', 'high', 'Valve leaking']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows[0].dateRaised, '2026-07-29');
+  assert.equal(parsed.rows[0].dateRaised.slice(5, 7), '07', 'month must be July, not swapped with day');
+});
+
+test('an out-of-range date serial and unparseable junk both yield an empty string', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             500000, 'Site foreman', 'high', 'Valve leaking']);
+  ws.addRow(['Inlet Works', 'No', 'No', 'No', 'New valve', 'Site feedback',
+             'not a date', 'Site foreman', 'low', 'Something else']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows[0].dateRaised, '');
+  assert.equal(parsed.rows[1].dateRaised, '');
+});
+
+test('full round trip: a rendered template cell written as a date and reloaded parses to the right ISO date', async () => {
+  const ExcelJS = await loadExcelJS();
+  const model = buildIntakeTemplateModel(STATE, ['p1'], '2026-07-31T09:00:00.000Z');
+  const buf = await renderWorkbook(model, ExcelJS, {});
+
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.getWorksheet('Comments');
+  const dateCol = INTAKE_COLUMNS.findIndex(c => c.key === 'dateRaised') + 1;
+  const descCol = INTAKE_COLUMNS.findIndex(c => c.key === 'description') + 1;
+  ws.getRow(2).getCell(dateCol).value = new Date('2026-07-29T00:00:00Z');
+  ws.getRow(2).getCell(descCol).value = 'Handrail missing';
+
+  const buf2 = await wb.xlsx.writeBuffer();
+  const wb2 = new ExcelJS.Workbook();
+  await wb2.xlsx.load(buf2);
+  const parsed = parseIntakeWorkbook(wb2);
+  assert.equal(parsed.rows[0].dateRaised, '2026-07-29');
+});
+
 test('a returned workbook with no Lists sheet at all parses gracefully', async () => {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
