@@ -91,3 +91,182 @@ export function buildIntakeTemplateModel(state, productIds, nowIso) {
     ],
   };
 }
+
+// --- parseIntakeWorkbook: reading a returned intake sheet back in ---
+//
+// This is the other half of the pipeline started by buildIntakeTemplateModel
+// above: a site team fills in the emailed template offline, in whatever
+// version of Excel they have, and emails it back. This function turns that
+// *already-loaded* ExcelJS workbook into plain rows the hub can validate and
+// resolve (Task 4). It stays pure — no DOM, no File System Access, and
+// ExcelJS is never imported here, only received via the `workbook` argument,
+// because the caller owns file I/O (see module header).
+//
+// Governing principle (must not erode): the hub parses ONLY its own intake
+// file, produced by buildIntakeTemplateModel/renderWorkbook. The generated
+// logs ("Master Log.xlsx", per-product comment logs) are disposable outputs
+// and are never read back — there is no code path here, or anywhere else in
+// this module, that opens them.
+
+// How many leading rows to scan for the header. A site team may paste a
+// title, a logo caption, or leave a blank row above the real header — but
+// nobody pastes more than a handful of rows above their data.
+const HEADER_SCAN_ROWS = 10;
+
+// A row counts as "the header" once it matches at least this many known
+// column headers — one match could be a coincidence (a stray cell that says
+// "Category"), two is enough to be confident without requiring an exact,
+// fragile match against every column (site teams delete columns they don't
+// need).
+const MIN_HEADER_MATCHES = 2;
+
+const AFFECTED_TYPE_LABELS = {
+  affPid: 'P&ID',
+  affModel: 'Model',
+  affSheets: 'Drawing sheets',
+};
+
+// Truthy spellings a site team might type into a Yes/No dropdown cell once
+// it's been opened, edited and re-saved by hand: the literal dropdown value,
+// a single-letter shorthand, a boolean from a paste, or a checkbox-style x.
+// Matched case-insensitively; anything else (including blank) means no.
+const TRUTHY_YES_NO = new Set(['yes', 'y', 'true', 'x']);
+
+function normaliseHeader(text) {
+  return String(text == null ? '' : text).trim().toLowerCase();
+}
+
+// ExcelJS cell values aren't always plain strings/numbers: a formula cell
+// comes back as { formula, result }, a rich-text cell as { richText: [...] },
+// and a date cell as a real Date object. Coerce whatever we get into a
+// trimmed string so downstream matching/parsing never has to special-case
+// cell shape again.
+function cellToString(value) {
+  if (value == null) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10); // YYYY-MM-DD
+  if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) return value.richText.map(rt => rt.text).join('');
+    if ('result' in value) return cellToString(value.result);
+    if ('text' in value) return String(value.text);
+  }
+  return String(value).trim();
+}
+
+function isYes(value) {
+  return TRUTHY_YES_NO.has(normaliseHeader(value));
+}
+
+// Finds the header row within the first HEADER_SCAN_ROWS rows by matching
+// cell text (normalised) against known column headers — position-independent
+// so a reordered or trimmed-down template still imports. Returns
+// { rowNumber, indexByKey } or null if nothing looks like a header.
+function findHeaderRow(ws) {
+  const headerByNormalised = new Map(INTAKE_COLUMNS.map(c => [normaliseHeader(c.header), c.key]));
+  const maxRow = Math.min(ws.rowCount || 0, HEADER_SCAN_ROWS);
+  for (let r = 1; r <= maxRow; r++) {
+    const row = ws.getRow(r);
+    const indexByKey = {};
+    let matches = 0;
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const key = headerByNormalised.get(normaliseHeader(cellToString(cell.value)));
+      if (key) {
+        indexByKey[key] = colNumber;
+        matches += 1;
+      }
+    });
+    if (matches >= MIN_HEADER_MATCHES) return { rowNumber: r, indexByKey };
+  }
+  return null;
+}
+
+function findDataSheet(workbook) {
+  const byName = workbook.getWorksheet('Comments');
+  if (byName) return byName;
+  // Fallback for a hand-rebuilt sheet that got renamed: the first sheet the
+  // site team can actually see (the Lists sheet is veryHidden, so it's
+  // naturally excluded).
+  return (workbook.worksheets || []).find(ws => ws.state !== 'hidden' && ws.state !== 'veryHidden') || null;
+}
+
+// The Lists sheet is optional on the way back in — a site team could in
+// theory rebuild the Comments sheet by hand without it. When present, it's
+// where exact product-ID matching and template-version drift detection come
+// from (see module header); when absent, we degrade gracefully rather than
+// throwing, since Task 4's resolution can still fall back to name matching.
+function parseListsSheet(workbook) {
+  const ws = workbook.getWorksheet('Lists');
+  if (!ws) return { templateVersion: undefined, products: [] };
+
+  // products live in columns 1 (name) and 2 (id), one pair per row, no
+  // header — see xlsx-render.js's listColumnLetters() for why.
+  const products = [];
+  const maxRow = ws.rowCount || 0;
+  for (let r = 1; r <= maxRow; r++) {
+    const name = cellToString(ws.getCell(r, 1).value);
+    const id = cellToString(ws.getCell(r, 2).value);
+    if (!name && !id) continue;
+    products.push({ id, name });
+  }
+
+  // Metadata is label/value pairs in columns 8/9, found by LABEL not row
+  // number so new fields don't shift templateVersion out from under a fixed
+  // row (see xlsx-render.js).
+  let templateVersion;
+  const META_LABEL_COL = 8;
+  const META_VALUE_COL = 9;
+  for (let r = 1; r <= maxRow; r++) {
+    const label = cellToString(ws.getCell(r, META_LABEL_COL).value);
+    if (label === 'templateVersion') {
+      const raw = cellToString(ws.getCell(r, META_VALUE_COL).value);
+      const num = Number(raw);
+      templateVersion = Number.isNaN(num) ? raw : num;
+      break;
+    }
+  }
+
+  return { templateVersion, products };
+}
+
+export function parseIntakeWorkbook(workbook) {
+  const ws = findDataSheet(workbook);
+  if (!ws) throw new Error('No usable sheet found to read a header row from');
+
+  const header = findHeaderRow(ws);
+  if (!header) throw new Error('Could not find a recognisable header row in the returned sheet');
+
+  const rows = [];
+  const maxRow = ws.rowCount || 0;
+  for (let r = header.rowNumber + 1; r <= maxRow; r++) {
+    const row = ws.getRow(r);
+
+    // A blank row (nothing in any mapped column) is normal — site teams
+    // leave gaps between entries — and is skipped silently, not an error.
+    const values = {};
+    let hasContent = false;
+    for (const col of INTAKE_COLUMNS) {
+      const colNumber = header.indexByKey[col.key];
+      const text = colNumber ? cellToString(row.getCell(colNumber).value) : '';
+      values[col.key] = text;
+      if (text) hasContent = true;
+    }
+    if (!hasContent) continue;
+
+    const affectedTypes = ['affPid', 'affModel', 'affSheets']
+      .filter(key => isYes(values[key]))
+      .map(key => AFFECTED_TYPE_LABELS[key]);
+
+    rows.push({
+      product: values.product,
+      affectedTypes,
+      category: values.category,
+      source: values.source,
+      dateRaised: values.dateRaised,
+      raisedBy: values.raisedBy,
+      priority: values.priority,
+      description: values.description,
+    });
+  }
+
+  const { templateVersion, products } = parseListsSheet(workbook);
+  return { templateVersion, products, rows };
+}

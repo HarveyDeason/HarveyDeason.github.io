@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  INTAKE_TEMPLATE_VERSION, INTAKE_COLUMNS, buildIntakeTemplateModel,
+  INTAKE_TEMPLATE_VERSION, INTAKE_COLUMNS, buildIntakeTemplateModel, parseIntakeWorkbook,
 } from '../assets/js/hub-intake.js';
 import { renderWorkbook } from '../assets/js/xlsx-render.js';
 
@@ -96,4 +96,114 @@ test('single-product template pre-fills the product column', async () => {
   await wb.xlsx.load(buf);
   const ws = wb.getWorksheet('Comments');
   assert.equal(ws.getCell(2, 1).value, 'Pump House');
+});
+
+// --- parseIntakeWorkbook (Task 3): reading a returned intake sheet back in ---
+
+test('parses rows by header NAME, tolerating reordered columns', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(['Description', 'Product', 'Category']);      // deliberately reordered, subset
+  ws.addRow(['Valve leaking on line 3', 'Pump House', 'New valve']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0].description, 'Valve leaking on line 3');
+  assert.equal(parsed.rows[0].product, 'Pump House');
+});
+
+test('skips entirely blank rows without comment', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow([]);
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             '2026-07-20', 'Site foreman', 'high', 'Valve leaking']);
+  ws.addRow([]);
+  assert.equal(parseIntakeWorkbook(wb).rows.length, 1);
+});
+
+test('recombines the three Yes/No columns into affectedTypes', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', 'Yes', 'No', 'yes', 'New valve', 'Site feedback',
+             '2026-07-20', 'Site foreman', 'high', 'Valve leaking']);
+  assert.deepEqual(parseIntakeWorkbook(wb).rows[0].affectedTypes, ['P&ID', 'Drawing sheets']);
+});
+
+test('all three affected columns blank yields an empty array, not a failure', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', '', '', '', 'New valve', 'Site feedback',
+             '2026-07-20', 'Site foreman', 'high', 'Valve leaking']);
+  assert.deepEqual(parseIntakeWorkbook(wb).rows[0].affectedTypes, []);
+});
+
+test('reads the embedded product IDs and template version from the lists sheet', async () => {
+  const ExcelJS = await loadExcelJS();
+  const model = buildIntakeTemplateModel(STATE, ['p1'], '2026-07-31T09:00:00.000Z');
+  const buf = await renderWorkbook(model, ExcelJS, {});
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.templateVersion, INTAKE_TEMPLATE_VERSION);
+  assert.deepEqual(parsed.products, [{ id: 'p1', name: 'Pump House' }]);
+});
+
+test('a sheet with no recognisable header row throws a clear error', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet('Comments').addRow(['random', 'nonsense']);
+  assert.throws(() => parseIntakeWorkbook(wb), /header/i);
+});
+
+test('tolerates a title row pasted above the real header, and stray header whitespace/case', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(['Site Comments - Pump House Batch 1']);
+  ws.addRow([' product ', 'DESCRIPTION', ' Category ']);
+  ws.addRow(['Pump House', 'Valve leaking', 'New valve']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0].product, 'Pump House');
+  assert.equal(parsed.rows[0].description, 'Valve leaking');
+});
+
+test('accepts loosely-formatted Yes/No values: Y, TRUE, x, blank', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', 'Y', 'TRUE', 'x', 'New valve', 'Site feedback',
+             '2026-07-20', 'Site foreman', 'high', 'Valve leaking']);
+  assert.deepEqual(parseIntakeWorkbook(wb).rows[0].affectedTypes, ['P&ID', 'Model', 'Drawing sheets']);
+});
+
+test('a Date-typed cell in the date-raised column comes back as an ISO YYYY-MM-DD string', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  const r = ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             new Date(Date.UTC(2026, 6, 20)), 'Site foreman', 'high', 'Valve leaking']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.equal(parsed.rows[0].dateRaised, '2026-07-20');
+});
+
+test('a returned workbook with no Lists sheet at all parses gracefully', async () => {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Comments');
+  ws.addRow(INTAKE_COLUMNS.map(c => c.header));
+  ws.addRow(['Pump House', 'Yes', 'No', 'No', 'New valve', 'Site feedback',
+             '2026-07-20', 'Site foreman', 'high', 'Valve leaking']);
+  const parsed = parseIntakeWorkbook(wb);
+  assert.deepEqual(parsed.products, []);
+  assert.equal(parsed.templateVersion, undefined);
 });
