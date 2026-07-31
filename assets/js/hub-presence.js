@@ -14,12 +14,13 @@ export const PRESENCE_SWEEP_MS = 600000;
 
 export function presenceFileName(sessionId) { return String(sessionId) + '.json'; }
 
-export function presenceRecord({ name, sessionId, tool, editingCommentId, nowIso }) {
+export function presenceRecord({ name, sessionId, tool, editingCommentId, viewingCommentId, nowIso }) {
   return {
     name: name || 'Someone',
     sessionId,
     tool: tool || 'hub',
     editingCommentId: editingCommentId || null,
+    viewingCommentId: viewingCommentId || null,
     lastSeen: nowIso,
   };
 }
@@ -66,6 +67,22 @@ export function editorOf(records, commentId, sessionId, nowMs) {
   const hit = livePresences(records, sessionId, nowMs)
     .find(r => r.editingCommentId === commentId);
   return hit ? hit.name : null;
+}
+
+// Names of other live sessions merely reading this comment. Reuses
+// livePresences so a stale or clock-skewed record can never appear as a
+// viewer, for the same reasons it can never appear as an editor.
+//
+// A record editing this comment is deliberately excluded even if it also
+// carries a matching viewingCommentId: a person is not both viewing and
+// editing at once, and showing them under both labels reads as two people
+// in the room instead of one. Editing is the more specific, more visible
+// state, so it wins and the record is left out of the viewer list.
+export function viewersOf(records, commentId, sessionId, nowMs) {
+  if (!commentId) return [];
+  return livePresences(records, sessionId, nowMs)
+    .filter(r => r.viewingCommentId === commentId && r.editingCommentId !== commentId)
+    .map(r => r.name);
 }
 
 export function sweepable(records, nowMs) {

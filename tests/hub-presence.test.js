@@ -1,17 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PRESENCE_TIMEOUT_MS, presenceRecord, livePresences, editorOf, sweepable, presenceFileName, ofTool,
+  PRESENCE_TIMEOUT_MS, presenceRecord, livePresences, editorOf, viewersOf, sweepable, presenceFileName, ofTool,
 } from '../assets/js/hub-presence.js';
 
 const NOW = Date.parse('2026-07-30T14:00:00.000Z');
 const at = msAgo => new Date(NOW - msAgo).toISOString();
-const rec = (sessionId, name, msAgo, editingCommentId = null, tool = 'hub') =>
-  ({ sessionId, name, tool, editingCommentId, lastSeen: at(msAgo) });
+const rec = (sessionId, name, msAgo, editingCommentId = null, tool = 'hub', viewingCommentId = null) =>
+  ({ sessionId, name, tool, editingCommentId, viewingCommentId, lastSeen: at(msAgo) });
 
 test('presenceRecord carries identity, tool and edit target', () => {
   const r = presenceRecord({ name: 'Harvey', sessionId: 's1', tool: 'hub', editingCommentId: 'c9', nowIso: at(0) });
-  assert.deepEqual(r, { name: 'Harvey', sessionId: 's1', tool: 'hub', editingCommentId: 'c9', lastSeen: at(0) });
+  // viewingCommentId defaults to null exactly as editingCommentId does, so it
+  // is always present on the record, whether or not the caller passed it.
+  assert.deepEqual(r, { name: 'Harvey', sessionId: 's1', tool: 'hub', editingCommentId: 'c9', viewingCommentId: null, lastSeen: at(0) });
+});
+
+test('presenceRecord carries viewingCommentId, defaulting to null', () => {
+  const withView = presenceRecord({ name: 'Sarah', sessionId: 's2', tool: 'hub', viewingCommentId: 'c9', nowIso: at(0) });
+  assert.equal(withView.viewingCommentId, 'c9');
+  const without = presenceRecord({ name: 'Sarah', sessionId: 's2', tool: 'hub', nowIso: at(0) });
+  assert.equal(without.viewingCommentId, null);
 });
 
 test('ofTool separates hub and brain sessions', () => {
@@ -97,5 +106,34 @@ test('ordinary sub-second clock skew ahead of now is still live', () => {
   const records = [rec('s2', 'Tom', -500)]; // 500ms in the future
   assert.equal(livePresences(records, 's1', NOW).length, 1);
   assert.deepEqual(sweepable(records, NOW), []);
+});
+
+test('viewersOf returns other live viewers of a comment, sorted by name, never the caller', () => {
+  const records = [
+    rec('s1', 'Me', 0, null, 'hub', 'c9'),
+    rec('s2', 'Tom', 0, null, 'hub', 'c9'),
+    rec('s3', 'Anna', 0, null, 'hub', 'c9'),
+  ];
+  assert.deepEqual(viewersOf(records, 'c9', 's1', NOW), ['Anna', 'Tom']);
+});
+
+test('viewersOf excludes a stale record', () => {
+  const records = [rec('s2', 'Sarah', 120000, null, 'hub', 'c9')];
+  assert.deepEqual(viewersOf(records, 'c9', 's1', NOW), []);
+});
+
+test('viewersOf excludes a record editing the same comment, even if it also carries a matching viewingCommentId', () => {
+  const records = [rec('s2', 'Sarah', 0, 'c9', 'hub', 'c9')];
+  assert.deepEqual(viewersOf(records, 'c9', 's1', NOW), []);
+});
+
+test('viewersOf never returns a viewer of a different comment', () => {
+  const records = [rec('s2', 'Sarah', 0, null, 'hub', 'cA')];
+  assert.deepEqual(viewersOf(records, 'cB', 's1', NOW), []);
+});
+
+test('viewersOf returns [] when nobody is viewing', () => {
+  const records = [rec('s2', 'Sarah', 0, null, 'hub', null)];
+  assert.deepEqual(viewersOf(records, 'c9', 's1', NOW), []);
 });
 
