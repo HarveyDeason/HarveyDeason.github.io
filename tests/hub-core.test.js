@@ -98,6 +98,89 @@ test('merge of two sides that both issued HUB-0002 re-sequences deterministicall
   assert.equal(m1.refCounter, 3);
 });
 
+// A ref, once issued, must never move to a different comment: these refs are
+// printed into Excel logs distributed to ACC, and a ref that later means a
+// different comment is a traceability break in an already-distributed record.
+// resequenceRefs used to break collisions on dateRaised — a business date the
+// commenter picks — so a comment Harvey typed today could silently lose its
+// ref to an older-dated import purely because the import described an
+// earlier site event. The fix breaks collisions on creation order instead.
+
+test('ref stability: an existing comment never loses its ref to an older-dated import', () => {
+  const IC = (id, ref, dateRaised, updatedAt) =>
+    ({ id, ref, dateRaised, updatedAt, productIds: ['p1'], status: 'open', description: id });
+  const mine = { ...emptyState('2026-07-31T10:00:00Z'), refCounter: 4,
+    comments: [IC('typed-by-harvey', 'HUB-0004', '2026-07-31', '2026-07-31T10:00:00Z')] };
+  const disk = { ...emptyState('2026-07-31T10:00:01Z'), refCounter: 5,
+    comments: [
+      IC('import-a', 'HUB-0004', '2026-07-20', '2026-07-31T10:00:01Z'),
+      IC('import-b', 'HUB-0005', '2026-07-21', '2026-07-31T10:00:01Z'),
+    ] };
+  const m = mergeState(mine, disk);
+  const byId = Object.fromEntries(m.comments.map(c => [c.id, c.ref]));
+  assert.equal(byId['typed-by-harvey'], 'HUB-0004'); // kept — created first
+  assert.equal(byId['import-b'], 'HUB-0005'); // already unique — untouched
+  assert.equal(byId['import-a'], 'HUB-0006'); // lost the collision — bumped
+  // The refs actually in use must all be distinct.
+  assert.equal(new Set(Object.values(byId)).size, 3);
+});
+
+test('ref stability: legacy comment with no createdAt still gets a stable, repeatable ref', () => {
+  const IC = (id, ref, dateRaised, updatedAt) =>
+    ({ id, ref, dateRaised, updatedAt, productIds: ['p1'], status: 'open', description: id });
+  const mine = { ...emptyState('t'), refCounter: 3,
+    comments: [IC('legacy', 'HUB-0003', '2026-07-10', '2026-07-10T09:00:00Z')] };
+  const disk = { ...emptyState('t'), refCounter: 3,
+    comments: [IC('other', 'HUB-0003', '2026-07-11', '2026-07-11T09:00:00Z')] };
+  const first = mergeState(mine, disk);
+  const second = mergeState(mine, disk);
+  assert.deepEqual(
+    first.comments.map(c => [c.id, c.ref]).sort(),
+    second.comments.map(c => [c.id, c.ref]).sort(),
+  );
+  const legacyRef = first.comments.find(c => c.id === 'legacy').ref;
+  assert.ok(legacyRef); // stable, deterministic, non-empty
+});
+
+test('ref stability: mergeState ref assignment is symmetric regardless of argument order', () => {
+  const IC = (id, ref, dateRaised, updatedAt, createdAt) =>
+    ({ id, ref, dateRaised, updatedAt, createdAt, productIds: ['p1'], status: 'open', description: id });
+  const a = { ...emptyState('t'), refCounter: 4,
+    comments: [IC('ca', 'HUB-0004', '2026-07-25', '2026-07-25T09:00:00Z', '2026-07-20T08:00:00Z')] };
+  const b = { ...emptyState('t'), refCounter: 4,
+    comments: [IC('cb', 'HUB-0004', '2026-07-10', '2026-07-10T09:00:00Z', '2026-07-22T08:00:00Z')] };
+  const m1 = mergeState(a, b);
+  const m2 = mergeState(b, a);
+  assert.deepEqual(
+    m1.comments.map(c => [c.id, c.ref]).sort(),
+    m2.comments.map(c => [c.id, c.ref]).sort(),
+  );
+  // ca's createdAt (07-20) is earlier than cb's (07-22), so ca keeps HUB-0004
+  // in both directions even though cb has the earlier dateRaised.
+  const ca1 = m1.comments.find(c => c.id === 'ca');
+  assert.equal(ca1.ref, 'HUB-0004');
+});
+
+test('ref stability: an existing unique ref is never reassigned when unrelated comments are added', () => {
+  const IC = (id, ref, dateRaised) =>
+    ({ id, ref, dateRaised, updatedAt: 't', productIds: ['p1'], status: 'open', description: id });
+  const mine = { ...emptyState('t'), refCounter: 2,
+    comments: [
+      IC('c1', 'HUB-0001', '2026-07-01'),
+      IC('c2', 'HUB-0002', '2026-07-02'),
+    ] };
+  const disk = { ...emptyState('t'), refCounter: 2,
+    comments: [
+      IC('c1', 'HUB-0001', '2026-07-01'),
+      IC('c3', 'HUB-0003', '2026-07-03'), // new, no collision
+    ] };
+  const m = mergeState(mine, disk);
+  const byId = Object.fromEntries(m.comments.map(c => [c.id, c.ref]));
+  assert.equal(byId.c1, 'HUB-0001');
+  assert.equal(byId.c2, 'HUB-0002'); // untouched by the unrelated addition
+  assert.equal(byId.c3, 'HUB-0003');
+});
+
 import { filterComments, commentCounts, productCounts, daysOpen, latestRevisions } from '../assets/js/hub-core.js';
 
 test('filterComments ANDs filters and searches text case-insensitively', () => {
