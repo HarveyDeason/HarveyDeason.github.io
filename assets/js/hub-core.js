@@ -57,9 +57,38 @@ function refNumber(ref) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+// A ref, once issued, must never move to a different comment: these refs are
+// printed into Excel logs that get uploaded to ACC, and a ref that later
+// means something else is a traceability break in an already-distributed
+// record. resequenceRefs only reassigns a ref on an actual COLLISION (two
+// comments holding the same string), and the collision is won by whichever
+// comment was created first — not by dateRaised, which is a business date
+// the commenter picks and is routinely backdated (imported site feedback
+// about an issue raised weeks ago) or postdated relative to when the record
+// actually entered the ledger. Sorting collisions on dateRaised, as this used
+// to, meant a comment Harvey typed today could lose its ref to an older-dated
+// import purely because the import described an earlier event.
+//
+// createdAt is the real signal and wins whenever present. Comments written
+// before this field existed don't have it, and there is live data in that
+// shape already, so they need a deterministic fallback: updatedAt, which for
+// a comment that has never been edited equals its creation time and is
+// already relied on elsewhere in this file (mergeById) as the record's own
+// recency signal — unlike dateRaised it is a system timestamp, not a
+// business date, so it approximates creation order far better. dateRaised is
+// kept as a further fallback only for the (currently theoretical) case of a
+// comment missing both createdAt and updatedAt, and id is the final,
+// always-unique tiebreak so ordering is total and fully deterministic: two
+// clients merging the same records independently compute the same order,
+// because every key in the chain lives on the record itself and never on
+// which side of the merge it came from.
+function refSortKey(c) {
+  return c.createdAt || c.updatedAt || c.dateRaised || '';
+}
+
 export function resequenceRefs(state) {
   const ordered = [...state.comments].sort((x, y) =>
-    (x.dateRaised || '').localeCompare(y.dateRaised || '') || String(x.id).localeCompare(String(y.id)));
+    refSortKey(x).localeCompare(refSortKey(y)) || String(x.id).localeCompare(String(y.id)));
   let high = state.refCounter || 0;
   for (const c of ordered) high = Math.max(high, refNumber(c.ref));
   const seen = new Set();
