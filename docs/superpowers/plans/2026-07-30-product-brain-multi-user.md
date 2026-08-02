@@ -267,14 +267,31 @@ git commit --allow-empty -m "feat(brain-ui): local identity and enteredBy stampi
 
 ---
 
-### Task 4: Presence and soft lock on decisions
+### Task 4: Presence, viewing and soft lock on decisions
+
+> **Updated 2026-07-31 — this task originally described an editing-only design.**
+> Live testing of the Comments Hub showed that badging someone as "editing" merely
+> because they had a record open was wrong twice over: it cried wolf, and it made the
+> "Edit anyway" escape hatch appear when nobody was editing, so it read as a gate that
+> wasn't gating. The hub now separates the two, and the Decision Register must match.
+>
+> The mapping is cleaner here, because the tool already distinguishes them in its own
+> state: **`viewingDecisionId`** (a decision open read-only) is *viewing*, and
+> **`decisionForm`** being open for `edit`/`supersede` — plus `editingDocId` — is
+> *editing*. Wire presence to those existing variables rather than inventing new ones.
+>
+> Leaving an edit form should fall back to **viewing** if the record is still on screen,
+> not clear presence outright — you have not left the record just because you left the
+> form.
 
 **Files:**
 - Modify: `tools-src/product-brain.html`
 
 **Interfaces:**
-- Consumes: `hub-presence.js` (hub plan Task 3), `HubSync.writeFile` (hub plan Task 1).
-- Produces: `presenceRecords`, `setEditing(recordId)`, `renderPresence()`.
+- Consumes: `assets/js/hub-presence.js` — already built and tested, including
+  `presenceRecord({..., editingCommentId, viewingCommentId, ...})`, `editorOf(...)`,
+  **`viewersOf(records, recordId, sessionId, nowMs)`**, `ofTool(records, 'brain')`.
+- Produces: `presenceRecords`, `setPresenceTarget(recordId, mode)`, `renderPresence()`.
 
 - [ ] **Step 1: Import the module**
 
