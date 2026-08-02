@@ -32,6 +32,24 @@ test('mergeBrainState: later updatedAt wins; tombstones respected; lists deduped
   assert.equal(c.decisions.length, 0);
 });
 
+test('emptyBrainState has a history collection', () => {
+  assert.deepEqual(emptyBrainState('T').history, []);
+});
+
+test('mergeBrainState unions history from both sides — no entry is ever lost', () => {
+  const e = (id, recordId) => ({ id, recordId, recordType: 'decision', at: 'T', by: 'X', changes: [] });
+  const local = { ...emptyBrainState('T'), history: [e('h1', 'd1')] };
+  const disk  = { ...emptyBrainState('T'), history: [e('h2', 'd1')] };
+  assert.deepEqual(mergeBrainState(local, disk).history.map(x => x.id).sort(), ['h1', 'h2']);
+});
+
+test('history survives a tombstoned decision — a deleted decision still has a trail', () => {
+  const local = { ...emptyBrainState('T'),
+    history: [{ id: 'h1', recordId: 'd1', recordType: 'decision', at: 'T', by: 'X', changes: [] }],
+    tombstones: { d1: '2026-08-02T10:00:00Z' } };
+  assert.equal(mergeBrainState(local, emptyBrainState('T')).history.length, 1);
+});
+
 test('gzip round-trips text incl. unicode and page markers', async () => {
   const text = '[[p1]] Air relief valve — HAZOP said ≥ DN80\n[[p2]] more';
   assert.equal(await gunzipText(await gzipText(text)), text);

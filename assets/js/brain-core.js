@@ -16,6 +16,7 @@ export function emptyBrainState(nowIso) {
     documents: [],
     lists: { tags: [], projects: [], docTypes: DEFAULT_DOC_TYPES.slice() },
     tombstones: {},
+    history: [],
   };
 }
 
@@ -28,6 +29,11 @@ export function mergeBrainState(local, disk) {
     savedAt: (l.savedAt || '') > (d.savedAt || '') ? l.savedAt : d.savedAt,
     decisions: mergeById(l.decisions, d.decisions, tombstones),
     documents: mergeById(l.documents, d.documents, tombstones),
+    // History is unioned by entry id, not filtered by tombstones: a deleted
+    // decision's trail must survive the deletion, and history entry ids are
+    // distinct from record ids so an empty tombstone map here is always safe
+    // — it can never accidentally resurrect a tombstoned decision.
+    history: mergeById(l.history || [], d.history || [], {}),
     lists: {
       tags: mergeList(l.lists?.tags, d.lists?.tags),
       projects: mergeList(l.lists?.projects, d.lists?.projects),
