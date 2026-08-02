@@ -11,9 +11,16 @@ test('case 1: register.json directly present -> legacy, always wins', () => {
   assert.deepEqual(r, { mode: 'legacy', registerSubfolder: null });
 });
 
-test('case 1 beats case 2: register.json AND hub-data.json both present -> legacy', () => {
+// This once asserted the opposite — that a register.json in the root made the
+// folder "legacy" even alongside hub-data.json. That was wrong, and it broke a
+// real hub folder: a 10 KB register.json left over from the P&ID tool once
+// being pointed at the hub root won over the 1.8 MB real register in the
+// subfolder, so the tool read the stale file and reported no tags at all.
+// hub-data.json is the only unambiguous marker of a hub root. Do not reinstate
+// the old precedence.
+test('hub-data.json wins over a stray register.json in the root', () => {
   const r = resolveConnectMode({ hasRegisterHere: true, hasHubDataHere: true, registerSubfolders: ['P&ID Register'] });
-  assert.deepEqual(r, { mode: 'legacy', registerSubfolder: null });
+  assert.deepEqual(r, { mode: 'hub-root', registerSubfolder: 'P&ID Register' });
 });
 
 test('case 2: hub-data.json present, no register subfolder yet -> hub-root, conventional name, not created', () => {
@@ -147,4 +154,31 @@ test('a product with pidDrawings not an array degrades to no drawings, not a thr
     comments: [C('c1', ['p1'], 'open')],
   };
   assert.equal(commentCountsByDrawing(hub).size, 0);
+});
+
+// ── Precedence: hub-data.json is the authority, not register.json ────────
+// Found in real use: a hub root can legitimately contain a register.json —
+// left behind when the P&ID tool was once pointed at the hub folder and, in
+// legacy mode, treated it as its own register folder. Checking "register here"
+// FIRST made that stray win, so the tool read a 10 KB leftover instead of the
+// 1.8 MB real register in the subfolder, and reported "legacy, no hub link".
+// hub-data.json is the only unambiguous marker of a hub root.
+test('a stray register.json in the hub root does not defeat hub-root detection', () => {
+  assert.deepEqual(
+    resolveConnectMode({ hasRegisterHere: true, hasHubDataHere: true, registerSubfolders: ['P&ID Tag Register'] }),
+    { mode: 'hub-root', registerSubfolder: 'P&ID Tag Register' });
+});
+
+// A hub root holding the register directly, with no subfolder, is a legitimate
+// combined layout — use that folder rather than creating a second register.
+test('hub root that IS the register folder uses itself, not a new subfolder', () => {
+  assert.deepEqual(
+    resolveConnectMode({ hasRegisterHere: true, hasHubDataHere: true, registerSubfolders: [] }),
+    { mode: 'hub-root', registerSubfolder: null });
+});
+
+test('no hub-data: a register here is still plain legacy', () => {
+  assert.deepEqual(
+    resolveConnectMode({ hasRegisterHere: true, hasHubDataHere: false, registerSubfolders: [] }),
+    { mode: 'legacy', registerSubfolder: null });
 });

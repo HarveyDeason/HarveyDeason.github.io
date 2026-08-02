@@ -53,18 +53,35 @@ export function resolveConnectMode(facts) {
     .filter(Boolean)
     .sort();
 
-  // Case 1: an existing register folder always wins.
+  // hub-data.json is the ONLY unambiguous marker of a hub root, so it is
+  // checked first. A register.json sitting in the root proves nothing: one
+  // gets left behind whenever the P&ID tool is pointed at the hub folder and,
+  // in legacy mode, treats it as its own register folder. Testing "register
+  // here" first let that leftover win, so the tool read a small stale file
+  // instead of the real register in the subfolder and reported itself legacy.
+  if (f.hasHubDataHere) {
+    // A subfolder register is the real one — the documented layout, and the
+    // file that actually holds the tags.
+    if (subfolders.length) {
+      return { mode: 'hub-root', registerSubfolder: subfolders[0] };
+    }
+    // No subfolder, but a register right here: a legitimate combined layout
+    // where one folder serves every tool. Use it rather than creating a
+    // second register alongside the existing one.
+    if (f.hasRegisterHere) {
+      return { mode: 'hub-root', registerSubfolder: null };
+    }
+    // A hub root whose register subfolder does not exist yet. Named, not
+    // created — only a real save may bring it into existence, so connecting
+    // never writes a stray register.json into the root.
+    return { mode: 'hub-root', registerSubfolder: CONVENTIONAL_REGISTER_SUBFOLDER };
+  }
+
+  // No hub-data.json below here, so this is not a hub root.
   if (f.hasRegisterHere) {
     return { mode: 'legacy', registerSubfolder: null };
   }
 
-  // Case 2: hub-data.json is the reliable marker that this folder is the
-  // hub root, even when its register subfolder is still empty.
-  if (f.hasHubDataHere) {
-    return { mode: 'hub-root', registerSubfolder: subfolders[0] || CONVENTIONAL_REGISTER_SUBFOLDER };
-  }
-
-  // Case 3: no hub-data.json, but a subfolder already holds a register.
   if (subfolders.length) {
     return { mode: 'hub-root', registerSubfolder: subfolders[0] };
   }
