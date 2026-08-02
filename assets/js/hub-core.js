@@ -21,6 +21,7 @@ export function emptyState(nowIso) {
     lists: { categories: DEFAULT_CATEGORIES.slice(), sources: DEFAULT_SOURCES.slice() },
     tombstones: {},
     refCounter: 0,
+    history: [],
   };
 }
 
@@ -33,6 +34,11 @@ export function mergeState(local, disk) {
     savedAt: (l.savedAt || '') > (d.savedAt || '') ? l.savedAt : d.savedAt,
     products: mergeById(l.products || [], d.products || [], tombstones),
     comments: mergeById(l.comments || [], d.comments || [], tombstones),
+    // History is unioned by entry id, not filtered by tombstones: a deleted
+    // comment's trail must survive the deletion, and history entry ids are
+    // distinct from record ids so an empty tombstone map here is always safe
+    // — it can never accidentally resurrect a tombstoned comment.
+    history: mergeById(l.history || [], d.history || [], {}),
     lists: {
       categories: mergeList(l.lists && l.lists.categories, d.lists && d.lists.categories),
       sources: mergeList(l.lists && l.lists.sources, d.lists && d.lists.sources),

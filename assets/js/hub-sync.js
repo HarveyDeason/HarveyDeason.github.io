@@ -61,6 +61,53 @@ export function conflictFields(mine, theirs) {
   return out.sort();
 }
 
+// ── Audit trail ──────────────────────────────────────────────────────────
+// History lives in its own top-level collection (state.history), never
+// nested inside the record it describes. mergeById resolves collisions per
+// record, last-updatedAt-wins — a comment.history array would be discarded
+// wholesale whenever that record lost a merge, leaving gaps exactly when two
+// people were editing at once. A separate collection merged by entry id
+// (see hub-core.js / brain-core.js mergeState) unions instead of overwriting,
+// so no entry can ever be lost.
+
+export function diffRecord(before, after, ignoreFields) {
+  const ignore = new Set(ignoreFields || []);
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const out = [];
+  for (const k of keys) {
+    if (ignore.has(k)) continue;
+    const from = (before || {})[k];
+    const to = (after || {})[k];
+    // Key-order-sensitive for nested objects, same caveat as conflictFields
+    // above: fine here, these records are flat scalars plus arrays (whose
+    // order IS meaningful), and the result only names fields in a trail the
+    // user is already reading.
+    if (JSON.stringify(from) !== JSON.stringify(to)) out.push({ field: k, from, to });
+  }
+  return out.sort((a, b) => a.field.localeCompare(b.field));
+}
+
+export function historyEntry({ recordId, recordType, by, nowIso, changes }) {
+  return { id: crypto.randomUUID(), recordId, recordType, at: nowIso, by, changes: changes || [] };
+}
+
+// A creation marker with empty changes, so a trail starts at the beginning
+// rather than mid-story — the first thing anyone sees when they open the
+// history is "this existed", not the diff of its first edit.
+export function createEntry({ recordId, recordType, by, nowIso }) {
+  return historyEntry({ recordId, recordType, by, nowIso, changes: [] });
+}
+
+// Newest first. Timestamps alone are not a total order — two entries can
+// share a `nowIso` — so tie-break on id, which is unique and identical on
+// every client, meaning two people merging the same history always see it
+// in the same order.
+export function historyFor(history, recordId) {
+  return (history || [])
+    .filter(e => e && e.recordId === recordId)
+    .sort((a, b) => (b.at || '').localeCompare(a.at || '') || String(a.id).localeCompare(String(b.id)));
+}
+
 // enteredBy is the only identity the tool stamps automatically, because it is
 // the only one it actually knows: who was at the keyboard. raisedBy and
 // closedBy describe real-world work that is routinely done by someone else, so

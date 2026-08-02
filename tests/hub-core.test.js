@@ -39,6 +39,24 @@ test('mergeState: union of distinct records from both sides', () => {
   assert.equal(mergeState(local, disk).products.length, 2);
 });
 
+test('emptyState has a history collection', () => {
+  assert.deepEqual(emptyState('T').history, []);
+});
+
+test('mergeState unions history from both sides — no entry is ever lost', () => {
+  const e = (id, recordId) => ({ id, recordId, recordType: 'comment', at: 'T', by: 'X', changes: [] });
+  const local = { ...emptyState('T'), history: [e('h1', 'c1')] };
+  const disk  = { ...emptyState('T'), history: [e('h2', 'c1')] };
+  assert.deepEqual(mergeState(local, disk).history.map(x => x.id).sort(), ['h1', 'h2']);
+});
+
+test('history survives a tombstoned record — a deleted comment still has a trail', () => {
+  const local = { ...emptyState('T'),
+    history: [{ id: 'h1', recordId: 'c1', recordType: 'comment', at: 'T', by: 'X', changes: [] }],
+    tombstones: { c1: '2026-08-02T10:00:00Z' } };
+  assert.equal(mergeState(local, emptyState('T')).history.length, 1);
+});
+
 test('mergeState: tombstone at/after updatedAt removes record; max tombstone kept', () => {
   const local = { ...emptyState('t'), comments: [C('c1', '2026-07-24T10:00:00Z')] };
   const disk  = { ...emptyState('t'), tombstones: { c1: '2026-07-24T10:00:00Z' } };
