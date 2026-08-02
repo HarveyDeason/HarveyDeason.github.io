@@ -88,3 +88,49 @@ test('encryptText produces a 12-byte IV', async () => {
   const { iv } = await encryptText('x', keyB64);
   assert.equal(Buffer.from(iv, 'base64').length, 12);
 });
+
+// ── Loader-page self-containment ─────────────────────────────────────────
+// Every republish generates a NEW random salt. The loader page used to carry
+// only the ciphertext and fetch the salt separately from vault-manifest.json,
+// so a browser holding a CACHED older manifest would derive an old key, pass
+// the verifier check (the old manifest is internally consistent), then fail to
+// decrypt the fresh payload — surfacing as "Something went wrong opening this
+// instrument" rather than "Wrong code". Embedding the salt and verifier in the
+// same page as the ciphertext makes that mismatch structurally impossible.
+import { renderLoaderPage } from '../scripts/lock-tools.mjs';
+
+test('loader page embeds the manifest so payload and salt cannot come from different builds', async () => {
+  const manifest = await makeManifest('correct horse');
+  const keyB64 = await deriveKey('correct horse', manifest.salt);
+  const payload = await encryptText('<h1>tool</h1>', keyB64);
+
+  const html = renderLoaderPage('demo', payload, manifest);
+  const block = /<script type="application\/json" id="vault-manifest">(.+?)<\/script>/s.exec(html);
+  assert.ok(block, 'loader page carries an embedded manifest block');
+
+  const embedded = JSON.parse(block[1]);
+  assert.equal(embedded.salt, manifest.salt);
+  assert.deepEqual(embedded.verifier, manifest.verifier);
+});
+
+test('the embedded manifest actually unlocks the payload on the same page', async () => {
+  const manifest = await makeManifest('correct horse');
+  const keyB64 = await deriveKey('correct horse', manifest.salt);
+  const payload = await encryptText('<h1>tool</h1>', keyB64);
+  const html = renderLoaderPage('demo', payload, manifest);
+
+  const m = JSON.parse(/<script type="application\/json" id="vault-manifest">(.+?)<\/script>/s.exec(html)[1]);
+  const p = JSON.parse(/<script type="application\/json" id="vault-payload">(.+?)<\/script>/s.exec(html)[1]);
+
+  const derived = await deriveKey('correct horse', m.salt);
+  assert.equal(await checkKey(derived, m), true);
+  assert.equal(await decryptText(p, derived), '<h1>tool</h1>');
+});
+
+test('the loader page never contains the plaintext it is protecting', async () => {
+  const manifest = await makeManifest('correct horse');
+  const keyB64 = await deriveKey('correct horse', manifest.salt);
+  const payload = await encryptText('SECRET-MARKER-TEXT', keyB64);
+  const html = renderLoaderPage('demo', payload, manifest);
+  assert.equal(html.includes('SECRET-MARKER-TEXT'), false);
+});

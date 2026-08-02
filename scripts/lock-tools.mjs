@@ -84,9 +84,17 @@ export function titleFromSlug(slug) {
  * ciphertext embedded as JSON, plus the browser unlock module. The
  * decrypted plaintext never appears in this file — only { iv, ct }.
  */
-export function renderLoaderPage(slug, payload) {
+export function renderLoaderPage(slug, payload, manifest) {
   const title = titleFromSlug(slug);
   const payloadJson = JSON.stringify(payload);
+  // The salt/verifier travel IN the page, next to the ciphertext they belong
+  // to. Every republish mints a new random salt, so when the page fetched the
+  // manifest separately a browser holding a cached older copy would derive an
+  // old key, pass the verifier check (that old manifest being self-consistent)
+  // and then fail on the fresh payload — reported to the user as a vague
+  // "something went wrong" rather than a wrong code. Shipping both together
+  // makes a cross-build mismatch impossible.
+  const manifestJson = JSON.stringify(manifest || {});
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -115,6 +123,7 @@ export function renderLoaderPage(slug, payload) {
       </figure>
     </div>
   </main>
+  <script type="application/json" id="vault-manifest">${manifestJson}</script>
   <script type="application/json" id="vault-payload">${payloadJson}</script>
   <script type="module" src="/assets/js/vault.js"></script>
 </body>
@@ -123,9 +132,9 @@ export function renderLoaderPage(slug, payload) {
 }
 
 /** Writes one loader page as tools/<slug>.html. */
-export async function writeLoaderPage(toolsDir, slug, payload) {
+export async function writeLoaderPage(toolsDir, slug, payload, manifest) {
   const dest = path.join(toolsDir, `${slug}.html`);
-  await fs.writeFile(dest, renderLoaderPage(slug, payload), 'utf8');
+  await fs.writeFile(dest, renderLoaderPage(slug, payload, manifest), 'utf8');
   return dest;
 }
 
@@ -192,7 +201,7 @@ async function main() {
     const slug = slugFromFilename(filename);
     const plaintext = await fs.readFile(path.join(SRC_DIR, filename), 'utf8');
     const payload = await encryptToolPayload(plaintext, keyB64);
-    await writeLoaderPage(TOOLS_DIR, slug, payload);
+    await writeLoaderPage(TOOLS_DIR, slug, payload, manifest);
     console.log(`${filename} -> ${slug}.html (${Buffer.byteLength(plaintext, 'utf8')} bytes)`);
   }
 

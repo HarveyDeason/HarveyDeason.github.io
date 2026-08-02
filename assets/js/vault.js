@@ -68,6 +68,30 @@ function readPayload() {
   return JSON.parse(el.textContent);
 }
 
+// Prefer the salt/verifier embedded in this page, because they were generated
+// in the same build as the ciphertext sitting next to them. Fetching them
+// separately used to let a browser pair a CACHED older manifest with a fresh
+// payload: the old salt derives an old key, that key passes the verifier check
+// (the old manifest being self-consistent), and only the real decrypt fails —
+// which surfaces as "something went wrong" instead of "wrong code", because
+// the code was in fact correct.
+//
+// The network fallback stays for pages built before the manifest was embedded,
+// and uses no-store so a stale copy can never be served for one that changes
+// on every republish.
+async function readManifest() {
+  const el = document.getElementById('vault-manifest');
+  if (el) {
+    try {
+      const embedded = JSON.parse(el.textContent);
+      if (embedded && embedded.salt && embedded.verifier) return embedded;
+    } catch { /* fall through to the network copy */ }
+  }
+  const res = await fetch(MANIFEST_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error('manifest unavailable');
+  return res.json();
+}
+
 /** Replaces the whole document with the decrypted tool's own HTML. */
 function openTool(html) {
   document.open();
@@ -136,9 +160,7 @@ async function init() {
     if (errorEl) errorEl.textContent = '';
 
     try {
-      const manifestRes = await fetch(MANIFEST_URL);
-      if (!manifestRes.ok) throw new Error('manifest unavailable');
-      const manifest = await manifestRes.json();
+      const manifest = await readManifest();
 
       const keyB64 = await deriveKey(passphrase, manifest.salt, subtle);
       const ok = await checkKey(keyB64, manifest, subtle);
