@@ -78,3 +78,52 @@ export function resolveConnectMode(facts) {
 export function connectModeLabel(mode) {
   return mode === 'hub-root' ? 'linked to hub' : 'legacy (no hub link)';
 }
+
+// ── Comment counts per drawing (Task 3) ─────────────────────────────────
+//
+// The join: a hub product carries pidDrawings[]; a hub comment carries
+// productIds[]. A drawing's comments are the comments of every product that
+// lists that drawing. hubData is read read-only from hub-data.json, written
+// by the Comments Hub, not this tool — treat every shape as untrusted:
+// missing fields, non-array collections, dangling productIds (a tombstoned
+// or otherwise-missing product) must all degrade to "no count", never throw.
+export function commentCountsByDrawing(hubData) {
+  const out = new Map();
+  const products = Array.isArray(hubData && hubData.products) ? hubData.products : [];
+  const comments = Array.isArray(hubData && hubData.comments) ? hubData.comments : [];
+  if (!products.length || !comments.length) return out;
+
+  const productById = new Map();
+  for (const p of products) {
+    if (p && p.id) productById.set(p.id, p);
+  }
+
+  for (const c of comments) {
+    if (!c || typeof c !== 'object') continue;
+    const status = c.status;
+    if (status !== 'open' && status !== 'in_progress' && status !== 'closed') continue;
+
+    // A comment naming several products, two of which share a drawing, must
+    // count once for that drawing — collect into a Set keyed by drawing
+    // name before touching any counters, so the dedup happens per comment,
+    // not per product.
+    const drawings = new Set();
+    for (const pid of (Array.isArray(c.productIds) ? c.productIds : [])) {
+      const p = productById.get(pid);
+      if (!p) continue; // tombstoned or otherwise-missing product: ignore, don't throw
+      for (const d of (Array.isArray(p.pidDrawings) ? p.pidDrawings : [])) {
+        if (d) drawings.add(d);
+      }
+    }
+
+    for (const d of drawings) {
+      if (!out.has(d)) out.set(d, { open: 0, inProgress: 0, closed: 0 });
+      const bucket = out.get(d);
+      if (status === 'open') bucket.open += 1;
+      else if (status === 'in_progress') bucket.inProgress += 1;
+      else bucket.closed += 1;
+    }
+  }
+
+  return out;
+}
