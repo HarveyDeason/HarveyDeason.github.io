@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeById, mergeList, mergeTombstones } from '../assets/js/hub-sync.js';
 import { detectConflict, conflictFields, stampEnteredBy } from '../assets/js/hub-sync.js';
+import { diffRecord, historyEntry, createEntry, historyFor } from '../assets/js/hub-sync.js';
 
 const C = (id, updatedAt, extra = {}) => ({ id, updatedAt, ...extra });
 
@@ -60,6 +61,52 @@ test('mergeTombstones takes max per id', () => {
   assert.deepEqual(
     mergeTombstones({ a: '2026-01-01T00:00:00Z' }, { a: '2026-02-01T00:00:00Z', b: '2026-01-05T00:00:00Z' }),
     { a: '2026-02-01T00:00:00Z', b: '2026-01-05T00:00:00Z' });
+});
+
+test('diffRecord reports only changed fields, sorted, ignoring what it is told to', () => {
+  const before = { id: 'c1', description: 'Old text', priority: 'low', updatedAt: 'A' };
+  const after  = { id: 'c1', description: 'New text', priority: 'low', updatedAt: 'B' };
+  assert.deepEqual(diffRecord(before, after, ['updatedAt']),
+    [{ field: 'description', from: 'Old text', to: 'New text' }]);
+});
+
+test('diffRecord catches a field appearing or disappearing', () => {
+  assert.deepEqual(diffRecord({ a: 1 }, { a: 1, b: 2 }, []), [{ field: 'b', from: undefined, to: 2 }]);
+  assert.deepEqual(diffRecord({ a: 1, b: 2 }, { a: 1 }, []), [{ field: 'b', from: 2, to: undefined }]);
+});
+
+test('diffRecord returns empty when nothing changed', () => {
+  assert.deepEqual(diffRecord({ a: 1 }, { a: 1 }, []), []);
+});
+
+test('historyEntry carries a unique id so entries union rather than overwrite on merge', () => {
+  const a = historyEntry({ recordId: 'c1', recordType: 'comment', by: 'Harvey', nowIso: 'T', changes: [] });
+  const b = historyEntry({ recordId: 'c1', recordType: 'comment', by: 'Harvey', nowIso: 'T', changes: [] });
+  assert.notEqual(a.id, b.id);
+  assert.equal(a.recordId, 'c1');
+  assert.equal(a.by, 'Harvey');
+});
+
+test('createEntry marks creation with no changes', () => {
+  const e = createEntry({ recordId: 'c1', recordType: 'comment', by: 'Harvey', nowIso: 'T' });
+  assert.deepEqual(e.changes, []);
+  assert.equal(e.recordId, 'c1');
+});
+
+test('historyFor filters to one record, newest first', () => {
+  const h = [
+    historyEntry({ recordId: 'c1', recordType: 'comment', by: 'A', nowIso: '2026-08-01T09:00:00Z', changes: [] }),
+    historyEntry({ recordId: 'c2', recordType: 'comment', by: 'B', nowIso: '2026-08-01T10:00:00Z', changes: [] }),
+    historyEntry({ recordId: 'c1', recordType: 'comment', by: 'C', nowIso: '2026-08-01T11:00:00Z', changes: [] }),
+  ];
+  const out = historyFor(h, 'c1');
+  assert.deepEqual(out.map(e => e.by), ['C', 'A']);
+});
+
+test('historyFor is deterministic when timestamps tie', () => {
+  const mk = by => historyEntry({ recordId: 'c1', recordType: 'comment', by, nowIso: 'T', changes: [] });
+  const h = [mk('A'), mk('B')];
+  assert.deepEqual(historyFor(h, 'c1').map(e => e.id), historyFor([...h].reverse(), 'c1').map(e => e.id));
 });
 
 import { createSyncEngine } from '../assets/js/hub-sync.js';
