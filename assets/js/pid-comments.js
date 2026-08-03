@@ -144,3 +144,85 @@ export function commentCountsByDrawing(hubData) {
 
   return out;
 }
+
+// ── drawingNameFromFile (Task 5) ─────────────────────────────────────────
+//
+// 2026-08-03 incident: import derives the drawing name straight from the
+// filename. Archived PDFs are named `<drawing>_<rev>.pdf` (see archivePDF /
+// the fname built at save time), so re-importing from `archive/` — the
+// obvious move during recovery — turned every drawing name into
+// `<drawing>_<rev>`, and the tool then appended the revision AGAIN on the
+// next archive write. It corrupted names at exactly the moment the user was
+// already in trouble.
+//
+// The revision shapes actually accepted by this tool (see detectRevision
+// and the rev-modal placeholder/help text in tools-src/pid-tag-register.html)
+// are short: 1-3 letters optionally followed by 1-2 digits — A, B, C, C01,
+// C02, P01, P1, IFD, IFC. That is deliberately narrow. A longer or
+// digit-less trailing chunk (e.g. "HOUSE" in "PUMP_HOUSE") is real drawing
+// name, not a revision, and must never be stripped.
+const REVISION_SUFFIX_RE = /^[A-Z]{1,3}\d{0,2}$/;
+
+export function drawingNameFromFile(fileName, revisions) {
+  let name = String(fileName == null ? '' : fileName)
+    .replace(/\.pdf$/i, '')
+    .replace(/\s*\(\d+\)$/, '');
+
+  const knownRevisions = new Set(
+    (Array.isArray(revisions) ? revisions : [])
+      .filter(Boolean)
+      .map(function (r) { return String(r).toUpperCase(); })
+  );
+
+  const underscoreIdx = name.lastIndexOf('_');
+  if (underscoreIdx > 0 && underscoreIdx < name.length - 1) {
+    const suffix = name.slice(underscoreIdx + 1);
+    const upperSuffix = suffix.toUpperCase();
+    if (REVISION_SUFFIX_RE.test(upperSuffix) || knownRevisions.has(upperSuffix)) {
+      return { name: name.slice(0, underscoreIdx), revisionFromName: upperSuffix };
+    }
+  }
+
+  return { name: name, revisionFromName: null };
+}
+
+// ── isDestructiveSave (Task 6) ───────────────────────────────────────────
+//
+// Tasks 1-5 fix the failures already found. This one is a backstop for the
+// ones nobody has found yet: every version of the 2026-08-03 incident had
+// the same shape — memory held far less than disk, and the save went ahead
+// silently. Guarding that shape, rather than any specific bug, is what
+// protects the register from the NEXT unknown defect.
+//
+// Threshold kept as a named constant so it can be tuned without hunting
+// through call sites. 0.5 means "a save that would remove more than half of
+// what's on disk needs a human to confirm it" — loose enough that normal
+// pruning/editing never trips it, tight enough to catch every shape the
+// incident actually took (142->0, 142->1, ...).
+const DESTRUCTIVE_LOSS_FRACTION = 0.5;
+
+export function isDestructiveSave(diskCount, memoryCount) {
+  // Fail safe: if either count cannot be trusted as a real, non-negative
+  // number, we cannot evaluate whether the save is safe — so treat it as
+  // destructive and let the caller block/confirm. A safety check that
+  // cannot run must never be treated as a pass; that was the entire failure
+  // mode of readRegisterJSON before this plan (Task 1) — "can't tell" quietly
+  // became "must be fine".
+  if (!isNonNegativeFiniteNumber(diskCount) || !isNonNegativeFiniteNumber(memoryCount)) {
+    return true;
+  }
+
+  // Nothing on disk yet: any memory content is a first save, never
+  // destructive, however small or large.
+  if (diskCount === 0) return false;
+
+  // Never shrinking, or growing: not destructive.
+  if (memoryCount >= diskCount) return false;
+
+  const remainingFraction = memoryCount / diskCount;
+  return remainingFraction <= (1 - DESTRUCTIVE_LOSS_FRACTION);
+}
+
+function isNonNegativeFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
