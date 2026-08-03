@@ -1,7 +1,7 @@
 // tests/pid-comments.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveConnectMode, connectModeLabel, commentCountsByDrawing,
+import { resolveConnectMode, connectModeLabel, commentCountsByDrawing, openCommentsByDrawing,
   CONVENTIONAL_REGISTER_SUBFOLDER, drawingNameFromFile, isDestructiveSave } from '../assets/js/pid-comments.js';
 
 // ── resolveConnectMode (Task 2) ─────────────────────────────────────────
@@ -154,6 +154,125 @@ test('a product with pidDrawings not an array degrades to no drawings, not a thr
     comments: [C('c1', ['p1'], 'open')],
   };
   assert.equal(commentCountsByDrawing(hub).size, 0);
+});
+
+// ── openCommentsByDrawing (Task 7) ───────────────────────────────────────
+
+const OC = (id, productIds, overrides) => ({
+  id, productIds, ref: 'HUB-0001', status: 'open',
+  priority: 'medium', dateRaised: '2026-01-01', raisedBy: 'A. Person',
+  description: 'A description.', ...overrides,
+});
+
+test('open comments: malformed/empty hub data returns an empty Map, never throws', () => {
+  assert.equal(openCommentsByDrawing(null).size, 0);
+  assert.equal(openCommentsByDrawing(undefined).size, 0);
+  assert.equal(openCommentsByDrawing({}).size, 0);
+  assert.equal(openCommentsByDrawing({ products: null, comments: null }).size, 0);
+  assert.equal(openCommentsByDrawing({ products: 'nope', comments: 'nope' }).size, 0);
+});
+
+test('open comments: one comment appears against every drawing of its product', () => {
+  const hub = {
+    products: [P('p1', ['D-001', 'D-002', 'D-003'])],
+    comments: [OC('c1', ['p1'])],
+  };
+  const grouped = openCommentsByDrawing(hub);
+  assert.equal(grouped.size, 3);
+  for (const d of ['D-001', 'D-002', 'D-003']) {
+    assert.equal(grouped.get(d).length, 1);
+    assert.equal(grouped.get(d)[0].id, 'c1');
+  }
+});
+
+test('open comments: a comment spanning two products that share a drawing is listed once, not twice', () => {
+  const hub = {
+    products: [P('p1', ['D-001']), P('p2', ['D-001', 'D-002'])],
+    comments: [OC('c1', ['p1', 'p2'])],
+  };
+  const grouped = openCommentsByDrawing(hub);
+  assert.equal(grouped.get('D-001').length, 1);
+  assert.equal(grouped.get('D-002').length, 1);
+});
+
+test('open comments: only open is included, not in_progress or closed', () => {
+  const hub = {
+    products: [P('p1', ['D-001'])],
+    comments: [
+      OC('c1', ['p1'], { status: 'open' }),
+      OC('c2', ['p1'], { status: 'in_progress' }),
+      OC('c3', ['p1'], { status: 'closed' }),
+    ],
+  };
+  const grouped = openCommentsByDrawing(hub);
+  assert.equal(grouped.get('D-001').length, 1);
+  assert.equal(grouped.get('D-001')[0].id, 'c1');
+});
+
+test('open comments: a drawing whose only comments are non-open gets no entry at all', () => {
+  const hub = {
+    products: [P('p1', ['D-001'])],
+    comments: [OC('c1', ['p1'], { status: 'closed' })],
+  };
+  assert.equal(openCommentsByDrawing(hub).size, 0);
+});
+
+test('open comments: sorted high priority first, then oldest first within a priority', () => {
+  const hub = {
+    products: [P('p1', ['D-001'])],
+    comments: [
+      OC('c-med-late', ['p1'], { priority: 'medium', dateRaised: '2026-03-01' }),
+      OC('c-high-late', ['p1'], { priority: 'high', dateRaised: '2026-02-01' }),
+      OC('c-low-early', ['p1'], { priority: 'low', dateRaised: '2026-01-01' }),
+      OC('c-high-early', ['p1'], { priority: 'high', dateRaised: '2026-01-01' }),
+      OC('c-med-early', ['p1'], { priority: 'medium', dateRaised: '2026-01-15' }),
+    ],
+  };
+  const ids = openCommentsByDrawing(hub).get('D-001').map(c => c.id);
+  assert.deepEqual(ids, [
+    'c-high-early', 'c-high-late', 'c-med-early', 'c-med-late', 'c-low-early',
+  ]);
+});
+
+test('open comments: a comment referencing a missing product is ignored, not thrown', () => {
+  const hub = {
+    products: [P('p1', ['D-001'])],
+    comments: [OC('c1', ['p1', 'ghost-product'])],
+  };
+  const grouped = openCommentsByDrawing(hub);
+  assert.equal(grouped.get('D-001').length, 1);
+  assert.equal(grouped.size, 1);
+});
+
+test('open comments: a comment referencing ONLY a missing product contributes nothing, and does not throw', () => {
+  const hub = {
+    products: [P('p1', ['D-001'])],
+    comments: [OC('c1', ['ghost-product'])],
+  };
+  assert.equal(openCommentsByDrawing(hub).size, 0);
+});
+
+test('open comments: a product whose pidDrawings is not an array degrades to no drawings, not a throw', () => {
+  const hub = {
+    products: [{ id: 'p1', pidDrawings: 'D-001' }],
+    comments: [OC('c1', ['p1'])],
+  };
+  assert.equal(openCommentsByDrawing(hub).size, 0);
+});
+
+test('open comments: commentCountsByDrawing is unaffected by the shared-join refactor', () => {
+  const hub = {
+    products: [P('p1', ['D-001', 'D-002']), P('p2', ['D-001'])],
+    comments: [
+      C('c1', ['p1'], 'open'),
+      C('c2', ['p1', 'p2'], 'open'),
+      C('c3', ['p1'], 'in_progress'),
+      C('c4', ['p1'], 'closed'),
+    ],
+  };
+  const counts = commentCountsByDrawing(hub);
+  assert.deepEqual(counts.get('D-001'), { open: 2, inProgress: 1, closed: 1 });
+  assert.deepEqual(counts.get('D-002'), { open: 2, inProgress: 1, closed: 1 });
 });
 
 // ── Precedence: hub-data.json is the authority, not register.json ────────
