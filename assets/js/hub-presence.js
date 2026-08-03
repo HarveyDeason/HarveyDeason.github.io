@@ -14,7 +14,10 @@ export const PRESENCE_SWEEP_MS = 600000;
 
 export function presenceFileName(sessionId) { return String(sessionId) + '.json'; }
 
-export function presenceRecord({ name, sessionId, tool, editingCommentId, viewingCommentId, nowIso }) {
+function asArray(x) { return Array.isArray(x) ? x : []; }
+
+export function presenceRecord(args) {
+  const { name, sessionId, tool, editingCommentId, viewingCommentId, nowIso } = args && typeof args === 'object' ? args : {};
   return {
     name: name || 'Someone',
     sessionId,
@@ -34,7 +37,7 @@ export function presenceRecord({ name, sessionId, tool, editingCommentId, viewin
 // caller asking "who is editing record X" must narrow to its own tool first —
 // otherwise a decision id could be read as a comment id.
 export function ofTool(records, tool) {
-  return (records || []).filter(r => r && (r.tool || 'hub') === tool);
+  return asArray(records).filter(r => r && (r.tool || 'hub') === tool);
 }
 
 // The fallback must yield NaN for a missing lastSeen, not a real date: `||`
@@ -56,8 +59,8 @@ function ageMs(rec, nowMs) { return nowMs - Date.parse((rec && rec.lastSeen) || 
 const FUTURE_SKEW_MS = PRESENCE_TIMEOUT_MS;
 
 export function livePresences(records, sessionId, nowMs) {
-  return (records || [])
-    .filter(r => r && r.sessionId && r.sessionId !== sessionId)
+  return asArray(records)
+    .filter(r => r && typeof r === 'object' && r.sessionId && r.sessionId !== sessionId)
     .filter(r => { const a = ageMs(r, nowMs); return a < PRESENCE_TIMEOUT_MS && a > -FUTURE_SKEW_MS; })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
@@ -86,8 +89,8 @@ export function viewersOf(records, commentId, sessionId, nowMs) {
 }
 
 export function sweepable(records, nowMs) {
-  return (records || [])
-    .filter(r => r && r.sessionId)
+  return asArray(records)
+    .filter(r => r && typeof r === 'object' && r.sessionId)
     // A missing or unparseable lastSeen makes ageMs NaN, and NaN >= anything
     // is false — so without this check a corrupt/half-written file would
     // never age past the sweep threshold and would litter the shared folder

@@ -56,20 +56,33 @@ export async function gzipText(text) {
   return streamToB64(new Blob([text]).stream().pipeThrough(cs));
 }
 
+// b64 is read back from a document's stored text — hand-edited or truncated
+// input (not valid base64, or valid base64 that isn't a real gzip stream)
+// must degrade to an empty document rather than crash the tool that's trying
+// to display it.
 export async function gunzipText(b64) {
-  const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-  const ds = new DecompressionStream('gzip');
-  return new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+  let bin;
+  try { bin = atob(String(b64 == null ? '' : b64)); }
+  catch (e) { return ''; }
+  try {
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const ds = new DecompressionStream('gzip');
+    return await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+  } catch (e) { return ''; }
 }
 
+function asArray(x) { return Array.isArray(x) ? x : []; }
+function asObj(x) { return x && typeof x === 'object' ? x : {}; }
+
 export function pdfPagesToText(pages) {
-  return (pages || []).map((items, i) => '[[p' + (i + 1) + ']] ' + items.join(' ')).join('\n');
+  return asArray(pages).map((items, i) => '[[p' + (i + 1) + ']] ' + asArray(items).join(' ')).join('\n');
 }
 
 export function sheetTextFromRows(sheets) {
-  return (sheets || []).map(s =>
-    '[[sheet:' + s.name + ']] ' + s.rows.map(r => r.join(' ')).join('\n')).join('\n');
+  return asArray(sheets).map(raw => {
+    const s = asObj(raw);
+    return '[[sheet:' + s.name + ']] ' + asArray(s.rows).map(r => asArray(r).join(' ')).join('\n');
+  }).join('\n');
 }
 
 export function normalizeExtractedText(s) {
@@ -85,9 +98,9 @@ export function extractionMethodFor(filename) {
 }
 
 export function dedupeFilename(existingNames, name) {
-  const taken = new Set(existingNames);
+  const taken = new Set(asArray(existingNames));
   if (!taken.has(name)) return name;
-  const m = /^(.*?)(\.[^.]*)?$/.exec(name);
+  const m = /^(.*?)(\.[^.]*)?$/.exec(String(name == null ? '' : name));
   const base = m[1], ext = m[2] || '';
   for (let n = 2; ; n++) {
     const candidate = base + ' (' + n + ')' + ext;
@@ -101,23 +114,28 @@ export function docFolderPath(productName, docType) {
 }
 
 export function buildSearchDocs(brain, hubComments, textById) {
+  const b = asObj(brain);
+  const textMap = textById instanceof Map ? textById : new Map();
   const docs = [];
-  for (const d of brain.decisions) {
+  for (const raw of asArray(b.decisions)) {
+    const d = asObj(raw);
     docs.push({ id: 'd:' + d.id, kind: 'decision', title: d.title,
-      text: (d.decision || '') + '\n' + (d.reasoning || ''), tags: (d.tags || []).join(' '),
-      productIds: d.productIds || [], projectTag: d.projectTag || '', date: d.date || '',
+      text: (d.decision || '') + '\n' + (d.reasoning || ''), tags: asArray(d.tags).join(' '),
+      productIds: asArray(d.productIds), projectTag: d.projectTag || '', date: d.date || '',
       who: d.madeBy || '', status: d.status || 'active' });
   }
-  for (const f of brain.documents) {
+  for (const raw of asArray(b.documents)) {
+    const f = asObj(raw);
     docs.push({ id: 'f:' + f.id, kind: 'document', title: f.title,
-      text: (textById && textById.get(f.id)) || '', tags: (f.tags || []).join(' '),
-      productIds: f.productIds || [], projectTag: f.projectTag || '', date: f.date || '',
+      text: textMap.get(f.id) || '', tags: asArray(f.tags).join(' '),
+      productIds: asArray(f.productIds), projectTag: f.projectTag || '', date: f.date || '',
       who: '', status: 'active' });
   }
-  for (const c of hubComments || []) {
+  for (const raw of asArray(hubComments)) {
+    const c = asObj(raw);
     docs.push({ id: 'c:' + c.id, kind: 'comment', title: (c.ref || '') + ' ' + (c.category || ''),
       text: (c.description || '') + '\n' + (c.actionTaken || ''), tags: '',
-      productIds: c.productIds || [], projectTag: '', date: c.dateRaised || '',
+      productIds: asArray(c.productIds), projectTag: '', date: c.dateRaised || '',
       who: c.raisedBy || '', status: 'active' });
   }
   return docs;
@@ -129,7 +147,7 @@ export function snippetFor(text, terms, radius = 60) {
   const t = String(text || '');
   const lower = t.toLowerCase();
   let hit = -1;
-  for (const term of terms || []) {
+  for (const term of asArray(terms)) {
     const i = lower.indexOf(String(term).toLowerCase());
     if (i !== -1 && (hit === -1 || i < hit)) hit = i;
   }
@@ -145,21 +163,28 @@ export function snippetFor(text, terms, radius = 60) {
 }
 
 export function supersedeDecision(state, oldId, newDecision, nowIso) {
-  const oldD = state.decisions.find(d => d.id === oldId);
+  const s = asObj(state);
+  const decisionsIn = asArray(s.decisions);
+  const oldD = decisionsIn.find(d => d && d.id === oldId);
+  // Always the documented business error, never a raw TypeError from
+  // touching a property of hostile state — a caller catching this by name
+  // must be able to trust what it means.
   if (!oldD) throw new Error('supersedeDecision: unknown decision ' + oldId);
-  const decisions = state.decisions
-    .map(d => d.id === oldId ? { ...d, status: 'superseded', supersededBy: newDecision.id, updatedAt: nowIso } : d)
-    .concat([{ ...newDecision, supersedes: oldId, updatedAt: nowIso }]);
-  return { ...state, decisions };
+  const nd = asObj(newDecision);
+  const decisions = decisionsIn
+    .map(d => d && d.id === oldId ? { ...d, status: 'superseded', supersededBy: nd.id, updatedAt: nowIso } : d)
+    .concat([{ ...nd, supersedes: oldId, updatedAt: nowIso }]);
+  return { ...s, decisions };
 }
 
 export function decisionFromComment(comment, nowIso) {
+  const c = asObj(comment);
   return {
-    title: '', decision: '', reasoning: comment.description || '',
-    madeBy: '', recordedBy: '', date: (nowIso || '').slice(0, 10),
-    productIds: [...(comment.productIds || [])], projectTag: '', tags: [],
+    title: '', decision: '', reasoning: c.description || '',
+    madeBy: '', recordedBy: '', date: String(nowIso || '').slice(0, 10),
+    productIds: [...asArray(c.productIds)], projectTag: '', tags: [],
     status: 'active', supersededBy: '', supersedes: '',
-    links: { documents: [], comments: [comment.id], urls: [] },
+    links: { documents: [], comments: [c.id], urls: [] },
   };
 }
 
@@ -221,7 +246,7 @@ export function findPhrase(text, phrase) {
 /** True when every term appears in the text as a whole word. */
 export function hasAllTerms(text, terms) {
   const hay = String(text || '').toLowerCase();
-  return (terms || []).every(t => wordRegex(t).test(hay));
+  return asArray(terms).every(t => wordRegex(t).test(hay));
 }
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -241,14 +266,15 @@ export function bestSnippetFor(text, terms, phrase, radius) {
   let hit = findPhrase(t, phrase);
   if (hit === -1) {
     const lower = t.toLowerCase();
+    const termList = asArray(terms);
     let best = -1, bestScore = -1;
-    for (const term of terms || []) {
+    for (const term of termList) {
       const re = wordRegex(term, 'g');
       let m;
       while ((m = re.exec(lower)) !== null) {
         const from = m.index - r, to = m.index + r;
         const window = lower.slice(Math.max(0, from), to);
-        const score = (terms || []).filter(x => wordRegex(x).test(window)).length;
+        const score = termList.filter(x => wordRegex(x).test(window)).length;
         if (score > bestScore) { bestScore = score; best = m.index; }
       }
     }
@@ -270,12 +296,22 @@ export function highlightRanges(text, terms, phrase) {
   const t = String(text || '');
   const lower = t.toLowerCase();
   const ranges = [];
-  if (phrase) {
-    const re = new RegExp(escapeRe(phrase).replace(/\s+/g, '\\s+'), 'gi');
+  // Only a genuinely non-empty STRING phrase is a phrase to highlight. A
+  // truthy-but-non-string value (e.g. [], or an object whose String() is '')
+  // would otherwise escape down to an empty regex pattern, which matches a
+  // zero-length span at every position and can spin forever.
+  const phraseStr = typeof phrase === 'string' ? phrase : '';
+  const escapedPhrase = escapeRe(phraseStr).replace(/\s+/g, '\\s+');
+  if (escapedPhrase) {
+    const re = new RegExp(escapedPhrase, 'gi');
     let m;
-    while ((m = re.exec(t)) !== null) ranges.push([m.index, m.index + m[0].length]);
+    let guard = 0;
+    while ((m = re.exec(t)) !== null && guard++ < t.length + 1) {
+      ranges.push([m.index, m.index + m[0].length]);
+      if (m[0].length === 0) re.lastIndex += 1;   // never trust engine auto-advance for zero-length matches
+    }
   }
-  for (const term of terms || []) {
+  for (const term of asArray(terms)) {
     const re = wordRegex(term, 'g');
     let m;
     while ((m = re.exec(lower)) !== null) ranges.push([m.index, m.index + m[0].length]);
@@ -293,24 +329,26 @@ export function highlightRanges(text, terms, phrase) {
 // Photos hang off the decision record so they ride the existing merge and save
 // queue. Removing one unlinks it; the files stay in the folder.
 export function addPhotoToDecision(state, decisionId, photo, nowIso) {
-  if (!state.decisions.some(d => d.id === decisionId)) return state;
-  return { ...state, decisions: state.decisions.map(d => d.id === decisionId
-    ? { ...d, photos: [...(d.photos || []), photo], updatedAt: nowIso } : d) };
+  const decisions = asArray(state && state.decisions);
+  if (!decisions.some(d => d && d.id === decisionId)) return state;
+  return { ...asObj(state), decisions: decisions.map(d => d && d.id === decisionId
+    ? { ...d, photos: [...asArray(d.photos), photo], updatedAt: nowIso } : d) };
 }
 
 export function removePhotoFromDecision(state, decisionId, photoId, nowIso) {
-  const d = state.decisions.find(x => x.id === decisionId);
-  if (!d || !(d.photos || []).some(p => p.id === photoId)) return state;
-  return { ...state, decisions: state.decisions.map(x => x.id === decisionId
-    ? { ...x, photos: x.photos.filter(p => p.id !== photoId), updatedAt: nowIso } : x) };
+  const decisions = asArray(state && state.decisions);
+  const d = decisions.find(x => x && x.id === decisionId);
+  if (!d || !asArray(d.photos).some(p => p && p.id === photoId)) return state;
+  return { ...asObj(state), decisions: decisions.map(x => x && x.id === decisionId
+    ? { ...x, photos: asArray(x.photos).filter(p => !p || p.id !== photoId), updatedAt: nowIso } : x) };
 }
 
 // Decision photos share one flat folder (decisions have no ref to name a folder
 // with), so collision checks span every decision, not just the current one.
 export function decisionPhotoNames(state) {
   const out = [];
-  for (const d of (state && state.decisions) || []) {
-    for (const p of d.photos || []) out.push(p.file);
+  for (const d of asArray(state && state.decisions)) {
+    for (const p of asArray(d && d.photos)) out.push(p && p.file);
   }
   return out;
 }
@@ -334,12 +372,14 @@ export const DECISION_COLUMNS = [
 // the caller passes the id→name map it already has. Unknown ids fall back to
 // the id rather than vanishing from the export.
 export function buildDecisionsWorkbookModel(state, decisions, nowIso, productNames) {
-  const names = productNames || new Map();
+  const s = asObj(state);
+  const names = productNames instanceof Map ? productNames : new Map();
   const titleOf = id => {
-    const d = (state.decisions || []).find(x => x.id === id);
+    const d = asArray(s.decisions).find(x => x && x.id === id);
     return d ? (d.title || id) : id;
   };
-  const rows = [...(decisions || [])]
+  const rows = asArray(decisions)
+    .map(raw => asObj(raw))
     .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
       || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
     .map(d => ({
@@ -348,9 +388,9 @@ export function buildDecisionsWorkbookModel(state, decisions, nowIso, productNam
         title: d.title || '',
         decision: d.decision || '',
         reasoning: d.reasoning || '',
-        products: (d.productIds || []).map(id => names.get(id) || id).join(', '),
+        products: asArray(d.productIds).map(id => names.get(id) || id).join(', '),
         projectTag: d.projectTag || '',
-        tags: (d.tags || []).join(', '),
+        tags: asArray(d.tags).join(', '),
         madeBy: d.madeBy || '',
         recordedBy: d.recordedBy || '',
         status: (d.status === 'superseded') ? 'Superseded' : 'Active',

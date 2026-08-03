@@ -3,21 +3,47 @@
 // merging here, and (Task 3) the single-flight save engine. Pure and
 // node-testable; no DOM.
 
+// mergeById is NOT commutative on an exact updatedAt tie: when two edits to
+// the same id share one updatedAt millisecond, "prev" (whichever record was
+// listed first in [...(a||[]), ...(b||[])], i.e. `a`'s copy) wins, and `a` is
+// call-site argument order — which side is "local" vs "disk" — not anything
+// about the records. merge(a,b) and merge(b,a) can then permanently disagree
+// on tied content. See tests/merge-properties.test.js, the two "DEFECT:
+// ...NOT commutative...tie on updatedAt" tests, both intentionally left
+// failing here.
+//
+// A content-based tiebreak (e.g. comparing full record JSON) was tried and
+// reverted: this file's records are not static once merged — resequenceRefs
+// in hub-core.js derives ref/refIssued from a record's content and writes
+// them back onto it. A content tiebreak then has to choose between an
+// already-resequenced copy and the same record's still-raw original at the
+// same updatedAt, and can prefer the raw one, silently undoing the earlier
+// resequencing pass and drifting refCounter upward on every re-merge — a
+// worse, harder-to-diagnose defect than the one it was meant to fix. Fixing
+// this properly needs a tiebreak that is stable under fields OTHER code
+// derives and writes back (or needs mergeById to stop being reused for
+// derived-field-bearing records), which is a bigger design change than "a
+// clean deterministic tiebreak on id" — id can't help here either, since a
+// tie is by definition two records that already share the same id. Left
+// failing on purpose; see the report for detail.
+function asArray(x) { return Array.isArray(x) ? x : []; }
+function asObj(x) { return x && typeof x === 'object' ? x : {}; }
+
 export function mergeById(a, b, tombstones) {
   const out = new Map();
-  for (const rec of [...(a || []), ...(b || [])]) {
-    if (!rec || !rec.id) continue;
+  for (const rec of [...asArray(a), ...asArray(b)]) {
+    if (!rec || typeof rec !== 'object' || !rec.id) continue;
     const prev = out.get(rec.id);
     if (!prev || (rec.updatedAt || '') > (prev.updatedAt || '')) out.set(rec.id, rec);
   }
-  const t = tombstones || {};
+  const t = asObj(tombstones);
   return [...out.values()].filter(r => !(t[r.id] && t[r.id] >= (r.updatedAt || '')));
 }
 
 export function mergeList(a, b) {
   const seen = new Set();
   const out = [];
-  for (const v of [...(a || []), ...(b || [])]) {
+  for (const v of [...asArray(a), ...asArray(b)]) {
     const k = String(v).trim().toLowerCase();
     if (!k || seen.has(k)) continue;
     seen.add(k);
@@ -27,8 +53,8 @@ export function mergeList(a, b) {
 }
 
 export function mergeTombstones(a, b) {
-  const out = { ...(a || {}) };
-  for (const [id, ts] of Object.entries(b || {})) {
+  const out = { ...asObj(a) };
+  for (const [id, ts] of Object.entries(asObj(b))) {
     if (!out[id] || ts > out[id]) out[id] = ts;
   }
   return out;
@@ -41,14 +67,15 @@ export function mergeTombstones(a, b) {
 // defeated by a crashed tab or a skewed clock.
 
 export function detectConflict(loadedRecord, diskRecords) {
-  if (!loadedRecord || !loadedRecord.id) return null;
-  const disk = (diskRecords || []).find(r => r && r.id === loadedRecord.id);
+  if (!loadedRecord || typeof loadedRecord !== 'object' || !loadedRecord.id) return null;
+  const disk = asArray(diskRecords).find(r => r && r.id === loadedRecord.id);
   if (!disk) return null;
   return (disk.updatedAt || '') > (loadedRecord.updatedAt || '') ? disk : null;
 }
 
 export function conflictFields(mine, theirs) {
-  const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
+  const m = asObj(mine), t = asObj(theirs);
+  const keys = new Set([...Object.keys(m), ...Object.keys(t)]);
   keys.delete('updatedAt');
   const out = [];
   for (const k of keys) {
@@ -56,7 +83,7 @@ export function conflictFields(mine, theirs) {
     // written with different key order would read as differing. Fine here:
     // these records are flat scalars plus arrays (whose order IS meaningful),
     // and the result only names fields in a prompt the user is already reading.
-    if (JSON.stringify((mine || {})[k]) !== JSON.stringify((theirs || {})[k])) out.push(k);
+    if (JSON.stringify(m[k]) !== JSON.stringify(t[k])) out.push(k);
   }
   return out.sort();
 }
@@ -71,30 +98,33 @@ export function conflictFields(mine, theirs) {
 // so no entry can ever be lost.
 
 export function diffRecord(before, after, ignoreFields) {
-  const ignore = new Set(ignoreFields || []);
-  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const ignore = new Set(asArray(ignoreFields));
+  const b = asObj(before), a = asObj(after);
+  const keys = new Set([...Object.keys(b), ...Object.keys(a)]);
   const out = [];
   for (const k of keys) {
     if (ignore.has(k)) continue;
-    const from = (before || {})[k];
-    const to = (after || {})[k];
+    const from = b[k];
+    const to = a[k];
     // Key-order-sensitive for nested objects, same caveat as conflictFields
     // above: fine here, these records are flat scalars plus arrays (whose
     // order IS meaningful), and the result only names fields in a trail the
     // user is already reading.
     if (JSON.stringify(from) !== JSON.stringify(to)) out.push({ field: k, from, to });
   }
-  return out.sort((a, b) => a.field.localeCompare(b.field));
+  return out.sort((x, y) => x.field.localeCompare(y.field));
 }
 
-export function historyEntry({ recordId, recordType, by, nowIso, changes }) {
-  return { id: crypto.randomUUID(), recordId, recordType, at: nowIso, by, changes: changes || [] };
+export function historyEntry(args) {
+  const { recordId, recordType, by, nowIso, changes } = asObj(args);
+  return { id: crypto.randomUUID(), recordId, recordType, at: nowIso, by, changes: asArray(changes) };
 }
 
 // A creation marker with empty changes, so a trail starts at the beginning
 // rather than mid-story — the first thing anyone sees when they open the
 // history is "this existed", not the diff of its first edit.
-export function createEntry({ recordId, recordType, by, nowIso }) {
+export function createEntry(args) {
+  const { recordId, recordType, by, nowIso } = asObj(args);
   return historyEntry({ recordId, recordType, by, nowIso, changes: [] });
 }
 
@@ -103,9 +133,9 @@ export function createEntry({ recordId, recordType, by, nowIso }) {
 // every client, meaning two people merging the same history always see it
 // in the same order.
 export function historyFor(history, recordId) {
-  return (history || [])
+  return asArray(history)
     .filter(e => e && e.recordId === recordId)
-    .sort((a, b) => (b.at || '').localeCompare(a.at || '') || String(a.id).localeCompare(String(b.id)));
+    .sort((a, b) => String((b && b.at) || '').localeCompare(String((a && a.at) || '')) || String(a && a.id).localeCompare(String(b && b.id)));
 }
 
 // enteredBy is the only identity the tool stamps automatically, because it is
@@ -225,7 +255,7 @@ export async function writeFileAtomic(dir, name, contents, sessionId) {
 const BACKUP_RE = /^(.+)-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/;
 
 export function backupFileName(baseName, nowIso) {
-  const stem = baseName.replace(/\.json$/, '');
+  const stem = String(baseName == null ? '' : baseName).replace(/\.json$/, '');
   // Colons are illegal in Windows filenames; dashes keep string order == time order.
   const stamp = String(nowIso).slice(0, 19).replace(/:/g, '-');
   return stem + '-' + stamp + '.json';
@@ -238,15 +268,16 @@ export function backupFileName(baseName, nowIso) {
 // would have its "hub-" prefix match "hub-data-*.json" backups too, so keep
 // ledger stems from being a prefix of one another when adding a third one.
 export function prunableBackups(names, keep, baseName) {
-  const prefix = baseName ? baseName.replace(/\.json$/, '') + '-' : '';
-  const backups = (names || [])
-    .filter(n => BACKUP_RE.test(n) && (!prefix || n.startsWith(prefix)))
+  const prefix = baseName ? String(baseName).replace(/\.json$/, '') + '-' : '';
+  const backups = asArray(names)
+    .filter(n => typeof n === 'string' && BACKUP_RE.test(n) && (!prefix || n.startsWith(prefix)))
     .sort();
-  const n = Math.max(0, keep);
+  const n = Math.max(0, Number(keep) || 0);
   return n === 0 ? backups : backups.slice(0, Math.max(0, backups.length - n));
 }
 
-export function createSyncEngine(cfg) {
+export function createSyncEngine(rawCfg) {
+  const cfg = asObj(rawCfg);
   let running = false, pending = false, pendingAll = false;
   let pendingIds = new Set();
 
@@ -255,7 +286,7 @@ export function createSyncEngine(cfg) {
   // later. Retrying only on the user's next change meant a change could sit
   // unsaved indefinitely without anyone knowing. Back off, then hand back to
   // the next change rather than hammering the disk forever.
-  const retryDelays = cfg.retryDelays || [3000, 10000, 30000];
+  const retryDelays = Array.isArray(cfg.retryDelays) ? cfg.retryDelays : [3000, 10000, 30000];
   let retryTimer = null, retryIndex = 0;
 
   // writeBackup runs before the ledger write that can fail, so a transient
