@@ -200,6 +200,75 @@ export function openCommentsByDrawing(hubData) {
   return out;
 }
 
+// ── Comment counts/details per product (family-level badges) ────────────
+//
+// A sibling to commentsByDrawing, but with no join at all: a comment is
+// counted against the product ids it names directly, via c.productIds,
+// with no products array and no pidDrawings lookup. This is what makes it
+// different from the drawing functions above — a comment can be raised
+// against a whole family (or any other product) without naming any single
+// drawing, and such a comment never appears in commentCountsByDrawing /
+// openCommentsByDrawing at all.
+//
+// The Comments Hub exposes a P&ID family as a pseudo-product with id
+// 'fam-' + family.id (see familyProductId in assets/js/hub-core.js); that
+// id resolves here exactly like any other product id, with no special
+// casing needed.
+//
+// Same defensive posture as commentsByDrawing: hubData is read read-only
+// from hub-data.json, written by the Comments Hub, and may be read
+// mid-write — missing fields, a non-array comments collection, or
+// malformed entries must all degrade to "no comments", never throw.
+function commentsByProduct(hubData, includeStatus) {
+  const out = new Map();
+  const comments = Array.isArray(hubData && hubData.comments) ? hubData.comments : [];
+  if (!comments.length) return out;
+
+  for (const c of comments) {
+    if (!c || typeof c !== 'object') continue;
+    if (!includeStatus(c.status)) continue;
+
+    // A Set so a comment whose productIds happens to repeat an id is only
+    // counted/listed once against it, same dedup intent as the per-drawing
+    // join (there it's per-comment-per-drawing; here it's simply
+    // per-comment-per-product since there's no join to fan comments out).
+    const productIds = new Set(
+      (Array.isArray(c.productIds) ? c.productIds : []).filter(Boolean)
+    );
+
+    for (const pid of productIds) {
+      if (!out.has(pid)) out.set(pid, []);
+      out.get(pid).push(c);
+    }
+  }
+
+  return out;
+}
+
+export function commentCountsByProduct(hubData) {
+  const grouped = commentsByProduct(hubData, s => s === 'open' || s === 'in_progress' || s === 'closed');
+  const out = new Map();
+  for (const [pid, list] of grouped) {
+    const bucket = { open: 0, inProgress: 0, closed: 0 };
+    for (const c of list) {
+      if (c.status === 'open') bucket.open += 1;
+      else if (c.status === 'in_progress') bucket.inProgress += 1;
+      else bucket.closed += 1;
+    }
+    out.set(pid, bucket);
+  }
+  return out;
+}
+
+export function openCommentsByProduct(hubData) {
+  const grouped = commentsByProduct(hubData, s => s === 'open');
+  const out = new Map();
+  for (const [pid, list] of grouped) {
+    out.set(pid, list.slice().sort(compareForTriage));
+  }
+  return out;
+}
+
 // ── drawingNameFromFile (Task 5) ─────────────────────────────────────────
 //
 // 2026-08-03 incident: import derives the drawing name straight from the
