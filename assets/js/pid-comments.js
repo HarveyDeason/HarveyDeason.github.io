@@ -144,3 +144,44 @@ export function commentCountsByDrawing(hubData) {
 
   return out;
 }
+
+// ── drawingNameFromFile (Task 5) ─────────────────────────────────────────
+//
+// 2026-08-03 incident: import derives the drawing name straight from the
+// filename. Archived PDFs are named `<drawing>_<rev>.pdf` (see archivePDF /
+// the fname built at save time), so re-importing from `archive/` — the
+// obvious move during recovery — turned every drawing name into
+// `<drawing>_<rev>`, and the tool then appended the revision AGAIN on the
+// next archive write. It corrupted names at exactly the moment the user was
+// already in trouble.
+//
+// The revision shapes actually accepted by this tool (see detectRevision
+// and the rev-modal placeholder/help text in tools-src/pid-tag-register.html)
+// are short: 1-3 letters optionally followed by 1-2 digits — A, B, C, C01,
+// C02, P01, P1, IFD, IFC. That is deliberately narrow. A longer or
+// digit-less trailing chunk (e.g. "HOUSE" in "PUMP_HOUSE") is real drawing
+// name, not a revision, and must never be stripped.
+const REVISION_SUFFIX_RE = /^[A-Z]{1,3}\d{0,2}$/;
+
+export function drawingNameFromFile(fileName, revisions) {
+  let name = String(fileName == null ? '' : fileName)
+    .replace(/\.pdf$/i, '')
+    .replace(/\s*\(\d+\)$/, '');
+
+  const knownRevisions = new Set(
+    (Array.isArray(revisions) ? revisions : [])
+      .filter(Boolean)
+      .map(function (r) { return String(r).toUpperCase(); })
+  );
+
+  const underscoreIdx = name.lastIndexOf('_');
+  if (underscoreIdx > 0 && underscoreIdx < name.length - 1) {
+    const suffix = name.slice(underscoreIdx + 1);
+    const upperSuffix = suffix.toUpperCase();
+    if (REVISION_SUFFIX_RE.test(upperSuffix) || knownRevisions.has(upperSuffix)) {
+      return { name: name.slice(0, underscoreIdx), revisionFromName: upperSuffix };
+    }
+  }
+
+  return { name: name, revisionFromName: null };
+}

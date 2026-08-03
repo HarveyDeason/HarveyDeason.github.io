@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveConnectMode, connectModeLabel, commentCountsByDrawing,
-  CONVENTIONAL_REGISTER_SUBFOLDER } from '../assets/js/pid-comments.js';
+  CONVENTIONAL_REGISTER_SUBFOLDER, drawingNameFromFile } from '../assets/js/pid-comments.js';
 
 // ── resolveConnectMode (Task 2) ─────────────────────────────────────────
 
@@ -181,4 +181,56 @@ test('no hub-data: a register here is still plain legacy', () => {
   assert.deepEqual(
     resolveConnectMode({ hasRegisterHere: true, hasHubDataHere: false, registerSubfolders: [] }),
     { mode: 'legacy', registerSubfolder: null });
+});
+
+// ── drawingNameFromFile (Task 5) ─────────────────────────────────────────
+//
+// Motivated by the 2026-08-03 incident: re-importing archived PDFs (named
+// `<drawing>_<rev>.pdf`) folded the revision into the drawing name, and the
+// tool then appended the revision again on the next archive write.
+
+test('a plain filename is unchanged, revisionFromName is null', () => {
+  assert.deepEqual(drawingNameFromFile('D-001.pdf'), { name: 'D-001', revisionFromName: null });
+});
+
+test('a trailing _C01 is recognised as a revision and stripped', () => {
+  assert.deepEqual(drawingNameFromFile('X_C01.pdf'), { name: 'X', revisionFromName: 'C01' });
+});
+
+test('a trailing _P01 is recognised as a revision and stripped', () => {
+  assert.deepEqual(drawingNameFromFile('X_P01.pdf'), { name: 'X', revisionFromName: 'P01' });
+});
+
+test('a genuine underscore that is not a revision is left alone', () => {
+  assert.deepEqual(drawingNameFromFile('PUMP_HOUSE.pdf'), { name: 'PUMP_HOUSE', revisionFromName: null });
+});
+
+test('a copy marker like " (1)" is stripped, exactly as before', () => {
+  assert.deepEqual(drawingNameFromFile('X (1).pdf'), { name: 'X', revisionFromName: null });
+});
+
+test('both a copy marker and a revision suffix are handled together', () => {
+  assert.deepEqual(drawingNameFromFile('X_C01 (1).pdf'), { name: 'X', revisionFromName: 'C01' });
+});
+
+test('revision detection is case-insensitive', () => {
+  assert.deepEqual(drawingNameFromFile('x_c01.pdf'), { name: 'x', revisionFromName: 'C01' });
+});
+
+test('a filename that is only an extension does not throw', () => {
+  assert.deepEqual(drawingNameFromFile('.pdf'), { name: '', revisionFromName: null });
+});
+
+test('an empty filename does not throw', () => {
+  assert.deepEqual(drawingNameFromFile(''), { name: '', revisionFromName: null });
+});
+
+test('several underscores: only a genuine trailing revision is stripped', () => {
+  assert.deepEqual(drawingNameFromFile('SITE_PUMP_HOUSE_C01.pdf'),
+    { name: 'SITE_PUMP_HOUSE', revisionFromName: 'C01' });
+});
+
+test('several underscores with no genuine revision at the end: name unchanged', () => {
+  assert.deepEqual(drawingNameFromFile('SITE_PUMP_HOUSE.pdf'),
+    { name: 'SITE_PUMP_HOUSE', revisionFromName: null });
 });
