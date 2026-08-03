@@ -3,6 +3,29 @@
 // merging here, and (Task 3) the single-flight save engine. Pure and
 // node-testable; no DOM.
 
+// mergeById is NOT commutative on an exact updatedAt tie: when two edits to
+// the same id share one updatedAt millisecond, "prev" (whichever record was
+// listed first in [...(a||[]), ...(b||[])], i.e. `a`'s copy) wins, and `a` is
+// call-site argument order — which side is "local" vs "disk" — not anything
+// about the records. merge(a,b) and merge(b,a) can then permanently disagree
+// on tied content. See tests/merge-properties.test.js, the two "DEFECT:
+// ...NOT commutative...tie on updatedAt" tests, both intentionally left
+// failing here.
+//
+// A content-based tiebreak (e.g. comparing full record JSON) was tried and
+// reverted: this file's records are not static once merged — resequenceRefs
+// in hub-core.js derives ref/refIssued from a record's content and writes
+// them back onto it. A content tiebreak then has to choose between an
+// already-resequenced copy and the same record's still-raw original at the
+// same updatedAt, and can prefer the raw one, silently undoing the earlier
+// resequencing pass and drifting refCounter upward on every re-merge — a
+// worse, harder-to-diagnose defect than the one it was meant to fix. Fixing
+// this properly needs a tiebreak that is stable under fields OTHER code
+// derives and writes back (or needs mergeById to stop being reused for
+// derived-field-bearing records), which is a bigger design change than "a
+// clean deterministic tiebreak on id" — id can't help here either, since a
+// tie is by definition two records that already share the same id. Left
+// failing on purpose; see the report for detail.
 export function mergeById(a, b, tombstones) {
   const out = new Map();
   for (const rec of [...(a || []), ...(b || [])]) {

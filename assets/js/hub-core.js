@@ -55,7 +55,10 @@ export function formatRef(n) {
 
 export function nextRef(state) {
   const refCounter = (state.refCounter || 0) + 1;
-  return { ref: formatRef(refCounter), refCounter };
+  // refIssued is the immutable claim (see the block comment on resequenceRefs
+  // below) — it is set once, here, at creation, and never overwritten again.
+  const ref = formatRef(refCounter);
+  return { ref, refIssued: ref, refCounter };
 }
 
 function refNumber(ref) {
@@ -92,20 +95,101 @@ function refSortKey(c) {
   return c.createdAt || c.updatedAt || c.dateRaised || '';
 }
 
+// refIssued is the ref a comment originally claimed, set once by nextRef and
+// never rewritten afterwards (see below). Comments saved before this field
+// existed have none — for those, live data in the field means the ref they
+// already carry IS the claim, so treating it as such on first load is
+// mandatory: nothing already issued may shift the moment this ships.
+function claimOf(c) {
+  return c.refIssued || c.ref || '';
+}
+
+// THE BUG THIS REPLACES, AND WHY: resequenceRefs used to resolve a ref
+// collision against the `ref` fields as they stood on the two states being
+// merged right now. That is fine for exactly two clients, but mergeState
+// chains pairwise for three or more (mergeState(mergeState(a, b), c)), and
+// resequenceRefs reruns on EVERY call, including the intermediate a+b step —
+// so a collision between a and c got "resolved" using whatever a had already
+// agreed with b, before c was ever in the picture. Which two clients happened
+// to sync first therefore changed the final ref-to-comment mapping. No
+// timestamp tie was needed; three people numbering new comments from their
+// own local counters is completely ordinary use.
+//
+// The fix: resequenceRefs must be a PURE FUNCTION OF THE WHOLE COMMENT SET,
+// not of merge order. It resolves collisions against each comment's
+// immutable refIssued claim (see claimOf above), never against the mutable,
+// possibly-already-bumped `ref` some earlier partial merge assigned. Because
+// every client that has ever seen a given comment computes claimOf() the
+// same way from data that lives on the record itself, every client walking
+// the same (deterministically ordered) comment set reaches the same output —
+// regardless of which two clients merged first, or how many times this
+// function has already run on the way there. Do not go back to resolving
+// against `ref`: that reintroduces exactly this defect.
+//
+// Ordering rule for who keeps a claim on collision: earlier-issued (by
+// refSortKey — creation order, see above) wins; a stable id tiebreak makes
+// the order total, so two clients never disagree on who is "earlier".
+//
+// OUTPUT SHAPE IS CANONICAL, NOT PATH-DEPENDENT: refIssued is present on a
+// comment if and only if its displayed `ref` currently differs from its
+// claim — i.e. only while it is actively "owed" its original number back.
+// A comment that currently holds its own claim (whether it never collided,
+// or collided once somewhere upstream and has since reclaimed the number
+// because whatever was squatting on it got merged away or renumbered) always
+// comes out with refIssued OMITTED. Without this normalisation, two strictly
+// identical merge outcomes reached via different intermediate merge paths
+// could differ only in whether a settled winner happens to carry a leftover
+// refIssued key from an earlier partial merge — same meaning, different
+// object shape — which fails every equality check downstream (including
+// idempotency: merge(a, a) must reproduce `a`'s exact shape, which never had
+// the key at all for a comment that has never lost a collision).
+//
+// THE BUMP WATERMARK MUST NOT CARRY OVER FROM refCounter: an earlier version
+// of this fix seeded `high` from state.refCounter, which is itself set to
+// whatever `high` this same function last returned. A comment that keeps
+// losing the SAME unresolved collision (e.g. c4 permanently outranked by c1
+// for HUB-0001, every single time these two states meet) then got bumped to
+// a NEW, higher number on every re-run — HUB-0006, then HUB-0009, then
+// HUB-0012 — because the starting point kept climbing even though nothing
+// about the underlying collision had changed. That broke idempotency
+// (re-merging with an already-absorbed peer kept moving refs) and, at scale,
+// meant two clients whose merge histories took a different number of hops to
+// the same final record set could land on different bump numbers for the
+// same loser. The watermark used to assign NEW numbers must depend only on
+// the claims actually present in this exact comment set — never on how many
+// times resequencing has already run over it.
 export function resequenceRefs(state) {
   const ordered = [...state.comments].sort((x, y) =>
     refSortKey(x).localeCompare(refSortKey(y)) || String(x.id).localeCompare(String(y.id)));
-  let high = state.refCounter || 0;
-  for (const c of ordered) high = Math.max(high, refNumber(c.ref));
+  let high = 0;
+  for (const c of ordered) high = Math.max(high, refNumber(claimOf(c)));
   const seen = new Set();
   const comments = ordered.map(c => {
-    if (c.ref && !seen.has(c.ref)) { seen.add(c.ref); return c; }
-    high += 1;
-    const ref = formatRef(high);
-    seen.add(ref);
-    return { ...c, ref };
+    const claim = claimOf(c);
+    let ref, refIssued;
+    if (claim && !seen.has(claim)) {
+      seen.add(claim);
+      ref = claim;
+      refIssued = undefined;   // reclaimed (or never lost) its own number — nothing to remember
+    } else {
+      high += 1;
+      ref = formatRef(high);
+      seen.add(ref);
+      refIssued = claim;       // still owed its original number — must be remembered
+    }
+    const hadRefIssued = Object.prototype.hasOwnProperty.call(c, 'refIssued');
+    if (c.ref === ref && hadRefIssued === (refIssued !== undefined) && c.refIssued === refIssued) return c; // already canonical, true no-op
+    if (refIssued !== undefined) return { ...c, ref, refIssued };
+    if (!hadRefIssued) return { ...c, ref };
+    const { refIssued: _drop, ...rest } = c;   // strip a now-stale claim: this comment just reclaimed its number
+    return { ...rest, ref };
   });
-  return { ...state, comments, refCounter: high };
+  // refCounter is a floor for nextRef's NEXT brand-new comment, not an input
+  // to the bump watermark above — it must never shrink (a client's own
+  // counter can be ahead of any ref currently visible here, e.g. after a
+  // tombstoned comment), so the stored value is the max of what came in and
+  // what this pass actually used, taken only now, after bump assignment.
+  return { ...state, comments, refCounter: Math.max(state.refCounter || 0, high) };
 }
 
 export function filterComments(comments, filters) {
