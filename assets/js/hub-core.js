@@ -54,7 +54,8 @@ export function formatRef(n) {
 }
 
 export function nextRef(state) {
-  const refCounter = (state.refCounter || 0) + 1;
+  const s = state || {};
+  const refCounter = (s.refCounter || 0) + 1;
   // refIssued is the immutable claim (see the block comment on resequenceRefs
   // below) — it is set once, here, at creation, and never overwritten again.
   const ref = formatRef(refCounter);
@@ -92,7 +93,8 @@ function refNumber(ref) {
 // because every key in the chain lives on the record itself and never on
 // which side of the merge it came from.
 function refSortKey(c) {
-  return c.createdAt || c.updatedAt || c.dateRaised || '';
+  const r = c || {};
+  return r.createdAt || r.updatedAt || r.dateRaised || '';
 }
 
 // refIssued is the ref a comment originally claimed, set once by nextRef and
@@ -101,7 +103,8 @@ function refSortKey(c) {
 // already carry IS the claim, so treating it as such on first load is
 // mandatory: nothing already issued may shift the moment this ships.
 function claimOf(c) {
-  return c.refIssued || c.ref || '';
+  const r = c || {};
+  return r.refIssued || r.ref || '';
 }
 
 // THE BUG THIS REPLACES, AND WHY: resequenceRefs used to resolve a ref
@@ -159,8 +162,15 @@ function claimOf(c) {
 // the claims actually present in this exact comment set — never on how many
 // times resequencing has already run over it.
 export function resequenceRefs(state) {
-  const ordered = [...state.comments].sort((x, y) =>
-    refSortKey(x).localeCompare(refSortKey(y)) || String(x.id).localeCompare(String(y.id)));
+  const s = state || {};
+  // A comment record that is itself not a plain object (a stray null, a
+  // string, ...) has no id and no ref to resequence — drop it rather than
+  // let it crash the whole pass. The shared ledger can only ever be as
+  // trustworthy as the least careful hand-edit that touched it.
+  const rawComments = (Array.isArray(s.comments) ? s.comments : [])
+    .filter(c => c && typeof c === 'object');
+  const ordered = [...rawComments].sort((x, y) =>
+    String(refSortKey(x)).localeCompare(String(refSortKey(y))) || String(x.id).localeCompare(String(y.id)));
   let high = 0;
   for (const c of ordered) high = Math.max(high, refNumber(claimOf(c)));
   const seen = new Set();
@@ -189,26 +199,32 @@ export function resequenceRefs(state) {
   // counter can be ahead of any ref currently visible here, e.g. after a
   // tombstoned comment), so the stored value is the max of what came in and
   // what this pass actually used, taken only now, after bump assignment.
-  return { ...state, comments, refCounter: Math.max(state.refCounter || 0, high) };
+  return { ...s, comments, refCounter: Math.max(s.refCounter || 0, high) };
 }
 
+function asArray(x) { return Array.isArray(x) ? x : []; }
+function asObj(x) { return x && typeof x === 'object' ? x : {}; }
+
 export function filterComments(comments, filters) {
-  const f = filters || {};
-  const q = (f.search || '').trim().toLowerCase();
-  return comments.filter(c =>
-    (!f.productId || (c.productIds || []).includes(f.productId)) &&
-    (!f.status || c.status === f.status) &&
-    (!f.affectedType || (c.affectedTypes || []).includes(f.affectedType)) &&
-    (!f.category || c.category === f.category) &&
-    (!f.source || c.source === f.source) &&
-    (!f.priority || c.priority === f.priority) &&
-    (!f.hold || (f.hold === 'held') === !!c.hold) &&
-    (!q || [c.ref, c.description, c.raisedBy, c.actionTaken].join(' ').toLowerCase().includes(q)));
+  const f = asObj(filters);
+  const q = String(f.search || '').trim().toLowerCase();
+  return asArray(comments).filter(raw => {
+    const c = asObj(raw);
+    return (!f.productId || asArray(c.productIds).includes(f.productId)) &&
+      (!f.status || c.status === f.status) &&
+      (!f.affectedType || asArray(c.affectedTypes).includes(f.affectedType)) &&
+      (!f.category || c.category === f.category) &&
+      (!f.source || c.source === f.source) &&
+      (!f.priority || c.priority === f.priority) &&
+      (!f.hold || (f.hold === 'held') === !!c.hold) &&
+      (!q || [c.ref, c.description, c.raisedBy, c.actionTaken].join(' ').toLowerCase().includes(q));
+  });
 }
 
 export function commentCounts(comments) {
   const out = { open: 0, inProgress: 0, closed: 0, highOpen: 0 };
-  for (const c of comments) {
+  for (const raw of asArray(comments)) {
+    const c = asObj(raw);
     if (c.status === 'open') out.open += 1;
     else if (c.status === 'in_progress') out.inProgress += 1;
     else if (c.status === 'closed') out.closed += 1;
@@ -219,8 +235,9 @@ export function commentCounts(comments) {
 
 export function productCounts(comments) {
   const map = new Map();
-  for (const c of comments) {
-    for (const pid of c.productIds || []) {
+  for (const raw of asArray(comments)) {
+    const c = asObj(raw);
+    for (const pid of asArray(c.productIds)) {
       if (!map.has(pid)) map.set(pid, { open: 0, inProgress: 0, closed: 0 });
       const b = map.get(pid);
       if (c.status === 'open') b.open += 1;
@@ -232,8 +249,9 @@ export function productCounts(comments) {
 }
 
 export function daysOpen(comment, todayIso) {
-  const end = comment.status === 'closed' && comment.dateClosed ? comment.dateClosed : todayIso;
-  const ms = new Date(end + 'T00:00:00Z') - new Date(comment.dateRaised + 'T00:00:00Z');
+  const c = asObj(comment);
+  const end = c.status === 'closed' && c.dateClosed ? c.dateClosed : todayIso;
+  const ms = new Date(end + 'T00:00:00Z') - new Date(c.dateRaised + 'T00:00:00Z');
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 86400000)) : 0;
 }
 
@@ -299,7 +317,7 @@ export function photoFileName(caption, originalName, existingNames) {
   const base = String(caption || '').trim()
     || String(originalName || '').replace(/\.[^.]*$/, '').trim();
   const safe = sanitizeFilename(base);
-  const taken = new Set((existingNames || []).map(n => String(n).toLowerCase()));
+  const taken = new Set(asArray(existingNames).map(n => String(n).toLowerCase()));
   let name = safe + '.jpg';
   let n = 2;
   while (taken.has(name.toLowerCase())) { name = `${safe} (${n}).jpg`; n += 1; }
@@ -309,23 +327,25 @@ export function photoFileName(caption, originalName, existingNames) {
 // Photos live on the comment record so they ride the existing merge, save queue
 // and workbook regeneration. Removing one unlinks it; the files stay on disk.
 export function addPhotoToComment(state, commentId, photo, nowIso) {
-  if (!state.comments.some(c => c.id === commentId)) return state;
-  return { ...state, comments: state.comments.map(c => c.id === commentId
-    ? { ...c, photos: [...(c.photos || []), photo], updatedAt: nowIso } : c) };
+  const comments = asArray(state && state.comments);
+  if (!comments.some(c => c && c.id === commentId)) return state;
+  return { ...asObj(state), comments: comments.map(c => c && c.id === commentId
+    ? { ...c, photos: [...asArray(c.photos), photo], updatedAt: nowIso } : c) };
 }
 
 export function removePhotoFromComment(state, commentId, photoId, nowIso) {
-  const c = state.comments.find(x => x.id === commentId);
-  if (!c || !(c.photos || []).some(p => p.id === photoId)) return state;
-  return { ...state, comments: state.comments.map(x => x.id === commentId
-    ? { ...x, photos: x.photos.filter(p => p.id !== photoId), updatedAt: nowIso } : x) };
+  const comments = asArray(state && state.comments);
+  const c = comments.find(x => x && x.id === commentId);
+  if (!c || !asArray(c.photos).some(p => p && p.id === photoId)) return state;
+  return { ...asObj(state), comments: comments.map(x => x && x.id === commentId
+    ? { ...x, photos: asArray(x.photos).filter(p => !p || p.id !== photoId), updatedAt: nowIso } : x) };
 }
 
 export function photosCell(comment) {
-  const photos = (comment && comment.photos) || [];
+  const photos = asArray(comment && comment.photos);
   if (!photos.length) return '';
   const noun = photos.length === 1 ? 'photo' : 'photos';
-  return `${photos.length} ${noun}: ${photos.map(p => p.file).join(', ')}`;
+  return `${photos.length} ${noun}: ${photos.map(p => (p && p.file) || '').join(', ')}`;
 }
 
 // Comment text (description, category, source) is often typed up by whoever
@@ -346,16 +366,18 @@ export function editedCell(comment) {
   return `${comment.editedBy} (${String(comment.editedAt).slice(0, 10)})`;
 }
 
-function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function titleCase(s) { const t = String(s == null ? '' : s); return t.charAt(0).toUpperCase() + t.slice(1); }
 
-function commentRow(c, state) {
-  const names = (c.productIds || [])
-    .map(pid => { const p = state.products.find(x => x.id === pid); return p ? p.name : pid; });
+function commentRow(raw, state) {
+  const c = asObj(raw);
+  const products = asArray(state && state.products);
+  const names = asArray(c.productIds)
+    .map(pid => { const p = products.find(x => x && x.id === pid); return p ? p.name : pid; });
   return {
     cells: {
       product: names.join(', '),
       ref: c.ref, dateRaised: c.dateRaised, raisedBy: c.raisedBy, source: c.source,
-      affectedTypes: (c.affectedTypes || []).join(', '), category: c.category,
+      affectedTypes: asArray(c.affectedTypes).join(', '), category: c.category,
       priority: titleCase(c.priority || ''), description: c.description,
       pidRevision: c.pidRevision || '', status: statusLabel(c.status),
       dateClosed: c.dateClosed || '', actionTaken: c.actionTaken || '', closedBy: c.closedBy || '',
@@ -366,17 +388,25 @@ function commentRow(c, state) {
 }
 
 function sortForLog(comments) {
-  return [...comments].sort((a, b) => (a.ref || '').localeCompare(b.ref || '', undefined, { numeric: true }));
+  return [...asArray(comments)].sort((a, b) => String((a && a.ref) || '').localeCompare(String((b && b.ref) || ''), undefined, { numeric: true }));
 }
 
+// revisions is a Map in real use (see latestRevisions); anything else is
+// treated as empty rather than trusted, since a hostile/garbage value here
+// must never crash a workbook build.
+function asMap(x) { return x instanceof Map ? x : new Map(); }
+
 export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
-  const p = state.products.find(x => x.id === productId);
-  const comments = sortForLog(state.comments.filter(c => (c.productIds || []).includes(productId)));
+  const s = asObj(state);
+  const products = asArray(s.products);
+  const revs = asMap(revisions);
+  const p = asObj(products.find(x => x && x.id === productId));
+  const comments = sortForLog(asArray(s.comments).filter(c => c && asArray(c.productIds).includes(productId)));
   const counts = commentCounts(comments);
-  const pids = (p.pidDrawings || [])
-    .map(d => revisions.has(d) ? `${d} (Rev ${revisions.get(d)})` : d).join(', ');
+  const pids = asArray(p.pidDrawings)
+    .map(d => revs.has(d) ? `${d} (Rev ${revs.get(d)})` : d).join(', ');
   return {
-    filename: `${sanitizeFilename(p.name)} Comments.xlsx`,
+    filename: `${sanitizeFilename(p.name || '')} Comments.xlsx`,
     sheets: [
       { name: 'Summary', kind: 'summary', meta: { title: p.name, generatedOn: nowIso }, rows: [
         ['Product', p.name], ['Type', p.type],
@@ -386,7 +416,7 @@ export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
         ['Closed', String(counts.closed)], ['Generated on', nowIso],
       ] },
       { name: 'Comment Log', kind: 'log', columns: COMMENT_COLUMNS,
-        rows: comments.map(c => commentRow(c, state)) },
+        rows: comments.map(c => commentRow(c, s)) },
     ],
   };
 }
@@ -394,8 +424,11 @@ export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
 const MASTER_COLUMNS = [{ key: 'product', header: 'Product', width: 28 }, ...COMMENT_COLUMNS];
 
 export function buildMasterWorkbookModel(state, revisions, nowIso) {
-  const perProduct = productCounts(state.comments);
-  const overview = state.products.map(p => {
+  const s = asObj(state);
+  const comments = asArray(s.comments);
+  const perProduct = productCounts(comments);
+  const overview = asArray(s.products).map(raw => {
+    const p = asObj(raw);
     const b = perProduct.get(p.id) || { open: 0, inProgress: 0, closed: 0 };
     return [p.name, `Open ${b.open} · In progress ${b.inProgress} · Closed ${b.closed}`];
   });
@@ -405,23 +438,25 @@ export function buildMasterWorkbookModel(state, revisions, nowIso) {
       { name: 'Overview', kind: 'summary', meta: { title: 'Comments Hub — Master Log', generatedOn: nowIso },
         rows: [['Generated on', nowIso], ...overview] },
       { name: 'Comment Log', kind: 'log', columns: MASTER_COLUMNS,
-        rows: sortForLog(state.comments).map(c => commentRow(c, state)) },
+        rows: sortForLog(comments).map(c => commentRow(c, s)) },
     ],
   };
 }
 
 export function buildFilteredWorkbookModel(state, comments, nowIso) {
+  const s = asObj(state);
   return {
     filename: `Comments Export ${nowIso}.xlsx`,
     sheets: [{ name: 'Comments', kind: 'log', columns: MASTER_COLUMNS,
-      rows: sortForLog(comments).map(c => commentRow(c, state)) }],
+      rows: sortForLog(comments).map(c => commentRow(c, s)) }],
   };
 }
 
 // ── Product families (defined in the P&ID tool; read-only here) ──
 export function expandFamilyPatterns(patterns, drawingNames) {
   const matched = new Set();
-  (patterns || []).forEach(raw => {
+  const names = asArray(drawingNames).filter(d => d != null).map(d => String(d));
+  asArray(patterns).forEach(raw => {
     const pat = String(raw).trim().toUpperCase();
     if (!pat) return;
     const rangeMatch = pat.match(/^([A-Z]+)(\d+)-(?:[A-Z]+)?(\d+)$/);
@@ -429,7 +464,7 @@ export function expandFamilyPatterns(patterns, drawingNames) {
       const prefix = rangeMatch[1];
       const from = parseInt(rangeMatch[2], 10);
       const to = parseInt(rangeMatch[3], 10);
-      drawingNames.forEach(d => {
+      names.forEach(d => {
         const dm = d.toUpperCase().match(new RegExp('^' + prefix + '(\\d+)'));
         if (dm) {
           const n = parseInt(dm[1], 10);
@@ -438,7 +473,7 @@ export function expandFamilyPatterns(patterns, drawingNames) {
       });
       return;
     }
-    drawingNames.forEach(d => {
+    names.forEach(d => {
       if (d.toUpperCase().startsWith(pat) || d.toUpperCase().includes(pat)) matched.add(d);
     });
   });
@@ -446,22 +481,29 @@ export function expandFamilyPatterns(patterns, drawingNames) {
 }
 
 export function familiesFromRegister(registerJson) {
-  const drawings = Object.keys((registerJson && registerJson.revHistory) || {});
-  return ((registerJson && registerJson.families) || [])
-    .map(f => ({ id: f.id, name: f.name, drawings: [...expandFamilyPatterns(f.patterns, drawings)] }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const r = asObj(registerJson);
+  const drawings = Object.keys(asObj(r.revHistory));
+  return asArray(r.families)
+    .map(raw => { const f = asObj(raw); return { id: f.id, name: f.name, drawings: [...expandFamilyPatterns(f.patterns, drawings)] }; })
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 }
 
 export function familyProductId(famId) { return 'fam-' + famId; }
 
+// members/familyOf are always real Maps on the returned object; a hostile
+// `membership` handed BACK into expandProductFilter/buildFamilyWorkbookModel/
+// staleFamilyMemberFiles is guarded there too (asMembership below), since
+// this value is read back from a caller's own state, not always freshly
+// built here.
 export function familyMembership(products, families) {
   const members = new Map();
   const familyOf = new Map();
-  for (const fam of families || []) {
+  for (const raw of asArray(families)) {
+    const fam = asObj(raw);
     const fpid = familyProductId(fam.id);
-    const drawingSet = new Set(fam.drawings);
-    const ids = (products || [])
-      .filter(p => !p.familyId && (p.pidDrawings || []).some(d => drawingSet.has(d)))
+    const drawingSet = new Set(asArray(fam.drawings));
+    const ids = asArray(products)
+      .filter(p => p && !p.familyId && asArray(p.pidDrawings).some(d => drawingSet.has(d)))
       .map(p => p.id);
     members.set(fpid, ids);
     for (const id of ids) familyOf.set(id, fpid);
@@ -469,17 +511,22 @@ export function familyMembership(products, families) {
   return { members, familyOf };
 }
 
+function asMembership(m) {
+  const o = asObj(m);
+  return { members: o.members instanceof Map ? o.members : new Map(), familyOf: o.familyOf instanceof Map ? o.familyOf : new Map() };
+}
+
 export function expandProductFilter(productId, membership) {
   const out = new Set([productId]);
-  const m = membership || { members: new Map(), familyOf: new Map() };
-  if (m.members.has(productId)) for (const id of m.members.get(productId)) out.add(id);
+  const m = asMembership(membership);
+  if (m.members.has(productId)) for (const id of asArray(m.members.get(productId))) out.add(id);
   if (m.familyOf.has(productId)) out.add(m.familyOf.get(productId));
   return out;
 }
 
 export function excelSheetName(name, takenNames) {
   const cleaned = String(name).replace(/[[\]:*?/\\]/g, '-').slice(0, 31);
-  const taken = new Set(takenNames || []);
+  const taken = new Set(asArray(takenNames));
   if (!taken.has(cleaned)) return cleaned;
   for (let n = 2; ; n++) {
     const suffix = ' (' + n + ')';
@@ -489,13 +536,18 @@ export function excelSheetName(name, takenNames) {
 }
 
 export function buildFamilyWorkbookModel(state, familyPid, membership, revisions, nowIso) {
-  const fam = state.products.find(p => p.id === familyPid);
-  const memberIds = (membership.members.get(familyPid)) || [];
-  const familyComments = sortForLog(state.comments.filter(c => (c.productIds || []).includes(familyPid)));
+  const s = asObj(state);
+  const products = asArray(s.products);
+  const comments = asArray(s.comments);
+  const revs = asMap(revisions);
+  const m = asMembership(membership);
+  const fam = asObj(products.find(p => p && p.id === familyPid));
+  const memberIds = asArray(m.members.get(familyPid));
+  const familyComments = sortForLog(comments.filter(c => c && asArray(c.productIds).includes(familyPid)));
   const allIds = [familyPid, ...memberIds];
-  const rolled = commentCounts(state.comments.filter(c => (c.productIds || []).some(id => allIds.includes(id))));
-  const memberList = (fam.pidDrawings || [])
-    .map(d => revisions.has(d) ? `${d} (Rev ${revisions.get(d)})` : d).join(', ');
+  const rolled = commentCounts(comments.filter(c => c && asArray(c.productIds).some(id => allIds.includes(id))));
+  const memberList = asArray(fam.pidDrawings)
+    .map(d => revs.has(d) ? `${d} (Rev ${revs.get(d)})` : d).join(', ');
   const sheets = [
     { name: 'Summary', kind: 'summary', meta: { title: fam.name, generatedOn: nowIso }, rows: [
       ['Family', fam.name], ['Type', fam.type],
@@ -506,26 +558,29 @@ export function buildFamilyWorkbookModel(state, familyPid, membership, revisions
       ['Generated on', nowIso],
     ] },
     { name: 'Family Comments', kind: 'log', columns: COMMENT_COLUMNS,
-      rows: familyComments.map(c => commentRow(c, state)) },
+      rows: familyComments.map(c => commentRow(c, s)) },
   ];
-  const taken = sheets.map(s => s.name);
+  const taken = sheets.map(sh => sh.name);
   for (const mid of memberIds) {
-    const mp = state.products.find(p => p.id === mid);
+    const mp = products.find(p => p && p.id === mid);
     if (!mp) continue;
     const name = excelSheetName(mp.name, taken);
     taken.push(name);
     sheets.push({ name, kind: 'log', heading: mp.name, columns: COMMENT_COLUMNS,
-      rows: sortForLog(state.comments.filter(c => (c.productIds || []).includes(mid)))
-        .map(c => commentRow(c, state)) });
+      rows: sortForLog(comments.filter(c => c && asArray(c.productIds).includes(mid)))
+        .map(c => commentRow(c, s)) });
   }
-  return { filename: `${sanitizeFilename(fam.name)} Comments.xlsx`, sheets };
+  return { filename: `${sanitizeFilename(fam.name || '')} Comments.xlsx`, sheets };
 }
 
 export function staleFamilyMemberFiles(state, membership) {
   const out = [];
-  for (const ids of membership.members.values()) {
-    for (const id of ids) {
-      const p = state.products.find(x => x.id === id);
+  const s = asObj(state);
+  const products = asArray(s.products);
+  const m = asMembership(membership);
+  for (const ids of m.members.values()) {
+    for (const id of asArray(ids)) {
+      const p = products.find(x => x && x.id === id);
       if (p) out.push(`${sanitizeFilename(p.name)} Comments.xlsx`);
     }
   }

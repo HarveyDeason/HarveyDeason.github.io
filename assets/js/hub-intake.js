@@ -40,8 +40,12 @@ const YES_NO = ['Yes', 'No'];
 // would drop the dropdown validation on the new rows).
 const BLANK_ROW_COUNT = 100;
 
+function asArray(x) { return Array.isArray(x) ? x : []; }
+
 export function buildIntakeTemplateModel(state, productIds, nowIso) {
-  const products = (state.products || []).filter(p => (productIds || []).includes(p.id));
+  const s = state && typeof state === 'object' ? state : {};
+  const ids = asArray(productIds);
+  const products = asArray(s.products).filter(p => p && ids.includes(p.id));
 
   const prefill = products.length === 1 ? { product: products[0].name } : {};
 
@@ -59,7 +63,7 @@ export function buildIntakeTemplateModel(state, productIds, nowIso) {
   // already linked to each scoped product, so they know what they're
   // commenting against without having to look it up elsewhere.
   const rows = products.map(p => {
-    const drawings = (p.pidDrawings || []).join(', ');
+    const drawings = asArray(p.pidDrawings).join(', ');
     return `${p.name}: ${drawings || '(no linked drawings)'}`;
   });
 
@@ -81,8 +85,8 @@ export function buildIntakeTemplateModel(state, productIds, nowIso) {
         meta: { templateVersion: INTAKE_TEMPLATE_VERSION, generatedOn: nowIso },
         lists: {
           products: products.map(p => ({ id: p.id, name: p.name })),
-          categories: (state.lists && state.lists.categories) || [],
-          sources: (state.lists && state.lists.sources) || [],
+          categories: asArray(s.lists && s.lists.categories),
+          sources: asArray(s.lists && s.lists.sources),
           priorities: PRIORITIES.slice(),
           yesNo: YES_NO.slice(),
         },
@@ -262,12 +266,13 @@ function findHeaderRow(ws) {
 }
 
 function findDataSheet(workbook) {
+  if (!workbook || typeof workbook.getWorksheet !== 'function') return null;
   const byName = workbook.getWorksheet('Comments');
   if (byName) return byName;
   // Fallback for a hand-rebuilt sheet that got renamed: the first sheet the
   // site team can actually see (the Lists sheet is veryHidden, so it's
   // naturally excluded).
-  return (workbook.worksheets || []).find(ws => ws.state !== 'hidden' && ws.state !== 'veryHidden') || null;
+  return asArray(workbook.worksheets).find(ws => ws && ws.state !== 'hidden' && ws.state !== 'veryHidden') || null;
 }
 
 // The Lists sheet is optional on the way back in — a site team could in
