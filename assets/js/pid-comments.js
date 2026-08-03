@@ -96,15 +96,28 @@ export function connectModeLabel(mode) {
   return mode === 'hub-root' ? 'linked to hub' : 'legacy (no hub link)';
 }
 
-// ── Comment counts per drawing (Task 3) ─────────────────────────────────
+// ── The drawing -> product -> comment join (Task 3, factored for Task 7) ──
 //
 // The join: a hub product carries pidDrawings[]; a hub comment carries
 // productIds[]. A drawing's comments are the comments of every product that
 // lists that drawing. hubData is read read-only from hub-data.json, written
 // by the Comments Hub, not this tool — treat every shape as untrusted:
 // missing fields, non-array collections, dangling productIds (a tombstoned
-// or otherwise-missing product) must all degrade to "no count", never throw.
-export function commentCountsByDrawing(hubData) {
+// or otherwise-missing product) must all degrade to "no comments", never
+// throw.
+//
+// `includeStatus(status)` decides, per comment, whether it participates at
+// all — checked BEFORE the drawing dedup below, exactly as the original
+// single-purpose commentCountsByDrawing did, so a comment excluded by status
+// never causes an empty-but-present Map entry for a drawing it would
+// otherwise touch.
+//
+// Returns Map<drawingName, comment[]> — the raw comment objects (not
+// copies), each appearing once per drawing even when the comment names
+// several products that share it: collected into a Set keyed by drawing
+// name before anything is pushed, so the dedup happens per comment, not per
+// product.
+function commentsByDrawing(hubData, includeStatus) {
   const out = new Map();
   const products = Array.isArray(hubData && hubData.products) ? hubData.products : [];
   const comments = Array.isArray(hubData && hubData.comments) ? hubData.comments : [];
@@ -117,13 +130,8 @@ export function commentCountsByDrawing(hubData) {
 
   for (const c of comments) {
     if (!c || typeof c !== 'object') continue;
-    const status = c.status;
-    if (status !== 'open' && status !== 'in_progress' && status !== 'closed') continue;
+    if (!includeStatus(c.status)) continue;
 
-    // A comment naming several products, two of which share a drawing, must
-    // count once for that drawing — collect into a Set keyed by drawing
-    // name before touching any counters, so the dedup happens per comment,
-    // not per product.
     const drawings = new Set();
     for (const pid of (Array.isArray(c.productIds) ? c.productIds : [])) {
       const p = productById.get(pid);
@@ -134,14 +142,61 @@ export function commentCountsByDrawing(hubData) {
     }
 
     for (const d of drawings) {
-      if (!out.has(d)) out.set(d, { open: 0, inProgress: 0, closed: 0 });
-      const bucket = out.get(d);
-      if (status === 'open') bucket.open += 1;
-      else if (status === 'in_progress') bucket.inProgress += 1;
-      else bucket.closed += 1;
+      if (!out.has(d)) out.set(d, []);
+      out.get(d).push(c);
     }
   }
 
+  return out;
+}
+
+// ── Comment counts per drawing (Task 3) ─────────────────────────────────
+export function commentCountsByDrawing(hubData) {
+  const grouped = commentsByDrawing(hubData, s => s === 'open' || s === 'in_progress' || s === 'closed');
+  const out = new Map();
+  for (const [d, list] of grouped) {
+    const bucket = { open: 0, inProgress: 0, closed: 0 };
+    for (const c of list) {
+      if (c.status === 'open') bucket.open += 1;
+      else if (c.status === 'in_progress') bucket.inProgress += 1;
+      else bucket.closed += 1;
+    }
+    out.set(d, bucket);
+  }
+  return out;
+}
+
+// ── Open comments per drawing, triage-ordered (Task 7) ───────────────────
+//
+// Same join as commentCountsByDrawing, restricted to status === 'open', but
+// returning the comment records themselves rather than counts, so the P&ID
+// tool's panel can list them. Each drawing's list is sorted high priority
+// first, then oldest raised first — the order someone triaging a drawing
+// actually wants. dateRaised is a plain "YYYY-MM-DD" business date, so
+// string comparison sorts it correctly; a missing/malformed date sorts
+// first (empty string is the lowest ISO-date string) rather than throwing,
+// and id is a final deterministic tiebreak.
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+
+function priorityRank(p) {
+  return Object.prototype.hasOwnProperty.call(PRIORITY_RANK, p) ? PRIORITY_RANK[p] : 3;
+}
+
+function compareForTriage(a, b) {
+  const byPriority = priorityRank(a.priority) - priorityRank(b.priority);
+  if (byPriority !== 0) return byPriority;
+  const da = typeof a.dateRaised === 'string' ? a.dateRaised : '';
+  const db = typeof b.dateRaised === 'string' ? b.dateRaised : '';
+  if (da !== db) return da < db ? -1 : 1;
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
+export function openCommentsByDrawing(hubData) {
+  const grouped = commentsByDrawing(hubData, s => s === 'open');
+  const out = new Map();
+  for (const [d, list] of grouped) {
+    out.set(d, list.slice().sort(compareForTriage));
+  }
   return out;
 }
 
