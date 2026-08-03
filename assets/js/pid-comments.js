@@ -185,3 +185,44 @@ export function drawingNameFromFile(fileName, revisions) {
 
   return { name: name, revisionFromName: null };
 }
+
+// ── isDestructiveSave (Task 6) ───────────────────────────────────────────
+//
+// Tasks 1-5 fix the failures already found. This one is a backstop for the
+// ones nobody has found yet: every version of the 2026-08-03 incident had
+// the same shape — memory held far less than disk, and the save went ahead
+// silently. Guarding that shape, rather than any specific bug, is what
+// protects the register from the NEXT unknown defect.
+//
+// Threshold kept as a named constant so it can be tuned without hunting
+// through call sites. 0.5 means "a save that would remove more than half of
+// what's on disk needs a human to confirm it" — loose enough that normal
+// pruning/editing never trips it, tight enough to catch every shape the
+// incident actually took (142->0, 142->1, ...).
+const DESTRUCTIVE_LOSS_FRACTION = 0.5;
+
+export function isDestructiveSave(diskCount, memoryCount) {
+  // Fail safe: if either count cannot be trusted as a real, non-negative
+  // number, we cannot evaluate whether the save is safe — so treat it as
+  // destructive and let the caller block/confirm. A safety check that
+  // cannot run must never be treated as a pass; that was the entire failure
+  // mode of readRegisterJSON before this plan (Task 1) — "can't tell" quietly
+  // became "must be fine".
+  if (!isNonNegativeFiniteNumber(diskCount) || !isNonNegativeFiniteNumber(memoryCount)) {
+    return true;
+  }
+
+  // Nothing on disk yet: any memory content is a first save, never
+  // destructive, however small or large.
+  if (diskCount === 0) return false;
+
+  // Never shrinking, or growing: not destructive.
+  if (memoryCount >= diskCount) return false;
+
+  const remainingFraction = memoryCount / diskCount;
+  return remainingFraction <= (1 - DESTRUCTIVE_LOSS_FRACTION);
+}
+
+function isNonNegativeFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
