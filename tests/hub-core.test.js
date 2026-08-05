@@ -517,3 +517,61 @@ test('every workbook log sheet carries the photos cell', () => {
   const filtered = buildFilteredWorkbookModel(state, state.comments, '2026-07-27');
   assert.equal(filtered.sheets[0].rows[0].cells.photos, '1 photo: clash.jpg');
 });
+
+// ── photoRefs: per-product log rows declare which thumbnails to embed ──
+// (buildProductWorkbookModel only — the Master Log stays a text-only
+// summary so it doesn't balloon as comments accumulate across years).
+
+test('product workbook: a comment with no photos yields an empty photoRefs', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01')],
+    comments: [C('c1', 't', { productIds: ['p1'] })] };
+  const prod = buildProductWorkbookModel(state, 'p1', new Map(), '2026-07-27');
+  assert.deepEqual(prod.sheets[1].rows[0].photoRefs, []);
+});
+
+test('product workbook: photoRefs preserves photo order and pairs ref with each file', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01')],
+    comments: [C('c1', 't', { ref: 'HUB-0007', productIds: ['p1'],
+      photos: [PH('ph1', 'a.jpg'), PH('ph2', 'b.jpg'), PH('ph3', 'c.jpg')] })] };
+  const prod = buildProductWorkbookModel(state, 'p1', new Map(), '2026-07-27');
+  assert.deepEqual(prod.sheets[1].rows[0].photoRefs, [
+    { ref: 'HUB-0007', file: 'a.jpg' },
+    { ref: 'HUB-0007', file: 'b.jpg' },
+    { ref: 'HUB-0007', file: 'c.jpg' },
+  ]);
+});
+
+test('photosCell text is unchanged by the addition of photoRefs', () => {
+  // photosCell is still the Master Log's cell and the per-photo fallback —
+  // adding photoRefs must not touch its output.
+  assert.equal(photosCell(C('c1', 't', { photos: [PH('p1', 'clash.jpg'), PH('p2', 'valve label.jpg')] })),
+    '2 photos: clash.jpg, valve label.jpg');
+});
+
+test('master workbook rows carry no photoRefs — per-product only', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01')],
+    comments: [C('c1', 't', { productIds: ['p1'], photos: [PH('ph1', 'clash.jpg')] })] };
+  const master = buildMasterWorkbookModel(state, new Map(), '2026-07-27');
+  assert.equal(master.sheets[1].rows[0].photoRefs, undefined);
+});
+
+test('product workbook: malformed photos data degrades rather than throwing', () => {
+  const state = { ...emptyState('t'),
+    products: [P('p1', 't', 'OSB-01'), P('p2', 't', 'OSB-02'), P('p3', 't', 'OSB-03')],
+    comments: [
+      C('c1', 't', { ref: 'HUB-0001', productIds: ['p1'], photos: 'not-an-array' }),
+      C('c2', 't', { ref: 'HUB-0002', productIds: ['p2'], photos: [{ id: 'ph1' }, null, PH('ph2', 'ok.jpg')] }),
+      C('c3', 't', { ref: 'HUB-0003', productIds: ['p3'], photos: null }),
+    ] };
+  assert.doesNotThrow(() => buildProductWorkbookModel(state, 'p1', new Map(), 't'));
+  const prod1 = buildProductWorkbookModel(state, 'p1', new Map(), 't');
+  assert.deepEqual(prod1.sheets[1].rows[0].photoRefs, []);
+  const prod2 = buildProductWorkbookModel(state, 'p2', new Map(), 't');
+  // the entry missing `file` and the null entry are dropped; the valid one survives
+  assert.deepEqual(prod2.sheets[1].rows[0].photoRefs, [{ ref: 'HUB-0002', file: 'ok.jpg' }]);
+  const prod3 = buildProductWorkbookModel(state, 'p3', new Map(), 't');
+  assert.deepEqual(prod3.sheets[1].rows[0].photoRefs, []);
+});

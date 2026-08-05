@@ -348,6 +348,20 @@ export function photosCell(comment) {
   return `${photos.length} ${noun}: ${photos.map(p => (p && p.file) || '').join(', ')}`;
 }
 
+// Declares which thumbnails a per-product log row should embed, as
+// {ref, file} pairs in photo order — the ref lets the renderer/tool find the
+// bytes at Photos/<ref>/thumbs/<file> without threading the comment object
+// any further. `photos` on a comment is user/import-adjacent data (hand-edited
+// JSON, a partially-written save): entries that aren't a plain object, or
+// that lack a `file`, are dropped rather than propagated as a broken
+// placement — same "degrade, never throw" rule as the rest of this file.
+export function photoRefsForComment(comment) {
+  const c = asObj(comment);
+  return asArray(c.photos)
+    .filter(p => p && typeof p === 'object' && p.file)
+    .map(p => ({ ref: c.ref, file: p.file }));
+}
+
 // Comment text (description, category, source) is often typed up by whoever
 // is at the keyboard on behalf of a site team, not the person who actually
 // raised or reworded it — the same reasoning stampEnteredBy in hub-sync.js
@@ -368,12 +382,17 @@ export function editedCell(comment) {
 
 function titleCase(s) { const t = String(s == null ? '' : s); return t.charAt(0).toUpperCase() + t.slice(1); }
 
-function commentRow(raw, state) {
+// withPhotoRefs is only true for buildProductWorkbookModel: photoRefs drives
+// embedding actual image bytes into the workbook (see xlsx-render.js), which
+// is deliberately scoped to per-product logs only — the Master Log
+// accumulates every comment across every product for years and must stay a
+// light text-only summary (photosCell), not carry embed placements too.
+function commentRow(raw, state, withPhotoRefs) {
   const c = asObj(raw);
   const products = asArray(state && state.products);
   const names = asArray(c.productIds)
     .map(pid => { const p = products.find(x => x && x.id === pid); return p ? p.name : pid; });
-  return {
+  const row = {
     cells: {
       product: names.join(', '),
       ref: c.ref, dateRaised: c.dateRaised, raisedBy: c.raisedBy, source: c.source,
@@ -385,6 +404,8 @@ function commentRow(raw, state) {
     },
     statusKey: c.status, high: c.priority === 'high' && c.status !== 'closed',
   };
+  if (withPhotoRefs) row.photoRefs = photoRefsForComment(c);
+  return row;
 }
 
 function sortForLog(comments) {
@@ -416,7 +437,7 @@ export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
         ['Closed', String(counts.closed)], ['Generated on', nowIso],
       ] },
       { name: 'Comment Log', kind: 'log', columns: COMMENT_COLUMNS,
-        rows: comments.map(c => commentRow(c, s)) },
+        rows: comments.map(c => commentRow(c, s, true)) },
     ],
   };
 }
