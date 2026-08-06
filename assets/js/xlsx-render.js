@@ -37,7 +37,50 @@ function colLetter(n) {
   return s;
 }
 
-export async function renderWorkbook(model, ExcelJS, colors) {
+// Comment photo thumbnails, embedded per log row (see hub-core.js's
+// photoRefs). Sized in pixels, not Excel's native column/row units, because
+// that is the unit ExcelJS's image `ext` and this file's row-height math
+// both work in.
+const PHOTO_THUMB_PX = 80;
+// Row height in points (Excel's row-height unit; 1pt = 4/3 px) tall enough
+// to show an 80px-high thumbnail without clipping it, plus a little padding
+// so it doesn't touch the row above/below.
+const PHOTO_ROW_HEIGHT_PT = 62;
+// Pixel-to-column-width conversion is only approximate (Excel's width unit
+// depends on the default font), but exactness doesn't matter here — this
+// only sizes the virtual columns to the right of `photos` widely enough that
+// consecutive 80px thumbnails don't visually overlap each other.
+const PHOTO_COL_WIDTH = Math.ceil(PHOTO_THUMB_PX / 7) + 1;
+
+// Failsafe ceiling on total images embedded in one workbook. Generous — a
+// realistic per-product log tops out in the hundreds — but a hand-edited
+// ledger or a huge family rollup could in principle carry far more, and
+// exhausting browser memory mid-generation fails the ENTIRE export. Past
+// this cap we stop embedding and fall back to the text list (already the
+// per-row fallback for any missing thumbnail) rather than risk that.
+export const MAX_EMBEDDED_IMAGES_PER_WORKBOOK = 2500;
+
+function imageExtension(filename) {
+  const ext = String(filename || '').split('.').pop().toLowerCase();
+  if (ext === 'png') return 'png';
+  if (ext === 'gif') return 'gif';
+  return 'jpeg'; // thumbnails are always written as .jpg by savePhoto
+}
+
+// images is an optional Map< `${ref}/${file}`, ArrayBuffer|Uint8Array >
+// carrying thumbnail bytes for photoRefs declared on log rows (see
+// hub-core.js). Omitted/empty reproduces today's behaviour exactly — no
+// model in the codebase relies on this parameter yet except product comment
+// logs, and this file is shared with the Decision Register, which never
+// passes it.
+//
+// maxImages defaults to the real production ceiling and is not part of the
+// documented call shape (Task 3 always calls with exactly 4 arguments) — it
+// exists purely so tests can exercise the failsafe's exact-cap behaviour
+// without actually embedding thousands of images and paying real zip-
+// compression cost for every test run.
+export async function renderWorkbook(model, ExcelJS, colors, images, maxImages = MAX_EMBEDDED_IMAGES_PER_WORKBOOK) {
+  const imageMap = images instanceof Map ? images : new Map();
   const wb = new ExcelJS.Workbook();
   // Lists sheets are written before template sheets need to reference them,
   // but a model's sheet order isn't guaranteed either way, so collect the
@@ -54,6 +97,22 @@ export async function renderWorkbook(model, ExcelJS, colors) {
       listRanges[key] = `${sheet.name}!$${letter}$1:$${letter}$${values.length}`;
     }
   }
+  // Pre-scan every log row's photoRefs to see how many images this workbook
+  // would actually embed (i.e. have matching bytes in imageMap) BEFORE
+  // writing anything — the Summary sheet, which needs to carry the failsafe
+  // note when the cap bites, is very likely written before the log sheet
+  // that triggers it, so the decision can't be made mid-write.
+  let embeddable = 0;
+  for (const sheet of model.sheets) {
+    if (sheet.kind !== 'log') continue;
+    for (const row of sheet.rows || []) {
+      for (const pr of (Array.isArray(row.photoRefs) ? row.photoRefs : [])) {
+        if (pr && pr.file && imageMap.has(`${pr.ref}/${pr.file}`)) embeddable += 1;
+      }
+    }
+  }
+  const capped = embeddable > maxImages;
+  let embeddedCount = 0;
   for (const sheet of model.sheets) {
     const ws = wb.addWorksheet(sheet.name);
     if (sheet.kind === 'summary') {
@@ -65,6 +124,15 @@ export async function renderWorkbook(model, ExcelJS, colors) {
         const r = ws.addRow([label, value]);
         r.getCell(1).font = { bold: true };
         r.alignment = { vertical: 'top', wrapText: true };
+      }
+      // Failsafe note: a comment log that stopped short of embedding every
+      // photo is far better than one that failed to generate at all, but a
+      // reader flipping straight to the Comment Log sheet has no way to
+      // notice photos are missing unless the Summary sheet says so.
+      if (capped) {
+        const note = ws.addRow(['Note', `Photo embedding stopped after ${maxImages} images to protect memory during export. Remaining photos are listed by filename in the Photos column and remain available in the shared Photos folder.`]);
+        note.getCell(1).font = { bold: true };
+        note.alignment = { vertical: 'top', wrapText: true };
       }
     } else if (sheet.kind === 'template') {
       // The blank sheet a site team fills in offline: header band, frozen
@@ -160,6 +228,11 @@ export async function renderWorkbook(model, ExcelJS, colors) {
       });
       ws.views = [{ state: 'frozen', ySplit: headerRow }];
       ws.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: headerRow, column: sheet.columns.length } };
+      // 0-based column index of `photos`, the last COMMENT_COLUMNS entry —
+      // thumbnails are placed as a strip starting here and extending
+      // rightward into the empty columns beyond the table, which is exactly
+      // why that column was chosen as the anchor (see the plan).
+      const photosColIndex0 = sheet.columns.findIndex(c => c.key === 'photos');
       sheet.rows.forEach((row, i) => {
         const r = ws.addRow(sheet.columns.map(c => row.cells[c.key] ?? ''));
         r.alignment = { vertical: 'top', wrapText: true };
@@ -171,6 +244,42 @@ export async function renderWorkbook(model, ExcelJS, colors) {
         if (statusCol && statusColor) r.getCell(statusCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: statusColor } };
         const prioCol = sheet.columns.findIndex(c => c.key === 'priority') + 1;
         if (prioCol && row.high) r.getCell(prioCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.high } };
+
+        // photoRefs is only set by the product and family workbook models —
+        // every other model (Master Log, filtered export, Decision Register)
+        // has no photoRefs on its rows, so this block is a no-op for them.
+        // Anchoring off r.number keeps it correct on a family member sheet,
+        // where an extra heading row sits above the header band.
+        const photoRefs = photosColIndex0 < 0 ? [] : (Array.isArray(row.photoRefs) ? row.photoRefs : []);
+        let embeddedOnRow = false;
+        photoRefs.forEach((pr, slot) => {
+          if (!pr || !pr.file || embeddedCount >= maxImages) return;
+          const bytes = imageMap.get(`${pr.ref}/${pr.file}`);
+          // No matching bytes is the normal case for a missing/unreadable
+          // thumbnail — fall back silently to the text cell (already
+          // written above via row.cells.photos) rather than erroring.
+          if (!bytes) return;
+          const col0 = photosColIndex0 + slot;
+          try {
+            const buffer = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+            const imgId = wb.addImage({ buffer, extension: imageExtension(pr.file) });
+            ws.addImage(imgId, {
+              tl: { col: col0, row: r.number - 1 },
+              ext: { width: PHOTO_THUMB_PX, height: PHOTO_THUMB_PX },
+            });
+            // ExcelJS leaves .width undefined for a column nobody has
+            // touched yet (`undefined < n` is false), so that has to be
+            // treated as "narrower than we need", not skipped.
+            const imgCol = ws.getColumn(col0 + 1);
+            if (!(imgCol.width >= PHOTO_COL_WIDTH)) imgCol.width = PHOTO_COL_WIDTH;
+            embeddedCount += 1;
+            embeddedOnRow = true;
+          } catch {
+            // A corrupt/unreadable buffer must never fail the whole export —
+            // this one photo silently falls back to the text cell.
+          }
+        });
+        if (embeddedOnRow) r.height = PHOTO_ROW_HEIGHT_PT;
       });
     }
   }

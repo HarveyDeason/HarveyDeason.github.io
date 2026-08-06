@@ -3,35 +3,32 @@
 **Updated:** 2026-08-06
 **Suite:** 545 tests — 543 passing, 0 failing, 2 skipped (the skips are the logged
 `mergeById` tie issue, not a problem)
-**`main` has the hardening work merged and is `ahead 6`, NOT pushed.**
+**`main` has both the hardening work and the embedded-photos work merged, and is
+NOT pushed. Nothing new is live.**
 
 Read this, then the plan named under whichever item you pick up.
 
 ---
 
-## Read this first: two things about the working tree
+## Read this first: the state of the working tree
 
-**1. `main` is ahead 6 and unpushed.** The hardening merge is local only. Nothing
-is live yet.
+Everything is on `main` now and the branches are merged, so `tools-src/` and
+`assets/js/` finally agree. **Publishing is unblocked, but only once Task 4
+below has actually been done** — no part of the photo work has been run in a
+browser or opened in Excel.
 
-**2. `tools-src/` is gitignored, so it does NOT follow branch switches.** Right
-now `tools-src/comments-hub.html` contains the *photo* work (Task 3 of the
-embedded-photos plan) even though `main` does not have the matching
-`assets/js/` changes — those live on the `embedded-photos` branch.
-
-**Do not run `lock-tools.mjs` from `main` as things stand.** You would publish a
-tool that calls `collectPhotoImages` and passes an images map to a renderer that
-does not accept one. It degrades quietly rather than breaking, but it is not
-what you want shipped. Switch to `embedded-photos` first, or merge it into
-`main`, before publishing.
+**The recurring trap, for next time:** `tools-src/` is gitignored, so it does
+**not** follow branch switches. Switch branch and the tool source can silently
+be ahead of (or behind) the `assets/js/` on the branch you are now on. Always
+check the two agree before running `lock-tools.mjs`.
 
 ---
 
 ## Immediate: finish embedded photos
 
-**Branch:** `embedded-photos` (4 commits, not merged, branched off the *old* main)
+**Status:** merged into `main`. **Done:** Tasks 1, 2 and 3.
+**Next:** Task 4 (verification and publish) — **needs a human at a keyboard.**
 **Plan:** `docs/superpowers/plans/2026-08-04-embedded-photos.md`
-**Done:** Tasks 1, 2 and 3. **Next:** Task 4 (verification and publish).
 
 Per-product *and family* comment logs carry their photos inside the workbook, so
 someone reading the log in ACC sees them without the shared folder.

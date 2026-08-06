@@ -352,6 +352,20 @@ export function photosCell(comment) {
   return `${photos.length} ${noun}: ${photos.map(p => (p && p.file) || '').join(', ')}`;
 }
 
+// Declares which thumbnails a per-product log row should embed, as
+// {ref, file} pairs in photo order — the ref lets the renderer/tool find the
+// bytes at Photos/<ref>/thumbs/<file> without threading the comment object
+// any further. `photos` on a comment is user/import-adjacent data (hand-edited
+// JSON, a partially-written save): entries that aren't a plain object, or
+// that lack a `file`, are dropped rather than propagated as a broken
+// placement — same "degrade, never throw" rule as the rest of this file.
+export function photoRefsForComment(comment) {
+  const c = asObj(comment);
+  return asArray(c.photos)
+    .filter(p => p && typeof p === 'object' && p.file)
+    .map(p => ({ ref: c.ref, file: p.file }));
+}
+
 // Comment text (description, category, source) is often typed up by whoever
 // is at the keyboard on behalf of a site team, not the person who actually
 // raised or reworded it — the same reasoning stampEnteredBy in hub-sync.js
@@ -372,12 +386,22 @@ export function editedCell(comment) {
 
 function titleCase(s) { const t = String(s == null ? '' : s); return t.charAt(0).toUpperCase() + t.slice(1); }
 
-function commentRow(raw, state) {
+// withPhotoRefs is true for the per-product and family workbooks: photoRefs
+// drives embedding actual image bytes into the workbook (see xlsx-render.js).
+// Family members get no individual file — their comments live on a sheet
+// inside the family workbook — so families must carry photoRefs too, or a
+// product in a family would show no photos anywhere.
+//
+// It stays false for the Master Log, which accumulates every comment across
+// every product for years and must remain a light text-only summary
+// (photosCell), and for the filtered export, which is a quick download of
+// whatever the dashboard is showing.
+function commentRow(raw, state, withPhotoRefs) {
   const c = asObj(raw);
   const products = asArray(state && state.products);
   const names = asArray(c.productIds)
     .map(pid => { const p = products.find(x => x && x.id === pid); return p ? p.name : pid; });
-  return {
+  const row = {
     cells: {
       product: names.join(', '),
       ref: c.ref, dateRaised: c.dateRaised, raisedBy: c.raisedBy, source: c.source,
@@ -389,6 +413,8 @@ function commentRow(raw, state) {
     },
     statusKey: c.status, high: c.priority === 'high' && c.status !== 'closed',
   };
+  if (withPhotoRefs) row.photoRefs = photoRefsForComment(c);
+  return row;
 }
 
 function sortForLog(comments) {
@@ -420,7 +446,7 @@ export function buildProductWorkbookModel(state, productId, revisions, nowIso) {
         ['Closed', String(counts.closed)], ['Generated on', nowIso],
       ] },
       { name: 'Comment Log', kind: 'log', columns: COMMENT_COLUMNS,
-        rows: comments.map(c => commentRow(c, s)) },
+        rows: comments.map(c => commentRow(c, s, true)) },
     ],
   };
 }
@@ -562,7 +588,7 @@ export function buildFamilyWorkbookModel(state, familyPid, membership, revisions
       ['Generated on', nowIso],
     ] },
     { name: 'Family Comments', kind: 'log', columns: COMMENT_COLUMNS,
-      rows: familyComments.map(c => commentRow(c, s)) },
+      rows: familyComments.map(c => commentRow(c, s, true)) },
   ];
   const taken = sheets.map(sh => sh.name);
   for (const mid of memberIds) {
@@ -572,7 +598,7 @@ export function buildFamilyWorkbookModel(state, familyPid, membership, revisions
     taken.push(name);
     sheets.push({ name, kind: 'log', heading: mp.name, columns: COMMENT_COLUMNS,
       rows: sortForLog(comments.filter(c => c && asArray(c.productIds).includes(mid)))
-        .map(c => commentRow(c, s)) });
+        .map(c => commentRow(c, s, true)) });
   }
   return { filename: `${sanitizeFilename(fam.name || '')} Comments.xlsx`, sheets };
 }
