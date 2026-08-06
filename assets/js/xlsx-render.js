@@ -245,9 +245,11 @@ export async function renderWorkbook(model, ExcelJS, colors, images, maxImages =
         const prioCol = sheet.columns.findIndex(c => c.key === 'priority') + 1;
         if (prioCol && row.high) r.getCell(prioCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.high } };
 
-        // photoRefs is only ever set by buildProductWorkbookModel — every
-        // other model (Master Log, filtered export, Decision Register) has
-        // no photoRefs on its rows, so this whole block is a no-op for them.
+        // photoRefs is only set by the product and family workbook models —
+        // every other model (Master Log, filtered export, Decision Register)
+        // has no photoRefs on its rows, so this block is a no-op for them.
+        // Anchoring off r.number keeps it correct on a family member sheet,
+        // where an extra heading row sits above the header band.
         const photoRefs = photosColIndex0 < 0 ? [] : (Array.isArray(row.photoRefs) ? row.photoRefs : []);
         let embeddedOnRow = false;
         photoRefs.forEach((pr, slot) => {

@@ -25,7 +25,13 @@ The expensive part, downscaling, already runs today. This is largely plumbing th
 
 ## Scope, as decided by the owner
 
-- **Per-product logs only.** The Master Log keeps its text list of filenames, so it stays light as it accumulates every comment across every product for years.
+- **Per-product and family logs.** *(Revised 2026-08-06.)* Originally scoped to per-product
+  logs only. A family member has no individual workbook — its comments live on a sheet inside
+  the family workbook — so under the original scope any product in a family would have shown
+  no photos anywhere. Each row now carries its own comment's photos: a comment on the family
+  appears on the Family Comments sheet, a comment on one drawing appears on that drawing's
+  sheet. The Master Log keeps its text list of filenames, so it stays light as it accumulates
+  every comment across every product for years.
 - **Embed every photo on a comment.** Per product, even 500 photos is only ~12 MB, and 500 photos against one product is already an enormous amount.
 - **Full-size images stay in `Photos/`** and are not embedded anywhere.
 

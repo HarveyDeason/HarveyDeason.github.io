@@ -196,3 +196,43 @@ test('summary, template and lists sheets are unaffected for a model with no phot
   assert.deepEqual(logA.getSheetValues(), logB.getSheetValues());
   assert.equal(logA.getRow(2).height, logB.getRow(2).height, 'row height unaffected by an unused images map');
 });
+
+// A family workbook has several log sheets, and each member drawing's sheet
+// carries an extra heading row above the header band. That shifts every data
+// row down by one, so it is the case most likely to anchor an image to the
+// wrong row — worth round-tripping rather than reasoning about.
+test('family workbook: images land on the right row of each log sheet, heading row and all', async () => {
+  const ExcelJS = await loadExcelJS();
+  const model = {
+    filename: 'Family.xlsx',
+    sheets: [
+      { name: 'Summary', kind: 'summary', meta: { title: 'SP51-68', generatedOn: 't' }, rows: [['Family', 'SP51-68']] },
+      { name: 'Family Comments', kind: 'log', columns: COLUMNS,
+        rows: [row('HUB-0001', [{ ref: 'HUB-0001', file: 'range.jpg' }])] },
+      // heading present: data starts on row 3 here, not row 2
+      { name: 'SP51', kind: 'log', heading: 'SP51', columns: COLUMNS,
+        rows: [row('HUB-0002', [{ ref: 'HUB-0002', file: 'valve.jpg' }])] },
+      { name: 'SP68', kind: 'log', heading: 'SP68', columns: COLUMNS, rows: [] },
+    ],
+  };
+  const images = new Map([
+    ['HUB-0001/range.jpg', PNG_1PX],
+    ['HUB-0002/valve.jpg', PNG_1PX],
+  ]);
+  const buf = await renderWorkbook(model, ExcelJS, {}, images);
+
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const fam = wb.getWorksheet('Family Comments');
+  const sp51 = wb.getWorksheet('SP51');
+
+  assert.equal(fam.getImages().length, 1, 'family-level comment keeps its photo');
+  assert.equal(sp51.getImages().length, 1, "the drawing's comment keeps its photo on the drawing's sheet");
+  assert.equal(wb.getWorksheet('SP68').getImages().length, 0, 'a drawing with no comments gets nothing');
+
+  // No heading: header on row 1, data on row 2 -> image anchored at row index 1.
+  assert.equal(fam.getImages()[0].range.tl.nativeRow, 1);
+  // Heading: heading row 1, header row 2, data row 3 -> image anchored at row index 2.
+  assert.equal(sp51.getImages()[0].range.tl.nativeRow, 2);
+  assert.equal(sp51.getCell(3, 1).value, 'HUB-0002', 'sanity: that is indeed the data row');
+});

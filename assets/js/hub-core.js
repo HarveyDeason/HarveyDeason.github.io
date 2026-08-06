@@ -382,11 +382,16 @@ export function editedCell(comment) {
 
 function titleCase(s) { const t = String(s == null ? '' : s); return t.charAt(0).toUpperCase() + t.slice(1); }
 
-// withPhotoRefs is only true for buildProductWorkbookModel: photoRefs drives
-// embedding actual image bytes into the workbook (see xlsx-render.js), which
-// is deliberately scoped to per-product logs only — the Master Log
-// accumulates every comment across every product for years and must stay a
-// light text-only summary (photosCell), not carry embed placements too.
+// withPhotoRefs is true for the per-product and family workbooks: photoRefs
+// drives embedding actual image bytes into the workbook (see xlsx-render.js).
+// Family members get no individual file — their comments live on a sheet
+// inside the family workbook — so families must carry photoRefs too, or a
+// product in a family would show no photos anywhere.
+//
+// It stays false for the Master Log, which accumulates every comment across
+// every product for years and must remain a light text-only summary
+// (photosCell), and for the filtered export, which is a quick download of
+// whatever the dashboard is showing.
 function commentRow(raw, state, withPhotoRefs) {
   const c = asObj(raw);
   const products = asArray(state && state.products);
@@ -579,7 +584,7 @@ export function buildFamilyWorkbookModel(state, familyPid, membership, revisions
       ['Generated on', nowIso],
     ] },
     { name: 'Family Comments', kind: 'log', columns: COMMENT_COLUMNS,
-      rows: familyComments.map(c => commentRow(c, s)) },
+      rows: familyComments.map(c => commentRow(c, s, true)) },
   ];
   const taken = sheets.map(sh => sh.name);
   for (const mid of memberIds) {
@@ -589,7 +594,7 @@ export function buildFamilyWorkbookModel(state, familyPid, membership, revisions
     taken.push(name);
     sheets.push({ name, kind: 'log', heading: mp.name, columns: COMMENT_COLUMNS,
       rows: sortForLog(comments.filter(c => c && asArray(c.productIds).includes(mid)))
-        .map(c => commentRow(c, s)) });
+        .map(c => commentRow(c, s, true)) });
   }
   return { filename: `${sanitizeFilename(fam.name || '')} Comments.xlsx`, sheets };
 }

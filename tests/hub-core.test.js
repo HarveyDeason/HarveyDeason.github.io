@@ -575,3 +575,44 @@ test('product workbook: malformed photos data degrades rather than throwing', ()
   const prod3 = buildProductWorkbookModel(state, 'p3', new Map(), 't');
   assert.deepEqual(prod3.sheets[1].rows[0].photoRefs, []);
 });
+
+// Family workbooks embed photos too. A family member gets no individual file —
+// its comments live on a sheet inside the family workbook — so without this a
+// product in a family would show no photos anywhere. Each row carries its own
+// comment's photos: a comment on the family shows on the Family Comments sheet,
+// a comment on one drawing shows on that drawing's sheet.
+
+test('family workbook: comments on the family itself declare their photoRefs', () => {
+  const s = famState();
+  s.comments[0].photos = [PH('ph1', 'range-clash.jpg')];
+  const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]),
+    familyOf: new Map([['reg-SP51', 'fam-f1'], ['reg-SP68', 'fam-f1']]) };
+  const m = buildFamilyWorkbookModel(s, 'fam-f1', membership, new Map(), 't');
+  assert.deepEqual(m.sheets[1].rows[0].photoRefs, [{ ref: 'HUB-0001', file: 'range-clash.jpg' }]);
+});
+
+test('family workbook: a comment on one drawing declares its photos on that drawing sheet only', () => {
+  const s = famState();
+  s.comments[1].photos = [PH('ph1', 'sp51-valve.jpg'), PH('ph2', 'sp51-label.jpg')];
+  const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]),
+    familyOf: new Map([['reg-SP51', 'fam-f1'], ['reg-SP68', 'fam-f1']]) };
+  const m = buildFamilyWorkbookModel(s, 'fam-f1', membership, new Map(), 't');
+  assert.deepEqual(m.sheets[1].rows[0].photoRefs, []);          // family sheet: no photos on c1
+  assert.deepEqual(m.sheets[2].rows[0].photoRefs, [             // SP51's own sheet
+    { ref: 'HUB-0002', file: 'sp51-valve.jpg' },
+    { ref: 'HUB-0002', file: 'sp51-label.jpg' },
+  ]);
+  assert.equal(m.sheets[3].rows.length, 0);                     // SP68 has no comments at all
+});
+
+test('family workbook: malformed photos data degrades rather than throwing', () => {
+  const s = famState();
+  s.comments[0].photos = 'not-an-array';
+  s.comments[1].photos = [{ id: 'ph1' }, null, PH('ph2', 'ok.jpg')];
+  const membership = { members: new Map([['fam-f1', ['reg-SP51', 'reg-SP68']]]),
+    familyOf: new Map([['reg-SP51', 'fam-f1'], ['reg-SP68', 'fam-f1']]) };
+  assert.doesNotThrow(() => buildFamilyWorkbookModel(s, 'fam-f1', membership, new Map(), 't'));
+  const m = buildFamilyWorkbookModel(s, 'fam-f1', membership, new Map(), 't');
+  assert.deepEqual(m.sheets[1].rows[0].photoRefs, []);
+  assert.deepEqual(m.sheets[2].rows[0].photoRefs, [{ ref: 'HUB-0002', file: 'ok.jpg' }]);
+});
