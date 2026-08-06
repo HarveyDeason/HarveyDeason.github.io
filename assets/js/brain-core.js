@@ -1,7 +1,7 @@
 // assets/js/brain-core.js
 // Pure logic for the Decision Register: state, merge, compressed text storage,
 // extraction assembly, search documents, snippets, supersession. Node-testable.
-import { mergeById, mergeList, mergeTombstones } from './hub-sync.js';
+import { mergeById, mergeList, mergeTombstones, tsCompare } from './hub-sync.js';
 import { sanitizeFilename, photosCell } from './hub-core.js';
 export { sanitizeFilename };
 
@@ -26,7 +26,7 @@ export function mergeBrainState(local, disk) {
   const tombstones = mergeTombstones(l.tombstones, d.tombstones);
   return {
     version: BRAIN_VERSION,
-    savedAt: (l.savedAt || '') > (d.savedAt || '') ? l.savedAt : d.savedAt,
+    savedAt: tsCompare(l.savedAt, d.savedAt) > 0 ? l.savedAt : d.savedAt,
     decisions: mergeById(l.decisions, d.decisions, tombstones),
     documents: mergeById(l.documents, d.documents, tombstones),
     // History is unioned by entry id, not filtered by tombstones: a deleted

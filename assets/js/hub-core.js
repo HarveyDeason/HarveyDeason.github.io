@@ -3,7 +3,7 @@
 // ref sequencing, dashboard filtering, and Excel workbook models.
 // No DOM, no File System Access API — everything here is node-testable.
 
-import { mergeById, mergeList, mergeTombstones } from './hub-sync.js';
+import { mergeById, mergeList, mergeTombstones, tsCompare } from './hub-sync.js';
 
 export const HUB_VERSION = 1;
 
@@ -31,7 +31,7 @@ export function mergeState(local, disk) {
   const tombstones = mergeTombstones(l.tombstones, d.tombstones);
   const merged = {
     version: HUB_VERSION,
-    savedAt: (l.savedAt || '') > (d.savedAt || '') ? l.savedAt : d.savedAt,
+    savedAt: tsCompare(l.savedAt, d.savedAt) > 0 ? l.savedAt : d.savedAt,
     products: mergeById(l.products || [], d.products || [], tombstones),
     comments: mergeById(l.comments || [], d.comments || [], tombstones),
     // History is unioned by entry id, not filtered by tombstones: a deleted
@@ -169,8 +169,12 @@ export function resequenceRefs(state) {
   // trustworthy as the least careful hand-edit that touched it.
   const rawComments = (Array.isArray(s.comments) ? s.comments : [])
     .filter(c => c && typeof c === 'object');
+  // tsCompare, not string order: refSortKey can return a full ISO timestamp
+  // (createdAt/updatedAt) or a bare 'YYYY-MM-DD' (dateRaised), and the ref a
+  // comment ends up with must not depend on which shape it happened to have.
+  // The id tiebreak still makes the order total when two keys are equal.
   const ordered = [...rawComments].sort((x, y) =>
-    String(refSortKey(x)).localeCompare(String(refSortKey(y))) || String(x.id).localeCompare(String(y.id)));
+    tsCompare(refSortKey(x), refSortKey(y)) || String(x.id).localeCompare(String(y.id)));
   let high = 0;
   for (const c of ordered) high = Math.max(high, refNumber(claimOf(c)));
   const seen = new Set();

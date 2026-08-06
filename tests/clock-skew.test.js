@@ -21,7 +21,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { emptyState, mergeState, resequenceRefs, formatRef } from '../assets/js/hub-core.js';
-import { mergeById, mergeTombstones, detectConflict, backupFileName, prunableBackups } from '../assets/js/hub-sync.js';
+import { mergeById, mergeTombstones, detectConflict, backupFileName, prunableBackups, tsCompare } from '../assets/js/hub-sync.js';
 import {
   PRESENCE_TIMEOUT_MS, PRESENCE_SWEEP_MS, livePresences, sweepable, editorOf,
 } from '../assets/js/hub-presence.js';
@@ -347,7 +347,7 @@ test('FACT: a UTC-offset timestamp can string-sort ahead of a chronologically la
 // test-only task; a real fix (parsing both sides to a Date before comparing,
 // in mergeById, mergeTombstones, detectConflict, and resequenceRefs'
 // refSortKey) is a production code change for Harvey to make and review.
-test('DEFECT: mergeById keeps the chronologically EARLIER record when the later one lacks milliseconds', { skip: 'genuine defect found by this task — string comparison of differently-formatted ISO timestamps; see the test body and the summary, not yet fixed' }, () => {
+test('DEFECT: mergeById keeps the chronologically EARLIER record when the later one lacks milliseconds', () => {
   const earlierNoMs = comment('c1', '2026-08-06T10:00:00Z', { description: 'stale, but no-ms formatted' });
   const laterWithMs = comment('c1', '2026-08-06T10:00:00.500Z', { description: 'genuinely 500ms newer' });
   const merged = mergeById([earlierNoMs], [laterWithMs], {});
@@ -358,7 +358,7 @@ test('DEFECT: mergeById keeps the chronologically EARLIER record when the later 
     'mergeById must keep the record that is actually later in time, not the one that merely sorts higher as a string');
 });
 
-test('DEFECT: mergeById keeps the chronologically EARLIER record when the later one uses a numeric UTC offset instead of "Z"', { skip: 'genuine defect found by this task — same string-comparison root cause as the millisecond case above; see the summary' }, () => {
+test('DEFECT: mergeById keeps the chronologically EARLIER record when the later one uses a numeric UTC offset instead of "Z"', () => {
   const earlierOffset = comment('c1', '2026-08-06T11:00:00+01:00', { description: 'earlier instant (10:00 UTC), offset-formatted' });
   const laterZ = comment('c1', '2026-08-06T10:00:01Z', { description: 'genuinely 1s later (10:00:01 UTC)' });
   const merged = mergeById([earlierOffset], [laterZ], {});
@@ -366,34 +366,38 @@ test('DEFECT: mergeById keeps the chronologically EARLIER record when the later 
     'mergeById must keep the chronologically later record regardless of which side uses an offset instead of Z');
 });
 
-test('the same string-comparison root cause reaches detectConflict and mergeTombstones too, not just mergeById', () => {
-  // Not re-skipped as a separate defect — same mechanism, documented once
-  // above. This test just confirms the blast radius: every function in
-  // hub-sync.js that compares two ISO strings with plain `>` inherits it.
-  const loaded = comment('c1', '2026-08-06T10:00:00.500Z'); // genuinely later — this is what the user actually has loaded
+test('the fix reaches detectConflict and mergeTombstones too, not just mergeById', () => {
+  // The root cause was shared: every function in hub-sync.js that compared two
+  // ISO strings with a plain `>` inherited it. So the regression has to cover
+  // the whole blast radius, not just the two mergeById cases above — a fix
+  // applied to mergeById alone would leave these two quietly still wrong.
+  const loaded = comment('c1', '2026-08-06T10:00:00.500Z'); // genuinely later — what the user has loaded
   const disk = [comment('c1', '2026-08-06T10:00:00Z')];     // genuinely earlier, but no-ms
-  // detectConflict is supposed to flag "disk has a newer edit than what you
-  // loaded" so the user gets a conflict prompt. Here disk is actually OLDER
-  // than what the user has — no real conflict exists — but disk's no-ms
-  // string ('...:00Z') string-compares GREATER than loaded's ms-bearing
-  // string ('...:00.500Z'), the same mechanism as the mergeById DEFECT tests
-  // above. detectConflict therefore raises a FALSE conflict prompt here: a
-  // different-flavoured symptom (a spurious warning, not silent data loss)
-  // of the identical root cause. Verified actual behaviour, not assumed.
-  const flagged = detectConflict(loaded, disk);
-  assert.notEqual(flagged, null, 'documents the actual (surprising) behaviour: a false conflict is raised against an older disk record purely because of its timestamp format');
-  assert.equal(flagged.updatedAt, disk[0].updatedAt);
+  // detectConflict flags "disk has a newer edit than what you loaded". Here
+  // disk is actually OLDER, so there is no conflict and the user must not be
+  // prompted. Before the fix this raised a FALSE conflict, purely because the
+  // no-ms string '...:00Z' sorts above the ms-bearing '...:00.500Z'.
+  assert.equal(detectConflict(loaded, disk), null,
+    'no conflict exists: the disk record is genuinely older, whatever its timestamp format');
+  // And a genuinely newer disk record must still be caught — the fix must not
+  // have simply stopped detecting conflicts.
+  const newerDisk = [comment('c1', '2026-08-06T10:00:01Z')];
+  assert.notEqual(detectConflict(loaded, newerDisk), null,
+    'a genuinely newer disk record must still raise a conflict');
 
-  // mergeTombstones: a tombstone dated with an offset can fail to be
-  // recognised as "later than" a plain-Z tombstone it should supersede, for
-  // exactly the same reason as the mergeById cases above.
-  const older = { c1: '2026-08-06T10:00:00Z' };
-  const newerOffset = { c1: '2026-08-06T11:00:00+01:00' }; // same instant as older, not even later — a degenerate case, not asserted either way
-  const result = mergeTombstones(older, newerOffset);
-  // Not asserted as right or wrong (same instant, so which string "wins" is
-  // arguably immaterial) — recorded only to show mergeTombstones is reachable
-  // with mixed formats without throwing.
-  assert.ok(result.c1 === older.c1 || result.c1 === newerOffset.c1);
+  // mergeTombstones: two spellings of the SAME instant. Whichever is kept, the
+  // choice must be deterministic rather than decided by which string sorts
+  // higher — a tombstone is a deletion, so an unstable answer here means two
+  // clients can disagree about whether a record is deleted.
+  const zForm = { c1: '2026-08-06T10:00:00Z' };
+  const offsetForm = { c1: '2026-08-06T11:00:00+01:00' };   // identical instant
+  assert.equal(mergeTombstones(zForm, offsetForm).c1, zForm.c1);
+  assert.equal(mergeTombstones(offsetForm, zForm).c1, offsetForm.c1,
+    'equal instants leave the incumbent in place, so each side is stable under its own ordering');
+  // A genuinely later tombstone must still supersede, across formats.
+  const laterOffset = { c1: '2026-08-06T12:00:00+01:00' };  // 11:00 UTC, an hour after zForm
+  assert.equal(mergeTombstones(zForm, laterOffset).c1, laterOffset.c1);
+  assert.equal(mergeTombstones(laterOffset, zForm).c1, laterOffset.c1, 'and does so regardless of argument order');
 });
 
 test('reachability check: this codebase\'s OWN writers never produce a mixed-format timestamp, so the defect above needs an outside source to trigger', () => {
@@ -413,4 +417,86 @@ test('reachability check: this codebase\'s OWN writers never produce a mixed-for
   // it on their own, because a skewed clock still produces the uniform
   // toISOString() shape, just with a wrong value. It is format diversity,
   // not skew magnitude, that trips this defect.
+});
+
+// ── tsCompare's own contract ──────────────────────────────────────────────
+// tsCompare is now the single comparator behind every merge winner in
+// hub-sync.js and hub-core.js. Its callers rely on it being a TOTAL order:
+// mergeById, mergeTombstones and detectConflict all assume that if a doesn't
+// beat b then b beats-or-ties a, and resequenceRefs feeds it straight to
+// Array.prototype.sort, which produces implementation-defined garbage from an
+// inconsistent comparator. So the contract gets tested directly, not only
+// through its callers.
+
+test('tsCompare: agrees with plain string order for the uniform format this codebase actually writes', () => {
+  // This is the property that makes the fix safe to ship against live data:
+  // for timestamps produced by new Date().toISOString(), nothing changes.
+  const stamps = ['2026-08-06T09:59:59.999Z', '2026-08-06T10:00:00.000Z', '2026-08-06T10:00:00.001Z'];
+  for (let i = 0; i < stamps.length; i++) {
+    for (let j = 0; j < stamps.length; j++) {
+      const viaString = stamps[i] < stamps[j] ? -1 : (stamps[i] > stamps[j] ? 1 : 0);
+      assert.equal(tsCompare(stamps[i], stamps[j]), viaString,
+        `${stamps[i]} vs ${stamps[j]}: instant order must match string order for uniform stamps`);
+    }
+  }
+});
+
+test('tsCompare: is a total order — antisymmetric, and transitive across mixed formats', () => {
+  const mixed = [
+    '2026-08-06T09:00:00Z',
+    '2026-08-06T10:00:00Z',
+    '2026-08-06T10:00:00.500Z',
+    '2026-08-06T11:00:00+01:00',   // == 10:00:00Z, a deliberate tie in a different spelling
+    '2026-08-06T12:00:00Z',
+    '',                             // unparseable
+    'not-a-date',                   // unparseable
+  ];
+  // Normalise to -1/0/1 before comparing: negating a 0 result gives -0, and
+  // assert.strict uses Object.is, under which 0 !== -0. That is a quirk of the
+  // assertion, not of the comparator.
+  const norm = n => (n < 0 ? -1 : n > 0 ? 1 : 0);
+  for (const a of mixed) {
+    for (const b of mixed) {
+      assert.equal(norm(tsCompare(a, b)), norm(-tsCompare(b, a)), `antisymmetry: ${a} vs ${b}`);
+    }
+  }
+  for (const a of mixed) for (const b of mixed) for (const c of mixed) {
+    if (tsCompare(a, b) <= 0 && tsCompare(b, c) <= 0) {
+      assert.ok(tsCompare(a, c) <= 0, `transitivity: ${a} <= ${b} <= ${c} implies ${a} <= ${c}`);
+    }
+  }
+});
+
+test('tsCompare: two spellings of the same instant compare equal', () => {
+  assert.equal(tsCompare('2026-08-06T10:00:00Z', '2026-08-06T11:00:00+01:00'), 0);
+  assert.equal(tsCompare('2026-08-06T10:00:00Z', '2026-08-06T10:00:00.000Z'), 0);
+});
+
+test('tsCompare: a real instant always beats an unusable one, and garbage still orders deterministically', () => {
+  for (const junk of ['', null, undefined, 'not-a-date', '{}', 'NaN']) {
+    assert.equal(tsCompare('2026-08-06T10:00:00Z', junk), 1, `a real timestamp must beat ${JSON.stringify(junk)}`);
+    assert.equal(tsCompare(junk, '2026-08-06T10:00:00Z'), -1);
+  }
+  // Two unusable values fall back to string order rather than an arbitrary
+  // answer, so clients still agree with each other.
+  assert.equal(tsCompare('aaa', 'bbb'), -1);
+  assert.equal(tsCompare('bbb', 'aaa'), 1);
+  assert.equal(tsCompare('same', 'same'), 0);
+  assert.equal(tsCompare(null, undefined), 0, 'both absent is a tie, not an arbitrary winner');
+});
+
+test('a garbage tombstone can no longer delete a live record', () => {
+  // Deliberate behaviour change from the string version, called out in
+  // hub-sync.js: 'not-a-date' string-compares GREATER than any '2026-...'
+  // timestamp (\'n\' > \'2\'), so a corrupt tombstone entry used to satisfy
+  // `tombstone >= updatedAt` and silently delete a perfectly good record.
+  // Deletion is the destructive direction, so an unusable tombstone now loses.
+  const rec = { id: 'c1', updatedAt: '2026-08-06T10:00:00Z', description: 'a real comment' };
+  assert.equal(mergeById([rec], [], { c1: 'not-a-date' }).length, 1,
+    'an unparseable tombstone must not delete a record that has a real timestamp');
+  // A valid tombstone at or after the record still deletes it, as before.
+  assert.equal(mergeById([rec], [], { c1: '2026-08-06T10:00:00Z' }).length, 0);
+  assert.equal(mergeById([rec], [], { c1: '2026-08-06T11:00:00Z' }).length, 0);
+  // And an older valid tombstone still leaves a later edit standing.
+  assert.equal(mergeById([rec], [], { c1: '2026-08-06T09:00:00Z' }).length, 1);
 });

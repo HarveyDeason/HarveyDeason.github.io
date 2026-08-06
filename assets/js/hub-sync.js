@@ -29,15 +29,58 @@
 function asArray(x) { return Array.isArray(x) ? x : []; }
 function asObj(x) { return x && typeof x === 'object' ? x : {}; }
 
+// COMPARE INSTANTS, NOT STRINGS. Every merge winner in this file is decided by
+// an ISO timestamp, and comparing those as plain strings is correct only while
+// they all share one format. Everything this codebase writes does — always
+// `new Date().toISOString()`, so always full milliseconds and always "Z" — but
+// a hand-edited ledger, an imported record or a future writer need not, and
+// there string order disagrees with real time:
+//
+//   '2026-08-06T10:00:00.500Z' < '2026-08-06T10:00:00Z'   ('.' 0x2E < 'Z' 0x5A)
+//   '2026-08-06T11:00:00+01:00' > '2026-08-06T10:00:01Z'  (offset never read)
+//
+// In both, the genuinely LATER record compares as earlier and mergeById keeps
+// the stale one — silently, on a shared ledger, with no way for anyone to
+// notice. See tests/clock-skew.test.js. This is NOT the millisecond-tie
+// non-commutativity described above: these timestamps are not tied, they are
+// different instants that simply resolve backwards.
+//
+// Rules, chosen so the order stays TOTAL and DETERMINISTIC — every client must
+// reach the same answer from the records alone, never from merge order:
+//   - two parseable values compare by instant;
+//   - a parseable value always beats an unparseable one, preserving the old
+//     `|| ''` intent that a record with no usable timestamp never wins;
+//   - two unparseable values fall back to string comparison, so even garbage
+//     orders consistently rather than arbitrarily.
+//
+// For the uniform timestamps this codebase actually writes, instant order and
+// string order agree exactly, so this changes no existing behaviour.
+export function tsCompare(a, b) {
+  const as = a == null ? '' : String(a);
+  const bs = b == null ? '' : String(b);
+  const at = Date.parse(as), bt = Date.parse(bs);
+  const aOk = Number.isFinite(at), bOk = Number.isFinite(bt);
+  if (aOk && bOk) return at === bt ? 0 : (at < bt ? -1 : 1);
+  if (aOk) return 1;
+  if (bOk) return -1;
+  return as === bs ? 0 : (as < bs ? -1 : 1);
+}
+
 export function mergeById(a, b, tombstones) {
   const out = new Map();
   for (const rec of [...asArray(a), ...asArray(b)]) {
     if (!rec || typeof rec !== 'object' || !rec.id) continue;
     const prev = out.get(rec.id);
-    if (!prev || (rec.updatedAt || '') > (prev.updatedAt || '')) out.set(rec.id, rec);
+    if (!prev || tsCompare(rec.updatedAt, prev.updatedAt) > 0) out.set(rec.id, rec);
   }
   const t = asObj(tombstones);
-  return [...out.values()].filter(r => !(t[r.id] && t[r.id] >= (r.updatedAt || '')));
+  // The `t[r.id] &&` guard stays: a missing or empty tombstone must not delete
+  // anything. Note one deliberate behaviour change from the string version — an
+  // UNPARSEABLE tombstone no longer outranks a real updatedAt, so garbage in the
+  // tombstone map can no longer delete a live record. Deletion is the
+  // destructive direction; erring toward keeping the record is the safe way to
+  // be wrong.
+  return [...out.values()].filter(r => !(t[r.id] && tsCompare(t[r.id], r.updatedAt) >= 0));
 }
 
 export function mergeList(a, b) {
@@ -55,7 +98,7 @@ export function mergeList(a, b) {
 export function mergeTombstones(a, b) {
   const out = { ...asObj(a) };
   for (const [id, ts] of Object.entries(asObj(b))) {
-    if (!out[id] || ts > out[id]) out[id] = ts;
+    if (!out[id] || tsCompare(ts, out[id]) > 0) out[id] = ts;
   }
   return out;
 }
@@ -70,7 +113,7 @@ export function detectConflict(loadedRecord, diskRecords) {
   if (!loadedRecord || typeof loadedRecord !== 'object' || !loadedRecord.id) return null;
   const disk = asArray(diskRecords).find(r => r && r.id === loadedRecord.id);
   if (!disk) return null;
-  return (disk.updatedAt || '') > (loadedRecord.updatedAt || '') ? disk : null;
+  return tsCompare(disk.updatedAt, loadedRecord.updatedAt) > 0 ? disk : null;
 }
 
 export function conflictFields(mine, theirs) {
@@ -135,7 +178,7 @@ export function createEntry(args) {
 export function historyFor(history, recordId) {
   return asArray(history)
     .filter(e => e && e.recordId === recordId)
-    .sort((a, b) => String((b && b.at) || '').localeCompare(String((a && a.at) || '')) || String(a && a.id).localeCompare(String(b && b.id)));
+    .sort((a, b) => tsCompare(b && b.at, a && a.at) || String(a && a.id).localeCompare(String(b && b.id)));
 }
 
 // enteredBy is the only identity the tool stamps automatically, because it is
