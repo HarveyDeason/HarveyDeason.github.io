@@ -165,3 +165,51 @@ test('parseAppendixC reads the function code from a row whose description spans 
   ].join('\n');
   assert.deepEqual(parseAppendixC(csv), ['EE']);
 });
+
+test('parseCsvRows throws on an unterminated quote mid-file, naming the defect clearly', () => {
+  const csv = 'a,b,"c\nd,e,f\ng,h,i';
+  assert.throws(
+    () => parseCsvRows(csv),
+    (err) => {
+      assert(err instanceof Error);
+      assert(err.message.includes('unterminated'));
+      assert(err.message.includes('quoted field'));
+      return true;
+    }
+  );
+});
+
+test('parseCsvRows still succeeds on a quoted field containing a comma', () => {
+  const csv = 'a,"b, c",d';
+  const result = parseCsvRows(csv);
+  assert.deepEqual(result, [['a', 'b, c', 'd']]);
+});
+
+test('parseCsvRows still succeeds on a quoted field containing a newline', () => {
+  const csv = 'a,"b\nc",d\ne,f,g';
+  const result = parseCsvRows(csv);
+  assert.deepEqual(result, [
+    ['a', 'b\nc', 'd'],
+    ['e', 'f', 'g'],
+  ]);
+});
+
+test('parseAppendixC surfaces the unterminated quote error rather than returning a truncated list', () => {
+  const csv = [
+    'h,,,,,,,',
+    'h,,,,,,,',
+    'h,,,,,,,',
+    'A-AAA,A,A,A,EXAMPLE,AA,A,AAA',
+    'B-BBB,B,B,FALSE,,BB,B,BBB',
+    'C-CCC,C,C,FALSE,,CC,C,CCC',
+    'oops,"unclosed quote',
+  ].join('\n');
+  assert.throws(
+    () => parseAppendixC(csv),
+    (err) => {
+      assert(err instanceof Error);
+      assert(err.message.includes('unterminated'));
+      return true;
+    }
+  );
+});

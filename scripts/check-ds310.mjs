@@ -89,6 +89,13 @@ export function parseCsvRows(text) {
   // Final field/row, if the text didn't end on a line break.
   if (field !== '' || row.length) endRow();
 
+  // Detect unterminated quote: if we finished parsing while still inside a
+  // quoted field, the CSV is malformed. This catches the mid-file case where
+  // an unclosed quote swallows every remaining row into a single field.
+  if (inQuotes) {
+    throw new Error('CSV has an unterminated quoted field; parse ended inside a quote. The file is malformed.');
+  }
+
   return rows;
 }
 
@@ -142,7 +149,14 @@ async function main() {
 
   const toolFc = parseToolTable(source, 'FC_LOOKUP');
   const toolDescriptions = parseToolTable(source, 'FC_DESCRIPTIONS');
-  const standardCodes = parseAppendixC(csv);
+  let standardCodes;
+  try {
+    standardCodes = parseAppendixC(csv);
+  } catch (err) {
+    console.error(err.message);
+    process.exitCode = 1;
+    return;
+  }
 
   // An empty parse looks exactly like "the tool classifies nothing", which
   // would be reported as every DS310 code missing. Refuse rather than present
