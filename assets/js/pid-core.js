@@ -33,6 +33,56 @@ const TAG_EXACT = /\b(\d{1,2})-([A-Z]{1,6})-(\d{3,5}[A-Z]{0,2})\b/g;
 // Looser: accepts the separators PDF text extraction tends to mangle.
 const TAG_FUZZY = /\b(\d{1,2})[_.\-]([A-Z]{1,8})[_.\-](\d{2,6}[A-Z]{0,3})\b/g;
 
+// ── Archived PDFs ─────────────────────────────────────────────────────────
+// The register keeps a copy of each imported drawing revision in archive/ as
+// `<drawing>_<rev>.pdf`, so an old revision can still be viewed after the
+// original file is long gone.
+
+/**
+ * Is this actually usable PDF data?
+ *
+ * The reason this exists rather than a plain truthiness check: **an empty
+ * ArrayBuffer is truthy.** A 0-byte archived file therefore sailed past
+ * `if (!data)` and reached pdf.js, which reported "The PDF file is empty"
+ * as a render failure — so the user was told the PDF was broken rather than
+ * that it needed re-importing. Found live on 2026-08-07.
+ */
+export function isUsablePdf(buf) {
+  if (!buf) return false;
+  // Check the TYPE, not just for a byteLength property: a plain object like
+  // { byteLength: 10 } would otherwise pass and be handed to pdf.js.
+  if (!(buf instanceof ArrayBuffer) && !ArrayBuffer.isView(buf)) return false;
+  return buf.byteLength > 0;
+}
+
+/**
+ * Choose which archived file to use for a drawing revision, given the names
+ * present in archive/. Both arguments must already be filename-sanitised.
+ *
+ * Returns null rather than guessing. The previous behaviour was to return the
+ * first file whose name merely STARTED WITH the drawing name, which meant a
+ * missing C01 silently handed back C02's drawing labelled as C01 — and on a
+ * P&ID, marking up against the wrong revision is exactly the kind of error
+ * this register exists to prevent. It also matched 'SP66A_C01.pdf' when asked
+ * for 'SP66'.
+ *
+ * A legacy unversioned `<drawing>.pdf` is still accepted: older archives wrote
+ * that shape, and it is unambiguous — it is the only PDF for that drawing. An
+ * exact revision match always wins over it.
+ */
+export function pickArchiveFile(names, drawingFile, revFile) {
+  const list = Array.isArray(names) ? names : [];
+  const d = typeof drawingFile === 'string' ? drawingFile : '';
+  const r = typeof revFile === 'string' ? revFile : '';
+  if (!d) return null;
+  if (r) {
+    const exact = d + '_' + r + '.pdf';
+    if (list.includes(exact)) return exact;
+  }
+  const legacy = d + '.pdf';
+  return list.includes(legacy) ? legacy : null;
+}
+
 export function resolveFC(fc, lookups) {
   // A property access on `lookups` (e.g. a throwing getter for `fc`) can
   // fail even though `lookups` itself is a plain-looking object, so the

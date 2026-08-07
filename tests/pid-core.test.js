@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extractTags, resolveFC, normaliseTagText, PIPE_MATERIAL_CODES } from '../assets/js/pid-core.js';
+import { extractTags, resolveFC, normaliseTagText, PIPE_MATERIAL_CODES, isUsablePdf, pickArchiveFile } from '../assets/js/pid-core.js';
 import { FIXTURE_LOOKUPS, CORPUS } from './fixtures/pid-tag-corpus.js';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('./fixtures/pid-tag-golden.json', import.meta.url), 'utf8'));
@@ -267,4 +267,71 @@ test('PIPE_MATERIAL_CODES is exported and is exactly the codes the review rule d
     'FW', 'SW', 'SS', 'ST', 'CS', 'GI', 'PE', 'CU', 'PP',
     'HDPE', 'MDPE', 'PVC', 'ABS', 'CPVC', 'UPVC',
   ]);
+});
+
+// ── Archived PDFs ─────────────────────────────────────────────────────────
+// Found live on 2026-08-07: a drawing's older revision showed "Couldn't render
+// this PDF". The archived file was present but ZERO BYTES, and viewSheet's
+// `if (!data)` guard missed it because an empty ArrayBuffer is truthy — so 0
+// bytes reached pdf.js and produced a parse error instead of "re-import".
+//
+// How it became empty could not be proven after the fact (a detached buffer —
+// pdf.js empties any ArrayBuffer handed to it — or an interrupted write are
+// both consistent with the evidence). What IS provable is that nothing stopped
+// an empty buffer being written, and nothing ever repaired it afterwards.
+
+test('isUsablePdf rejects an empty buffer, which is truthy and therefore easy to miss', () => {
+  assert.equal(isUsablePdf(new ArrayBuffer(0)), false, 'the exact case that reached pdf.js');
+  assert.equal(!!new ArrayBuffer(0), true, 'why a plain truthiness check was not enough');
+  assert.equal(isUsablePdf(new ArrayBuffer(8)), true);
+});
+
+test('isUsablePdf rejects anything that is not a buffer, without throwing', () => {
+  for (const bad of [null, undefined, 0, '', 'nope', {}, [], NaN, { byteLength: 10 }]) {
+    assert.doesNotThrow(() => isUsablePdf(bad));
+    assert.equal(isUsablePdf(bad), false, `should reject ${JSON.stringify(bad)}`);
+  }
+});
+
+test('isUsablePdf accepts a typed array as well as a raw ArrayBuffer', () => {
+  assert.equal(isUsablePdf(new Uint8Array(4)), true);
+  assert.equal(isUsablePdf(new Uint8Array(0)), false);
+});
+
+test('pickArchiveFile returns the exact revision when it is present', () => {
+  const names = ['SP66_C01.pdf', 'SP66_C02.pdf', 'OTHER_C01.pdf'];
+  assert.equal(pickArchiveFile(names, 'SP66', 'C01'), 'SP66_C01.pdf');
+  assert.equal(pickArchiveFile(names, 'SP66', 'C02'), 'SP66_C02.pdf');
+});
+
+test('pickArchiveFile returns null rather than a DIFFERENT revision of the same drawing', () => {
+  // The bug this replaces: the old fallback returned the first file whose name
+  // started with the drawing, so asking for C01 handed back C02's drawing
+  // labelled C01. Silently showing the wrong revision of a P&ID is worse than
+  // showing nothing — someone could mark up against the wrong sheet.
+  const names = ['SP66_C02.pdf', 'SP66_C03.pdf'];
+  assert.equal(pickArchiveFile(names, 'SP66', 'C01'), null);
+});
+
+test('pickArchiveFile still accepts a legacy unversioned file for the drawing', () => {
+  // Older archives stored `<drawing>.pdf` with no revision. That is
+  // unambiguous — it is the only PDF for that drawing — so it stays usable.
+  assert.equal(pickArchiveFile(['SP66.pdf'], 'SP66', 'C01'), 'SP66.pdf');
+  // But an exact revision match always wins over it.
+  assert.equal(pickArchiveFile(['SP66.pdf', 'SP66_C01.pdf'], 'SP66', 'C01'), 'SP66_C01.pdf');
+});
+
+test('pickArchiveFile does not confuse a drawing with one whose name extends it', () => {
+  // 'SP66' must not match 'SP66A_C01.pdf' — the old startsWith test would have.
+  assert.equal(pickArchiveFile(['SP66A_C01.pdf'], 'SP66', 'C01'), null);
+  assert.equal(pickArchiveFile(['SP66A_C01.pdf', 'SP66_C01.pdf'], 'SP66', 'C01'), 'SP66_C01.pdf');
+});
+
+test('pickArchiveFile degrades rather than throwing on junk input', () => {
+  for (const bad of [null, undefined, 'nope', 0, {}]) {
+    assert.doesNotThrow(() => pickArchiveFile(bad, 'SP66', 'C01'));
+    assert.equal(pickArchiveFile(bad, 'SP66', 'C01'), null);
+  }
+  assert.equal(pickArchiveFile(['SP66_C01.pdf'], null, null), null);
+  assert.equal(pickArchiveFile(['SP66_C01.pdf'], 'SP66', ''), null);
 });
