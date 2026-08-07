@@ -16,6 +16,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SRC_DIR = path.join(REPO_ROOT, 'tools-src');
 const TOOLS_DIR = path.join(REPO_ROOT, 'tools');
 const MANIFEST_PATH = path.join(TOOLS_DIR, 'vault-manifest.json');
+const BUILD_PATH = path.join(TOOLS_DIR, 'build.json');
 
 /**
  * Lists the plaintext tool HTML files to lock, sorted for stable output.
@@ -50,6 +51,39 @@ export async function listSourceFiles(srcDir) {
 /** Slug = source filename without its extension, e.g. "hydrosizer.html" -> "hydrosizer". */
 export function slugFromFilename(filename) {
   return path.basename(filename, path.extname(filename));
+}
+
+/**
+ * Build identity.
+ *
+ * These tools are left open for days against a shared folder, and a tab that
+ * is already loaded never re-fetches anything — no cache header can reach it.
+ * So a colleague can sit on last week's build indefinitely while writing to
+ * the same ledger as everyone else. Stamping each build lets the running page
+ * compare itself against tools/build.json and offer a reload.
+ *
+ * The placeholder is opt-in per tool: a source without it locks exactly as
+ * before. Timestamp-first so the id sorts chronologically and is obvious in a
+ * bug report; random suffix so two publishes in the same second still differ.
+ */
+export const BUILD_ID_PLACEHOLDER = '__BUILD_ID__';
+
+export function makeBuildId() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, m => (m === 'T' ? 'T' : '-'));
+  const rand = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+  return `${stamp}-${rand}`;
+}
+
+/**
+ * Substitutes the build id into a tool's plaintext before it is encrypted.
+ * Deliberately total: bad input returns something sane rather than throwing,
+ * because a throw here aborts a publish part-way and leaves tools/ in a
+ * half-written state.
+ */
+export function stampBuildId(plaintext, buildId) {
+  const src = typeof plaintext === 'string' ? plaintext : '';
+  if (typeof buildId !== 'string' || !buildId) return src;
+  return src.split(BUILD_ID_PLACEHOLDER).join(buildId);
 }
 
 /**
@@ -194,19 +228,30 @@ async function main() {
 
   const manifest = await makeManifest(passphrase);
   const keyB64 = await deriveKey(passphrase, manifest.salt);
+  // One id for the whole publish: every tool from this run reports the same
+  // build, so build.json is a single answer rather than one per tool.
+  const buildId = makeBuildId();
 
   await fs.mkdir(TOOLS_DIR, { recursive: true });
 
+  let stampedCount = 0;
   for (const filename of filenames) {
     const slug = slugFromFilename(filename);
-    const plaintext = await fs.readFile(path.join(SRC_DIR, filename), 'utf8');
+    const raw = await fs.readFile(path.join(SRC_DIR, filename), 'utf8');
+    const plaintext = stampBuildId(raw, buildId);
+    if (plaintext !== raw) stampedCount += 1;
     const payload = await encryptToolPayload(plaintext, keyB64);
     await writeLoaderPage(TOOLS_DIR, slug, payload, manifest);
     console.log(`${filename} -> ${slug}.html (${Buffer.byteLength(plaintext, 'utf8')} bytes)`);
   }
 
   await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest), 'utf8');
+  // Written LAST, and unencrypted on purpose: a running tool fetches it
+  // without needing the workshop code, so an out-of-date tab can be told to
+  // reload even before anyone unlocks anything.
+  await fs.writeFile(BUILD_PATH, JSON.stringify({ buildId, builtAt: new Date().toISOString() }), 'utf8');
   console.log(`vault-manifest.json written (${filenames.length} tool(s) locked)`);
+  console.log(`build.json written — build ${buildId} (${stampedCount} tool(s) carry the stamp)`);
 }
 
 const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

@@ -7,6 +7,7 @@ import {
   makeManifest,
   checkKey,
 } from '../scripts/vault-lib.mjs';
+import { stampBuildId, makeBuildId } from '../scripts/lock-tools.mjs';
 
 // Throwaway passphrases for testing only — never real workshop codes.
 const TEST_PASSPHRASE = 'test-only-throwaway-pass-1';
@@ -133,4 +134,61 @@ test('the loader page never contains the plaintext it is protecting', async () =
   const payload = await encryptText('SECRET-MARKER-TEXT', keyB64);
   const html = renderLoaderPage('demo', payload, manifest);
   assert.equal(html.includes('SECRET-MARKER-TEXT'), false);
+});
+
+// ── Build stamping ────────────────────────────────────────────────────────
+// A tool left open in a tab never re-fetches anything, so a colleague can sit
+// on last week's build for days while writing to the SHARED ledger. Cache
+// headers cannot help with that — the page is already loaded. So each build is
+// stamped with an id the running page can compare against a small public file,
+// and offer a reload when they differ.
+
+test('stampBuildId replaces the placeholder so a locked page knows which build it is', () => {
+  const src = '<script>const BUILD_ID = "__BUILD_ID__";</script>';
+  assert.equal(stampBuildId(src, '2026-08-07T09-00-00-abcd'),
+    '<script>const BUILD_ID = "2026-08-07T09-00-00-abcd";</script>');
+});
+
+test('stampBuildId replaces every occurrence, not just the first', () => {
+  const src = '__BUILD_ID__ ... __BUILD_ID__';
+  assert.equal(stampBuildId(src, 'X'), 'X ... X');
+});
+
+test('stampBuildId leaves a source with no placeholder untouched', () => {
+  // Not every tool opts in. A tool without the placeholder must lock exactly
+  // as before rather than being silently altered.
+  const src = '<script>const NOTHING = 1;</script>';
+  assert.equal(stampBuildId(src, 'X'), src);
+});
+
+test('stampBuildId tolerates rubbish input rather than throwing mid-publish', () => {
+  // A throw here would abort a publish part-way, leaving tools/ half-written.
+  assert.equal(stampBuildId('', 'X'), '');
+  assert.equal(stampBuildId(null, 'X'), '');
+  assert.equal(stampBuildId('__BUILD_ID__', null), '__BUILD_ID__');
+});
+
+test('makeBuildId produces a distinct id each time', () => {
+  const ids = new Set(Array.from({ length: 50 }, () => makeBuildId()));
+  assert.equal(ids.size, 50, 'two builds must never share an id, or a reload prompt is missed');
+});
+
+test('makeBuildId is filename- and JSON-safe, and readable enough to debug with', () => {
+  const id = makeBuildId();
+  assert.match(id, /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[a-z0-9]{6}$/);
+  assert.equal(JSON.parse(JSON.stringify({ id })).id, id);
+});
+
+test('a stamped, encrypted tool decrypts back to the same id the build published', async () => {
+  // The end-to-end property that matters: what a user's browser eventually
+  // runs must carry the id that build.json advertises, or the page either
+  // nags forever or never nags at all.
+  const buildId = makeBuildId();
+  const src = 'const BUILD_ID = "__BUILD_ID__";';
+  const manifest = await makeManifest(TEST_PASSPHRASE);
+  const keyB64 = await deriveKey(TEST_PASSPHRASE, manifest.salt);
+  const payload = await encryptText(stampBuildId(src, buildId), keyB64);
+  const back = await decryptText(payload, keyB64);
+  assert.equal(back, `const BUILD_ID = "${buildId}";`);
+  assert.ok(back.includes(buildId));
 });
