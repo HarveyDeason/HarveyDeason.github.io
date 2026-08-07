@@ -1,7 +1,7 @@
 // tests/check-ds310.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareCodes, parseAppendixC, parseToolTable } from '../scripts/check-ds310.mjs';
+import { compareCodes, parseAppendixC, parseCsvRows, parseToolTable } from '../scripts/check-ds310.mjs';
 
 // parseToolTable earns its own tests the hard way: while scoping this work, an
 // ad-hoc version of it silently matched nothing and returned {}, which turned
@@ -104,4 +104,64 @@ test('parseAppendixC reads primary function codes from column 5, skipping header
 test('parseAppendixC ignores rows whose function code is blank or not a code', () => {
   const csv = 'h\nh\nh\nx,,,,,,,\ny,,,,,123,,\nz,,,,,CC,,';
   assert.deepEqual(parseAppendixC(csv), ['CC']);
+});
+
+// The bug this file exists to catch: naive `line.split(',')` shifts columns
+// on any row where an earlier field contains a quoted comma, and breaks
+// entirely on a quoted field with an embedded newline. Both occur in the
+// real DS310 export. These tests exercise the CSV grammar directly, plus a
+// regression case shaped like the real defect.
+
+test('parseCsvRows keeps a quoted field with an embedded comma as one field', () => {
+  const csv = 'a,"b, c",d';
+  assert.deepEqual(parseCsvRows(csv), [['a', 'b, c', 'd']]);
+});
+
+test('parseCsvRows keeps a quoted field with an embedded newline as one field, spanning physical lines', () => {
+  const csv = 'a,"b\nc",d\ne,f,g';
+  assert.deepEqual(parseCsvRows(csv), [
+    ['a', 'b\nc', 'd'],
+    ['e', 'f', 'g'],
+  ]);
+});
+
+test('parseCsvRows unescapes "" to a literal quote inside a quoted field', () => {
+  const csv = 'a,"she said ""hi""",c';
+  assert.deepEqual(parseCsvRows(csv), [['a', 'she said "hi"', 'c']]);
+});
+
+test('parseCsvRows treats CRLF and LF line endings the same way', () => {
+  const csv = 'a,b\r\nc,d\ne,f';
+  assert.deepEqual(parseCsvRows(csv), [
+    ['a', 'b'],
+    ['c', 'd'],
+    ['e', 'f'],
+  ]);
+});
+
+test('parseAppendixC still reads column 5 when an earlier field has a quoted comma — regression for the naive split(",") bug', () => {
+  const csv = [
+    'h,,,,,,,',
+    'h,,,,,,,',
+    'h,,,,,,,',
+    // Field index 4 ("ASSET DESCRIPTION") contains a quoted comma. A naive
+    // split(',') would read "Rotary Vane" (part of the description, shifted
+    // into column 5) instead of the real function code "DD" in column 5.
+    'A-AAA,A,A,A,"Side Channel, Rotary Vane",DD,A,AAA',
+  ].join('\n');
+  assert.deepEqual(parseAppendixC(csv), ['DD']);
+  // Prove the naive approach would actually get this wrong, so this test
+  // fails loudly if someone reverts parseAppendixC to line.split(','):
+  const naiveColumn5 = csv.split('\n')[3].split(',')[5];
+  assert.notEqual(naiveColumn5, 'DD');
+});
+
+test('parseAppendixC reads the function code from a row whose description spans multiple physical lines', () => {
+  const csv = [
+    'h,,,,,,,',
+    'h,,,,,,,',
+    'h,,,,,,,',
+    'A-AAA,A,A,A,"multi\nline description",EE,A,AAA',
+  ].join('\n');
+  assert.deepEqual(parseAppendixC(csv), ['EE']);
 });

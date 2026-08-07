@@ -24,12 +24,80 @@ export function parseToolTable(source, name) {
   return out;
 }
 
+/**
+ * Quote-aware CSV row splitter (RFC 4180-ish). Handles quoted fields with
+ * embedded commas and newlines, `""` as an escaped quote, and both CRLF and
+ * LF line endings. Returns an array of rows, each an array of field strings.
+ *
+ * A naive `line.split(',')` shifts every column after a quoted field that
+ * contains a comma, and breaks entirely on a quoted field that contains a
+ * newline (the "row" isn't even complete yet). Both occur in the real
+ * DS310 Appendix C export, so this has to be a real state machine rather
+ * than a per-line split.
+ */
+export function parseCsvRows(text) {
+  const src = String(text || '');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+  const n = src.length;
+
+  const endField = () => { row.push(field); field = ''; };
+  const endRow = () => { endField(); rows.push(row); row = []; };
+
+  while (i < n) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      field += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (ch === ',') {
+      endField();
+      i += 1;
+      continue;
+    }
+    if (ch === '\r') {
+      // Swallow bare \r and \r\n alike; the following \n (if any) is consumed
+      // on the next iteration's check below.
+      if (src[i + 1] === '\n') i += 1;
+      endRow();
+      i += 1;
+      continue;
+    }
+    if (ch === '\n') {
+      endRow();
+      i += 1;
+      continue;
+    }
+    field += ch;
+    i += 1;
+  }
+  // Final field/row, if the text didn't end on a line break.
+  if (field !== '' || row.length) endRow();
+
+  return rows;
+}
+
 /** Primary Function Code is column 5; the first three rows are headers. */
 export function parseAppendixC(csv) {
   const seen = new Set();
-  for (const line of String(csv || '').split(/\r?\n/).slice(3)) {
-    if (!line.trim()) continue;
-    const code = (line.split(',')[5] || '').trim();
+  for (const row of parseCsvRows(csv).slice(3)) {
+    if (!row.some(f => f.trim())) continue;
+    const code = (row[5] || '').trim();
     if (/^[A-Z]{1,6}$/.test(code)) seen.add(code);
   }
   return [...seen].sort();
