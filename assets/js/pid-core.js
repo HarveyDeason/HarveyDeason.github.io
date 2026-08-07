@@ -9,7 +9,15 @@
 // arrive as the `lookups` argument. Keep it that way.
 
 function asObj(x) { return x && typeof x === 'object' ? x : {}; }
-function asStr(x) { return typeof x === 'string' ? x : (x == null ? '' : String(x)); }
+// String(x) throws on an object with no toString/valueOf (e.g.
+// Object.create(null)), on one with a throwing toString/Symbol.toPrimitive,
+// and so on. No exported function here may throw on any input, so any
+// coercion failure degrades to '' rather than propagating.
+function asStr(x) {
+  if (typeof x === 'string') return x;
+  if (x == null) return '';
+  try { return String(x); } catch { return ''; }
+}
 
 // A single-digit process area code paired with one of these reads as a pipe
 // LINE number rather than an asset tag, so it goes to review for a human to
@@ -26,11 +34,18 @@ const TAG_EXACT = /\b(\d{1,2})-([A-Z]{1,6})-(\d{3,5}[A-Z]{0,2})\b/g;
 const TAG_FUZZY = /\b(\d{1,2})[_.\-]([A-Z]{1,8})[_.\-](\d{2,6}[A-Z]{0,3})\b/g;
 
 export function resolveFC(fc, lookups) {
-  const l = asObj(lookups);
-  return {
-    cat: asObj(l.fc)[fc] || 'other',
-    desc: asObj(l.fcDescriptions)[fc] || fc,
-  };
+  // A property access on `lookups` (e.g. a throwing getter for `fc`) can
+  // fail even though `lookups` itself is a plain-looking object, so the
+  // whole lookup is wrapped rather than just the initial coercion.
+  try {
+    const l = asObj(lookups);
+    return {
+      cat: asObj(l.fc)[fc] || 'other',
+      desc: asObj(l.fcDescriptions)[fc] || fc,
+    };
+  } catch {
+    return { cat: 'other', desc: fc };
+  }
 }
 
 // PDF text extraction breaks tags apart in predictable ways: en/em dashes for

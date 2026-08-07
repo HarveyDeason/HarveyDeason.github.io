@@ -153,6 +153,102 @@ test('extractTags never throws on hostile or malformed input', () => {
   assert.doesNotThrow(() => extractTags(huge, { lookups: L }));
 });
 
+// The module's stated constraint is that no exported function throws on any
+// input. String(x) throws on an object with no toString/valueOf, and on one
+// with a throwing toString/Symbol.toPrimitive, so the coercion has to be
+// wrapped, not just typeof-checked. Property access on `lookups` can throw
+// too, independent of the text argument.
+test('extractTags never throws on inputs that break String() coercion', () => {
+  const emptyResult = { confirmed: [], review: [], likelyScanPDF: true };
+
+  const nullProto = Object.create(null);
+  assert.doesNotThrow(() => extractTags(nullProto, { lookups: L }));
+  assert.deepEqual(extractTags(nullProto, { lookups: L }), emptyResult);
+
+  const throwingToString = { toString() { throw new Error('x'); } };
+  assert.doesNotThrow(() => extractTags(throwingToString, { lookups: L }));
+  assert.deepEqual(extractTags(throwingToString, { lookups: L }), emptyResult);
+
+  const throwingToPrimitive = { [Symbol.toPrimitive]() { throw new Error('x'); } };
+  assert.doesNotThrow(() => extractTags(throwingToPrimitive, { lookups: L }));
+  assert.deepEqual(extractTags(throwingToPrimitive, { lookups: L }), emptyResult);
+
+  const hostileLookups = { get fc() { throw new Error('x'); }, fcDescriptions: {} };
+  assert.doesNotThrow(() => extractTags('21-XX-1001', { drawingName: 'SP51', revision: 'C', lookups: hostileLookups }));
+  const r = extractTags('21-XX-1001', { drawingName: 'SP51', revision: 'C', lookups: hostileLookups });
+  assert.equal(r.confirmed.length, 1);
+  assert.equal(r.confirmed[0].type, 'other');
+  assert.equal(r.confirmed[0].desc, 'XX');
+});
+
+test('normaliseTagText never throws on inputs that break String() coercion', () => {
+  assert.doesNotThrow(() => normaliseTagText(Object.create(null)));
+  assert.equal(normaliseTagText(Object.create(null)), '');
+
+  assert.doesNotThrow(() => normaliseTagText({ toString() { throw new Error('x'); } }));
+  assert.equal(normaliseTagText({ toString() { throw new Error('x'); } }), '');
+
+  assert.doesNotThrow(() => normaliseTagText({ [Symbol.toPrimitive]() { throw new Error('x'); } }));
+  assert.equal(normaliseTagText({ [Symbol.toPrimitive]() { throw new Error('x'); } }), '');
+});
+
+test('resolveFC never throws when a lookups property access itself throws', () => {
+  const hostileLookups = { get fc() { throw new Error('x'); }, fcDescriptions: {} };
+  assert.doesNotThrow(() => resolveFC('XX', hostileLookups));
+  assert.deepEqual(resolveFC('XX', hostileLookups), { cat: 'other', desc: 'XX' });
+});
+
+// ── TAG_EXACT boundaries ──
+// The corpus only exercises the interior of every quantifier range (4-digit
+// ids, 2-digit PACs, 2-letter FCs), so a narrowed or widened boundary passes
+// the whole suite silently. These pin the edges directly against the
+// documented pattern: \b(\d{1,2})-([A-Z]{1,6})-(\d{3,5}[A-Z]{0,2})\b
+test('TAG_EXACT id lower bound: a 3-digit id is confirmed', () => {
+  const r = extractTags('21-XX-100', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 1);
+  assert.equal(r.confirmed[0].tag, '21-XX-100');
+});
+
+test('TAG_EXACT id upper bound: a 5-digit id is confirmed', () => {
+  const r = extractTags('21-XX-10000', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 1);
+  assert.equal(r.confirmed[0].tag, '21-XX-10000');
+});
+
+test('a 2-digit id falls below TAG_EXACT and lands in review via TAG_FUZZY', () => {
+  const r = extractTags('21-XX-10', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 0);
+  assert.equal(r.review.length, 1);
+  assert.equal(r.review[0].tag, '21-XX-10');
+});
+
+test('a 6-digit id is not confirmed (still caught by TAG_FUZZY, sent to review)', () => {
+  const r = extractTags('21-XX-100000', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 0);
+  assert.equal(r.review.length, 1);
+  assert.equal(r.review[0].tag, '21-XX-100000');
+});
+
+test('TAG_EXACT fc upper bound: a 6-letter function code is confirmed', () => {
+  const r = extractTags('21-XXXXXX-1001', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 1);
+  assert.equal(r.confirmed[0].tag, '21-XXXXXX-1001');
+});
+
+test('a 7-letter function code is not confirmed (still caught by TAG_FUZZY, sent to review)', () => {
+  const r = extractTags('21-XXXXXXX-1001', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 0);
+  assert.equal(r.review.length, 1);
+  assert.equal(r.review[0].tag, '21-XXXXXXX-1001');
+});
+
+test('a 3-digit process area code produces nothing at all', () => {
+  const r = extractTags('211-XX-1001', { drawingName: 'SP51', revision: 'C', lookups: L });
+  assert.equal(r.confirmed.length, 0);
+  assert.equal(r.review.length, 0);
+  assert.equal(r.likelyScanPDF, true);
+});
+
 test('extractTags carries drawing and revision through unchanged, including when absent', () => {
   const r = extractTags('21-XX-1001', { drawingName: 'SP51', revision: 'C', lookups: L });
   assert.equal(r.confirmed[0].drawing, 'SP51');
@@ -162,8 +258,13 @@ test('extractTags carries drawing and revision through unchanged, including when
   assert.equal(bare.confirmed[0].revision, undefined);
 });
 
-test('PIPE_MATERIAL_CODES is exported and contains the codes the review rule depends on', () => {
-  for (const code of ['FW', 'SW', 'SS', 'ST', 'CS', 'GI', 'PE', 'CU', 'PP', 'HDPE', 'MDPE', 'PVC', 'ABS', 'CPVC', 'UPVC']) {
-    assert.ok(PIPE_MATERIAL_CODES.includes(code), `missing ${code}`);
-  }
+// assert.deepEqual on the whole array, not just inclusion: an inclusion
+// check cannot detect an ADDITION to this list, and an addition here would
+// both misclassify real instrument tags as line numbers and risk leaking
+// DS310 material/process data into this public file.
+test('PIPE_MATERIAL_CODES is exported and is exactly the codes the review rule depends on', () => {
+  assert.deepEqual(PIPE_MATERIAL_CODES, [
+    'FW', 'SW', 'SS', 'ST', 'CS', 'GI', 'PE', 'CU', 'PP',
+    'HDPE', 'MDPE', 'PVC', 'ABS', 'CPVC', 'UPVC',
+  ]);
 });
