@@ -1,0 +1,432 @@
+{
+  "plain exact tag": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1001",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1001",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "en dash normalised": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1002",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1002",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "em dash normalised": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1003",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1003",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "figure dash and horizontal bar": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1004",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1004",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      },
+      {
+        "tag": "21-YY-1005",
+        "pac": "21",
+        "fc": "YY",
+        "id": "1005",
+        "desc": "Example Gadget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "gadget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "double hyphen collapsed": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1006",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1006",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "lower case input": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1007",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1007",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "rejoin: fc and id split by space": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1008",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1008",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "rejoin: A-E suffix split off": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1009A",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1009A",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "rejoin: spaces around both hyphens": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1010",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1010",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "likelyLineNum: single-digit pac + pipe material": {
+    "confirmed": [],
+    "review": [
+      {
+        "tag": "1-PP-1011",
+        "pac": "1",
+        "fc": "PP",
+        "id": "1011",
+        "desc": "PP",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "pipework",
+        "isClash": false,
+        "isReview": true
+      }
+    ],
+    "likelyScanPDF": false
+  },
+  "not a line num: two-digit pac + pipe material": {
+    "confirmed": [
+      {
+        "tag": "21-PP-1012",
+        "pac": "21",
+        "fc": "PP",
+        "id": "1012",
+        "desc": "PP",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "pipework",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "likelyLineNum: other pipe material": {
+    "confirmed": [],
+    "review": [
+      {
+        "tag": "9-SS-1013",
+        "pac": "9",
+        "fc": "SS",
+        "id": "1013",
+        "desc": "SS",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "pipework",
+        "isClash": false,
+        "isReview": true
+      }
+    ],
+    "likelyScanPDF": false
+  },
+  "fuzzy: underscore separators": {
+    "confirmed": [],
+    "review": [
+      {
+        "tag": "21-YY-1014",
+        "pac": "21",
+        "fc": "YY",
+        "id": "1014",
+        "desc": "Example Gadget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "gadget",
+        "isClash": false,
+        "isReview": true
+      }
+    ],
+    "likelyScanPDF": false
+  },
+  "fuzzy: dot separators": {
+    "confirmed": [],
+    "review": [
+      {
+        "tag": "21-YY-1015",
+        "pac": "21",
+        "fc": "YY",
+        "id": "1015",
+        "desc": "Example Gadget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "gadget",
+        "isClash": false,
+        "isReview": true
+      }
+    ],
+    "likelyScanPDF": false
+  },
+  "digits-only middle group matches no pattern at all": {
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "dedup: same tag twice": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1017",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1017",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "dedup: exact wins over fuzzy": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1018",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1018",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "trailing letters on id": {
+    "confirmed": [
+      {
+        "tag": "21-XX-1019AB",
+        "pac": "21",
+        "fc": "XX",
+        "id": "1019AB",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "unknown fc falls back to other": {
+    "confirmed": [
+      {
+        "tag": "21-ZZ-1020",
+        "pac": "21",
+        "fc": "ZZ",
+        "id": "1020",
+        "desc": "ZZ",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "other",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "no tags at all": {
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "empty string": {
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "realistic mixed block": {
+    "confirmed": [
+      {
+        "tag": "21-XX-2001A",
+        "pac": "21",
+        "fc": "XX",
+        "id": "2001A",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      },
+      {
+        "tag": "21-XX-2002B",
+        "pac": "21",
+        "fc": "XX",
+        "id": "2002B",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      },
+      {
+        "tag": "21-YY-4001",
+        "pac": "21",
+        "fc": "YY",
+        "id": "4001",
+        "desc": "Example Gadget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "gadget",
+        "isClash": false,
+        "isReview": false
+      },
+      {
+        "tag": "13-XX-5001",
+        "pac": "13",
+        "fc": "XX",
+        "id": "5001",
+        "desc": "Example Widget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "widget",
+        "isClash": false,
+        "isReview": false
+      },
+      {
+        "tag": "21-YY-6001",
+        "pac": "21",
+        "fc": "YY",
+        "id": "6001",
+        "desc": "Example Gadget",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "gadget",
+        "isClash": false,
+        "isReview": false
+      }
+    ],
+    "review": [
+      {
+        "tag": "1-PP-3001",
+        "pac": "1",
+        "fc": "PP",
+        "id": "3001",
+        "desc": "PP",
+        "drawing": "SP51",
+        "revision": "C",
+        "type": "pipework",
+        "isClash": false,
+        "isReview": true
+      }
+    ],
+    "likelyScanPDF": false
+  }
+}
