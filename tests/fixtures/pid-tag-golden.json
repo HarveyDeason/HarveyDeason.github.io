@@ -263,7 +263,7 @@
     ],
     "likelyScanPDF": false
   },
-  "fuzzy rejected: all-digit middle group": {
+  "digits-only middle group matches no pattern at all": {
     "confirmed": [],
     "review": [],
     "likelyScanPDF": true

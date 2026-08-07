@@ -23,7 +23,11 @@ export const CORPUS = [
   { name: 'likelyLineNum: other pipe material', text: '9-SS-1013' },
   { name: 'fuzzy: underscore separators', text: '21_YY_1014' },
   { name: 'fuzzy: dot separators', text: '21.YY.1015' },
-  { name: 'fuzzy rejected: all-digit middle group', text: '21_99_1016' },
+  // Named for what it actually pins. It does NOT exercise the fuzzy
+  // digit-rejection guard in the original code — TAG_FUZZY's middle group is
+  // [A-Z]{1,8}, letters only, so that guard is unreachable and no input can
+  // reach it. This case pins that digit-separated text yields nothing at all.
+  { name: 'digits-only middle group matches no pattern at all', text: '21_99_1016' },
   { name: 'dedup: same tag twice', text: '21-XX-1017 21-XX-1017' },
   { name: 'dedup: exact wins over fuzzy', text: '21-XX-1018 21_XX_1018' },
   { name: 'trailing letters on id', text: '21-XX-1019AB' },
