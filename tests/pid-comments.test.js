@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveConnectMode, connectModeLabel, commentCountsByDrawing, openCommentsByDrawing,
   commentCountsByProduct, openCommentsByProduct,
-  CONVENTIONAL_REGISTER_SUBFOLDER, drawingNameFromFile, isDestructiveSave } from '../assets/js/pid-comments.js';
+  CONVENTIONAL_REGISTER_SUBFOLDER, drawingNameFromFile, isDestructiveSave,
+  isNewerTimestamp, laterTimestamp, historySupersededByDeletion, familyDeletedBy } from '../assets/js/pid-comments.js';
 
 // ── resolveConnectMode (Task 2) ─────────────────────────────────────────
 
@@ -517,4 +518,84 @@ test('openCommentsByProduct: a comment listing two products is listed for each, 
   const grouped = openCommentsByProduct(hub);
   assert.equal(grouped.get('p1').length, 1);
   assert.equal(grouped.get('p2').length, 1);
+});
+
+// ── Register merge timestamp comparisons ─────────────────────────────────
+// The register has its own merge, written before hub-sync's existed, and it
+// compared ISO timestamps as raw strings — the same defect fixed in
+// hub-sync.js on 2026-08-07, in the tool holding the data every other tool
+// links against. These predicates are extracted here so the comparison
+// semantics are testable at all; mergeState itself still lives in the
+// gitignored tool.
+//
+// The asymmetry below is deliberate. "Newer wins" can use plain instant
+// order. The two DESTRUCTIVE predicates cannot: a timestamp we cannot place
+// in time must never be read as grounds for deleting something. This register
+// lost data on 2026-08-03 and the safe way to be wrong is to keep.
+
+test('isNewerTimestamp: orders by instant, not by string', () => {
+  // The exact pair that resolved backwards before: '.' sorts below 'Z'.
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00.500Z', '2026-08-06T10:00:00Z'), true);
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00Z', '2026-08-06T10:00:00.500Z'), false);
+  // Offset spellings are parsed, not compared digit by digit.
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:01Z', '2026-08-06T11:00:00+01:00'), true);
+  assert.equal(isNewerTimestamp('2026-08-06T11:00:00+01:00', '2026-08-06T10:00:01Z'), false);
+  // Equal instants in different spellings are not "newer" either way.
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00Z', '2026-08-06T11:00:00+01:00'), false);
+  assert.equal(isNewerTimestamp('2026-08-06T11:00:00+01:00', '2026-08-06T10:00:00Z'), false);
+});
+
+test('isNewerTimestamp: a real timestamp beats a missing or unusable one', () => {
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00Z', ''), true);
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00Z', null), true);
+  assert.equal(isNewerTimestamp('2026-08-06T10:00:00Z', 'not-a-date'), true);
+  assert.equal(isNewerTimestamp('not-a-date', '2026-08-06T10:00:00Z'), false);
+  assert.equal(isNewerTimestamp(undefined, undefined), false);
+});
+
+test('laterTimestamp keeps the genuinely later of two deletion stamps', () => {
+  assert.equal(laterTimestamp('2026-08-06T10:00:00Z', '2026-08-06T10:00:00.500Z'), '2026-08-06T10:00:00.500Z');
+  assert.equal(laterTimestamp('2026-08-06T10:00:00.500Z', '2026-08-06T10:00:00Z'), '2026-08-06T10:00:00.500Z');
+  // A real stamp is preferred over junk rather than losing to it alphabetically.
+  assert.equal(laterTimestamp('zzz-garbage', '2026-08-06T10:00:00Z'), '2026-08-06T10:00:00Z');
+  assert.equal(laterTimestamp('', '2026-08-06T10:00:00Z'), '2026-08-06T10:00:00Z');
+});
+
+test('historySupersededByDeletion: prunes on instant order, not string order', () => {
+  const cut = '2026-08-06T10:00:00.500Z';
+  // Imported before the deletion → superseded, goes.
+  assert.equal(historySupersededByDeletion('2026-08-06T09:00:00Z', cut), true);
+  // Imported AFTER the deletion → survives. Under string comparison
+  // '...10:00:00.500Z' sorts ABOVE '...10:00:01Z', so this history was being
+  // deleted despite being newer than the deletion that supposedly covered it.
+  assert.equal(historySupersededByDeletion('2026-08-06T10:00:01Z', cut), false);
+  // Same instant counts as covered, matching the original >= intent.
+  assert.equal(historySupersededByDeletion(cut, cut), true);
+});
+
+test('historySupersededByDeletion: an unplaceable timestamp is KEPT, never pruned', () => {
+  // The destructive direction. A garbage importedAt cannot be placed in time,
+  // so it is not evidence that the entry predates a deletion.
+  assert.equal(historySupersededByDeletion('not-a-date', '2026-08-06T10:00:00Z'), false);
+  assert.equal(historySupersededByDeletion('2026-08-06T09:00:00Z', 'not-a-date'), false);
+  // No deletion at all prunes nothing.
+  assert.equal(historySupersededByDeletion('2026-08-06T09:00:00Z', ''), false);
+  assert.equal(historySupersededByDeletion('2026-08-06T09:00:00Z', null), false);
+  // An entry with no importedAt keeps the previous behaviour: a deletion
+  // does cover provenance-less history, or a deletion could never take effect.
+  assert.equal(historySupersededByDeletion('', '2026-08-06T10:00:00Z'), true);
+});
+
+test('familyDeletedBy: deletes on instant order, and keeps when it cannot tell', () => {
+  const del = '2026-08-06T10:00:00.500Z';
+  assert.equal(familyDeletedBy(del, '2026-08-06T09:00:00Z'), true);   // edited before deletion → deleted
+  // Edited AFTER the deletion → reinstated. String order got this backwards.
+  assert.equal(familyDeletedBy(del, '2026-08-06T10:00:01Z'), false);
+  assert.equal(familyDeletedBy(del, del), true);                       // tie → deleted, matches >=
+  // Unplaceable either side → keep the family.
+  assert.equal(familyDeletedBy('not-a-date', '2026-08-06T09:00:00Z'), false);
+  assert.equal(familyDeletedBy(del, 'not-a-date'), false);
+  assert.equal(familyDeletedBy('', '2026-08-06T09:00:00Z'), false);
+  // A family with no updatedAt is covered, as before.
+  assert.equal(familyDeletedBy(del, ''), true);
 });

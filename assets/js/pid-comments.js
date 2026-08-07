@@ -4,10 +4,74 @@
 // everything here is node-testable, per the plan at
 // docs/superpowers/plans/2026-08-02-pid-comment-link.md.
 
+import { tsCompare } from './hub-sync.js';
+
 // The subfolder name used when a hub root is connected for the first time
 // and no register subfolder exists yet. The caller creates it lazily, only
 // on the user's first save — never on connect (see resolveConnectMode doc).
 export const CONVENTIONAL_REGISTER_SUBFOLDER = 'P&ID Register';
+
+// ── Register merge: timestamp comparisons ────────────────────────────────
+// The register's mergeState (in the gitignored tool) compared ISO timestamps
+// as raw strings, which resolves backwards whenever two timestamps are spelt
+// differently — '...:00.500Z' sorts BELOW '...:00Z' because '.' < 'Z', and an
+// offset like '+01:00' is never parsed at all. Same defect as hub-sync.js
+// carried until 2026-08-07, in the tool holding the data every other tool
+// links against.
+//
+// Extracted here so the semantics can be tested; mergeState itself still
+// lives in the tool. Note the deliberate asymmetry between these:
+//
+//   - "Newer wins" can use plain instant order.
+//   - The two DESTRUCTIVE predicates cannot. A timestamp that cannot be
+//     placed in time is not evidence that something predates a deletion, so
+//     it is KEPT. This register lost data on 2026-08-03; when the comparison
+//     is unclear, the safe way to be wrong is to keep the record.
+
+function usable(x) {
+  return x != null && x !== '' && Number.isFinite(Date.parse(String(x)));
+}
+
+/** True when `a` is a genuinely later instant than `b`. */
+export function isNewerTimestamp(a, b) {
+  return tsCompare(a, b) > 0;
+}
+
+/** The later of two timestamps — used to merge deletion maps. */
+export function laterTimestamp(a, b) {
+  return tsCompare(a, b) >= 0 ? a : b;
+}
+
+/**
+ * Should this revision-history entry be pruned by a drawing deletion?
+ *
+ * Destructive: only prunes when both sides can actually be placed in time, or
+ * when the entry carries no importedAt at all — that last case preserves the
+ * previous behaviour, without which a deletion could never take effect against
+ * provenance-less history.
+ */
+export function historySupersededByDeletion(importedAt, deletedAt) {
+  if (!usable(deletedAt)) return false;
+  const imported = importedAt == null ? '' : String(importedAt);
+  if (imported === '') return true;
+  if (!usable(imported)) return false;
+  return tsCompare(imported, deletedAt) <= 0;
+}
+
+/**
+ * Does this family tombstone cover this family's current edit?
+ *
+ * Destructive, same posture as above: an unplaceable timestamp on either side
+ * keeps the family rather than deleting it. A family edited AFTER its
+ * tombstone is reinstated, which is what the `>=` was always meant to express.
+ */
+export function familyDeletedBy(deletedAt, updatedAt) {
+  if (!usable(deletedAt)) return false;
+  const updated = updatedAt == null ? '' : String(updatedAt);
+  if (updated === '') return true;
+  if (!usable(updated)) return false;
+  return tsCompare(deletedAt, updated) >= 0;
+}
 
 // ── Mode detection (Task 2) ─────────────────────────────────────────────
 //
