@@ -129,17 +129,22 @@ test('extractTags reports likelyScanPDF only when nothing at all was found', () 
 // calls, the SECOND drawing someone imports silently loses tags.
 test('extractTags gives identical results when called repeatedly', () => {
   const opts = { drawingName: 'SP51', revision: 'C', lookups: L };
-  const first = extractTags('21-XX-1001 21-YY-1002', opts);
-  const second = extractTags('21-XX-1001 21-YY-1002', opts);
-  const third = extractTags('21-XX-1001 21-YY-1002', opts);
+  // Both patterns must appear here. The earlier version used only exact-format
+  // tags, so a lastIndex leak isolated to TAG_FUZZY would have gone unnoticed.
+  const first = extractTags('21-XX-1001 21_YY_1002', opts);
+  const second = extractTags('21-XX-1001 21_YY_1002', opts);
+  const third = extractTags('21-XX-1001 21_YY_1002', opts);
   assert.deepEqual(second, first, 'regex lastIndex leaked between calls');
   assert.deepEqual(third, first);
 });
 
 test('extractTags never throws on hostile or malformed input', () => {
   const cases = [undefined, null, 0, '', [], {}, NaN, 12345, { text: 'nope' }];
+  const emptyResult = { confirmed: [], review: [], likelyScanPDF: true };
   for (const bad of cases) {
     assert.doesNotThrow(() => extractTags(bad, { lookups: L }), `threw on ${JSON.stringify(bad)}`);
+    const result = extractTags(bad, { lookups: L });
+    assert.deepEqual(result, emptyResult, `unexpected result for ${JSON.stringify(bad)}`);
   }
   assert.doesNotThrow(() => extractTags('21-XX-1001', undefined));
   assert.doesNotThrow(() => extractTags('21-XX-1001', { lookups: null }));
