@@ -104,6 +104,34 @@ Also logged in the hardening report, not fixed:
 
 ---
 
+## P&ID core extraction — tag extraction done, the rest still in the tool
+
+**Done 2026-08-07.** `assets/js/pid-core.js` now holds `extractTags`,
+`resolveFC` and `normaliseTagText`, tested against golden fixtures captured
+from the live tool before anything moved. Spec and plan:
+`docs/superpowers/specs/2026-08-07-pid-core-extraction-design.md`,
+`docs/superpowers/plans/2026-08-07-pid-core-extraction.md`.
+
+**The constraint that shaped it, and must keep holding:** `assets/js/` is served
+publicly, so the Wessex Water DS310 lookup tables did **not** move. They stay in
+the encrypted tool and are passed in as `lookups`. Tests use fictional codes. Any
+future extraction from this tool inherits that rule.
+
+**Still in the tool, untested:** revision detection (`detectRevision`,
+`parseUKDate`, `detectDrawingDate`), merge/state (`mergeState`, `applyDeletions`,
+`rebuildLiveFromHistory`, `snapshotRev`, `slimTag`), and families/clashes
+(`expandPatterns`, `getFamilyForDrawing`, `detectClashes`, `nextAvailable`).
+Each is its own slice. `slimTag` belongs with the merge/state slice — its only
+callers are there.
+
+**DS310 conformance gap, open.** `node scripts/check-ds310.mjs "<appendix C csv>"`
+reports it: **53** standard codes the tool does not classify, 14 tool codes absent
+from the standard, 114 classified codes with no description. Those 53 still
+extract as tags — they fall to `cat:'other'` — so this degrades classification
+quality, not data. Filling them is data entry against Appendix C; it was kept out
+of the extraction deliberately because changing output would have invalidated the
+golden comparison.
+
 ## Backlog, roughly in value order
 
 1. **Product link integrity** — plan written:
