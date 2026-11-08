@@ -215,3 +215,13 @@ test('validatePipe flags blank, zero and negative pipe inputs', () => {
   assert.deepEqual(validatePipe({ qLs: NaN, dnMm: 0, vMs: 1 }), ['qLs', 'dnMm']);
   assert.deepEqual(validatePipe({ qLs: 40, dnMm: 200, vMs: -1 }), ['vMs']);
 });
+
+// ── Diameter-mode chart ──
+import { standardDNsAround } from '../assets/js/hydro-core.js';
+
+test('standardDNsAround: up to n standard sizes each side of a bore', () => {
+  assert.deepEqual(standardDNsAround(200, 2), [125, 150, 200, 250, 300]);
+  assert.deepEqual(standardDNsAround(199, 2), [125, 150, 200, 250]);
+  assert.deepEqual(standardDNsAround(30, 3), [25, 32, 40, 50]);
+  assert.deepEqual(standardDNsAround(1300, 2), [1000, 1200]);
+});

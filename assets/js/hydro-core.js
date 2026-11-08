@@ -44,6 +44,14 @@ export function nearestStandardDNs(dMm) {
   return { below, above };
 }
 
+/** Up to n standard DNs strictly below dMm, dMm itself if standard, and up to n strictly above. */
+export function standardDNsAround(dMm, n) {
+  const d = num(dMm);
+  const below = STANDARD_DN.filter(dn => dn < d).slice(-n);
+  const above = STANDARD_DN.filter(dn => dn > d).slice(0, n);
+  return [...below, ...(STANDARD_DN.includes(d) ? [d] : []), ...above];
+}
+
 /**
  * Velocity against a {min, max, maxAdvisory?} band. A null band (no figures
  * in the standard) gives 'none'. `advisory` marks a breach of a maximum the
