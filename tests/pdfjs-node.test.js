@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadVendoredPdfjs, openPdf } from '../scripts/pdfjs-node.mjs';
 import { tinyPdf, TINY_CONTENT, TINY_FORM } from './fixtures/tiny-pdf.js';
+import { sheetPdf, SHEETS, SHX_AUTHOR } from './fixtures/sheet-pdf.js';
 
 async function tinyPage() {
   const pdfjsLib = loadVendoredPdfjs();
@@ -43,4 +44,40 @@ test('text items carry str, transform, width and height', async () => {
   assert.deepEqual(item.transform, [10, 0, 0, 10, 12, 85]);
   assert.equal(item.height, 10);
   assert.ok(item.width > 20 && item.width < 45);
+});
+
+test('comments arrive as contentsObj.str, with the author in titleObj.str and a four-number rect', async () => {
+  const doc = await openPdf(sheetPdf(SHEETS.plotted));
+  const ann = await (await doc.getPage(1)).getAnnotations();
+  assert.equal(ann.length, 3);
+  assert.equal(ann[0].contents, undefined); // this build has no plain `contents`
+  assert.deepEqual(ann.map(a => a.contentsObj.str), ['\\pxqc;{\\W0.85;M}', '21-XX-2001', 'change 21-XX-9999']);
+  assert.deepEqual(ann.map(a => a.titleObj.str), [SHX_AUTHOR, SHX_AUTHOR, 'A Reviewer']);
+  assert.deepEqual(ann.map(a => a.subtype), ['Square', 'Square', 'Text']);
+  assert.deepEqual(Array.from(ann[1].rect), [10, 20, 60, 30]);
+  assert.deepEqual(await (await doc.getPage(2)).getAnnotations(), []);
+});
+
+test('getMetadata().info carries Creator and Producer, and leaves them out when the PDF records none', async () => {
+  const info = (await (await openPdf(sheetPdf(SHEETS.plotted))).getMetadata()).info;
+  assert.deepEqual([info.Creator, info.Producer], ['Invented CAD 1.0', 'Invented Plotter (v2)']);
+  const bare = (await (await openPdf(sheetPdf({ pages: [{ text: ['X'] }] }))).getMetadata()).info;
+  assert.deepEqual([bare.Creator, bare.Producer], [undefined, undefined]);
+});
+
+test('a page with no text layer gives no text items, and the viewport gives the sheet size in points', async () => {
+  const doc = await openPdf(sheetPdf(SHEETS.plotted));
+  const items = (await (await doc.getPage(1)).getTextContent()).items;
+  assert.equal(items.map(i => i.str).join(' ') + '\n', '21-XX-1001 TITLE BLOCK 21-YY 1002\n');
+  const two = await doc.getPage(2);
+  assert.deepEqual((await two.getTextContent()).items, []);
+  const vp = two.getViewport({ scale: 1 });
+  assert.deepEqual([vp.width, vp.height], [1191, 842]);
+});
+
+test('getDocument empties the bytes it is handed, so a caller that needs them passes a copy', async () => {
+  const bytes = sheetPdf(SHEETS.printed);
+  assert.ok(bytes.byteLength > 0);
+  await openPdf(bytes);
+  assert.equal(bytes.byteLength, 0);
 });

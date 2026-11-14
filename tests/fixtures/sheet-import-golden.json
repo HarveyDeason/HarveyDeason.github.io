@@ -1,0 +1,41 @@
+{
+  "plotted": {
+    "text": "21-XX-1001 TITLE BLOCK 21-YY 1002\n\n",
+    "confirmed": [
+      "21-XX-1001",
+      "21-YY-1002"
+    ],
+    "review": [],
+    "likelyScanPDF": false
+  },
+  "printed": {
+    "text": "\n",
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "commentsWithTags": {
+    "text": "TITLE BLOCK REV A\n",
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "commentsNoTags": {
+    "text": "TITLE BLOCK REV A\n",
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "printedWithMarkup": {
+    "text": "\n",
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  },
+  "hostile": {
+    "text": "\n",
+    "confirmed": [],
+    "review": [],
+    "likelyScanPDF": true
+  }
+}
