@@ -1,0 +1,8 @@
+{"version":1,"legend":[{"sheet":"7","rev":"B03","page":1}],"importedAt":"2026-11-13T10:00:00.000Z","families":{},
+"symbols":[
+{"id":"p1-001","name":"ROUND WIDGET","legendName":"ROUND WIDGET","group":"WIDGETS","tagId":"Q","sheet":"7","w":40,"h":20,"paths":[{"segs":[0,0,40,0,40,0,40,20,40,20,0,20,0,20,0,0],"width":0.7,"stroked":true,"filled":false,"grey":0}],"letters":[],"flags":{"simple":false,"stretch":false,"manual":false,"unmatched":false},"aliases":[],"notes":[]},
+{"id":"p1-002","name":"VIEWING PORT","legendName":"VIEWING PORT","group":"WIDGETS","tagId":"Q","sheet":"7","w":30,"h":30,"paths":[{"segs":[0,0,30,30,30,0,0,30],"width":0.7,"stroked":true,"filled":false,"grey":0}],"letters":[{"text":"M","x":11,"y":10,"size":8}],"flags":{"simple":true,"stretch":false,"manual":false,"unmatched":false},"aliases":["peep hole"],"notes":[{"text":"Use for the rare tilting kind too.","ref":"RFI 12","date":"2026-11-01"}]},
+{"id":"p1-003","name":"<img src=x onerror=alert(1)>","legendName":"HOSTILE","group":"<b>GADGETS</b>","tagId":"ZZ","sheet":"7","w":10,"h":10,"paths":[],"letters":[{"text":"</text><script>alert(2)</script>","x":0,"y":0,"size":8}],"flags":{"simple":false,"stretch":false,"manual":false,"unmatched":false},"aliases":["\"><script>alert(3)</script>"],"notes":[{"text":"<i>note</i>","ref":"","date":""}]},
+{"id":"m-1","name":"GAUGE BUBBLE","legendName":"GAUGE BUBBLE","group":"BUBBLES","tagId":"","sheet":"1","w":0,"h":0,"paths":[],"letters":[],"flags":{"simple":false,"stretch":false,"manual":true,"unmatched":false},"aliases":[],"notes":[]}
+],
+"exceptions":[{"name":"GIZMO","status":"pending","note":"No palette symbol yet.","ref":"RFI 20"},{"name":"DOOHICKEY","status":"approved","note":"","ref":""}]}
