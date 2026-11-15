@@ -96,6 +96,7 @@ function symbolCard(s, opts) {
       + field('aliases', 'Also known as (comma separated)', aliases.join(', '))
       + check('simple', 'Simple shape: too plain to check on a drawing', flags.simple === true)
       + check('stretch', 'Drawn to suit: its size varies', flags.stretch === true)
+      + check('bubble', 'Tag bubble: the tag is written inside it', flags.bubble === true)
       + notes.map((n, i) => noteMarkup(n, ' ' + button('remove-note', id + ' data-index="' + i + '"', 'Remove note'))).join('')
       + '<label>New note <input type="text" data-field="note-text" value=""></label>'
       + '<label>Reference <input type="text" data-field="note-ref" value=""></label>'
@@ -104,7 +105,7 @@ function symbolCard(s, opts) {
   }
   const meta = [str(s.group), str(s.tagId), str(s.sheet) ? 'Sheet ' + str(s.sheet) : ''].filter(Boolean).map(esc).join(' · ');
   const badges = [flags.manual === true ? 'Manual entry' : '', flags.simple === true ? 'Simple shape' : '',
-    flags.stretch === true ? 'Drawn to suit' : '', flags.unmatched === true ? 'Not in the imported legend' : ''].filter(Boolean);
+    flags.stretch === true ? 'Drawn to suit' : '', flags.bubble === true ? 'Tag bubble' : '', flags.unmatched === true ? 'Not in the imported legend' : ''].filter(Boolean);
   const nextTag = codesOf(s.tagId).map(c => button('next-tag', ' data-code="' + esc(c) + '"', 'Next available tag: ' + esc(c),
     opts.hasTags ? '' : ' disabled title="Load drawings first"')).join('');
   return '<div class="sym-card"' + id + '>' + symbolSvg(s)
@@ -151,6 +152,8 @@ export function renderStatus(state) {
     .map(l => 'Sheet ' + str(l.sheet) + (str(l.rev) ? ' rev ' + str(l.rev) : '')).join(', ');
   const parts = [plural(libraryCounts(lib).symbols, 'symbol'), legend, str(lib.importedAt) ? 'imported ' + str(lib.importedAt).slice(0, 10) : ''].filter(Boolean);
   let out = '<span>' + esc(parts.join(' · ')) + '</span>';
+  const counts = libraryCounts(lib);
+  if (counts.symbols && !counts.bubbles) out += ' <span>No tag bubbles in this library. Import the legend again to add them.</span>';
   if (s.dirty) out += ' <strong class="sym-warn">Unsaved changes</strong>';
   if (s.dirty && !s.connected) out += ' <span>Connect the folder to save.</span>';
   return out;
@@ -166,11 +169,13 @@ export function renderReport(pending) {
   if (!pending || typeof pending !== 'object') return '';
   const pages = asArr(pending.pages).filter(p => p && typeof p === 'object');
   const count = libraryCounts(pending.library).symbols;
+  const bubbles = libraryCounts(pending.library).bubbles;
+  const bubbleText = bubbles ? ' ' + plural(bubbles, 'tag bubble') + '.' : '';
   const actions = '<div class="sym-actions">' + button('use-pending', '', 'Use this library') + button('discard-pending', '', 'Discard') + '</div>';
   if (!pages.length) {
-    return '<p><strong>Preview. Nothing is saved yet.</strong> ' + plural(count, 'symbol') + ' from a library file.</p>' + actions;
+    return '<p><strong>Preview. Nothing is saved yet.</strong> ' + plural(count, 'symbol') + ' from a library file.' + bubbleText + '</p>' + actions;
   }
-  let out = '<p><strong>Preview. Nothing is saved yet.</strong> ' + plural(count, 'symbol') + ' from ' + plural(pages.length, 'page') + '.</p>';
+  let out = '<p><strong>Preview. Nothing is saved yet.</strong> ' + plural(count, 'symbol') + ' from ' + plural(pages.length, 'page') + '.' + bubbleText + '</p>';
   let unsplit = '', unsplitCount = 0, other = '', otherCount = 0, empty = 0;
   for (const p of pages) {
     for (const u of asArr(p.unsplit)) {

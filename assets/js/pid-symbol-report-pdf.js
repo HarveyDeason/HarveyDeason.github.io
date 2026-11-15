@@ -248,6 +248,7 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.text('Revision ' + str(s.rev) + (str(s.family) ? '. Family: ' + str(s.family) + '.' : ''), { size: 10, gap: 0.1 });
     w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
     w.text(countsLine(s.counts), { size: 10, gap: 0.1 });
+    if (str(s.bubbleLine)) w.text(str(s.bubbleLine), { size: 10, gap: 0.1 });
     w.text('Checked in ' + (isNum(s.seconds) ? s.seconds : 0) + ' s.', { size: 10, gap: 0.1 });
     if (str(s.timedOutLine)) w.text(str(s.timedOutLine), { size: 10, gap: 0.1 });
     if (str(s.pageNote)) w.text(str(s.pageNote), { size: 10, gap: 0.1 });

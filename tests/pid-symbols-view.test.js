@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { esc, symbolSvg, renderStatus, renderReport, renderResults, renderExceptions, replaceConfirmText, refusalMessage } from '../assets/js/pid-symbols-view.js';
-import { parseLibrary, searchSymbols, legendCells, buildLibrary, libraryCounts, carryOver } from '../assets/js/pid-symbols.js';
-import { widgetTable, ruledTable, word } from './fixtures/symbol-table.js';
+import { parseLibrary, searchSymbols, legendCells, buildLibrary, libraryCounts, carryOver, readLegendPage } from '../assets/js/pid-symbols.js';
+import { widgetTable, ruledTable, word, bubblePage } from './fixtures/symbol-table.js';
 
 const LIB = parseLibrary(readFileSync(new URL('./fixtures/invented-symbol-library.json', import.meta.url), 'utf8')).library;
 const all = searchSymbols(LIB, '');
@@ -77,6 +77,37 @@ test('renderResults: the card being edited shows its fields', () => {
   assert.match(html, /data-field="simple"[^>]*checked/);
   for (const a of ['apply', 'cancel', 'delete', 'add-note', 'remove-note']) assert.ok(html.includes('data-act="' + a + '"'), a);
   assert.equal((html.match(/data-field="name"/g) || []).length, 1);
+});
+
+const BUB = buildLibrary([readLegendPage(bubblePage())], 'now');
+const ringId = BUB.symbols.find(s => s.name === 'PLAIN RING').id;
+
+test('renderResults: the edit card has a tag bubble tick box, ticked for a bubble', () => {
+  const html = renderResults(searchSymbols(BUB, ''), { hasTags: true, editId: ringId });
+  assert.match(html, /<input type="checkbox" data-field="bubble" checked> Tag bubble: the tag is written inside it/);
+  const flagId = BUB.symbols.find(s => s.name === 'GIZMO FLAG').id;
+  assert.match(renderResults(searchSymbols(BUB, ''), { hasTags: true, editId: flagId }), /data-field="bubble">/);
+});
+
+test('renderResults: a bubble card carries a Tag bubble badge', () => {
+  const html = renderResults(searchSymbols(BUB, 'plain ring'), { hasTags: true });
+  assert.ok(html.includes('Tag bubble'));
+  assert.ok(!renderResults(searchSymbols(BUB, 'gizmo flag'), { hasTags: true }).includes('Tag bubble'));
+});
+
+test('renderReport: a preview counts its tag bubbles', () => {
+  const page = readLegendPage(bubblePage());
+  assert.ok(renderReport({ library: buildLibrary([page], 'now'), pages: [page] }).includes('4 tag bubbles.'));
+  const one = { ...BUB, symbols: BUB.symbols.filter(s => s.name !== 'BARRED RING' && s.name !== 'BOXED RING' && s.name !== 'BOXED BARRED RING') };
+  assert.ok(renderReport({ library: one, pages: [] }).includes('1 tag bubble.'));
+  assert.ok(!renderReport({ library: LIB, pages: [] }).includes('tag bubble'));
+});
+
+test('renderStatus: a library with no tag bubbles says to import the legend again', () => {
+  const note = 'No tag bubbles in this library. Import the legend again to add them.';
+  assert.ok(renderStatus({ library: LIB, fileStatus: 'loaded' }).includes(note));
+  assert.ok(!renderStatus({ library: BUB, fileStatus: 'loaded' }).includes(note));
+  assert.ok(!renderStatus({ library: { ...LIB, symbols: [] }, fileStatus: 'loaded' }).includes(note));
 });
 
 test('renderStatus: says what is loaded, where it came from and whether it is saved', () => {

@@ -219,6 +219,62 @@ const cleanWords = words => asArr(words)
 
 function emptyCells() { return { tables: [], rows: [], unsplit: [], other: [], emptyRows: 0 }; }
 
+const JOIN = 0.05; // points: how far apart two segment ends may be and still meet
+
+/** True when a path's segments run end to start round a loop of at least three. */
+export function isClosedPath(path) {
+  try {
+    const s = asObj(path).segs;
+    if (!Array.isArray(s) || s.length < 12 || s.length % 4 !== 0 || !s.every(isNum)) return false;
+    for (let i = 4; i < s.length; i += 4) {
+      if (Math.abs(s[i] - s[i - 2]) > JOIN || Math.abs(s[i + 1] - s[i - 1]) > JOIN) return false;
+    }
+    return Math.abs(s[0] - s[s.length - 2]) <= JOIN && Math.abs(s[1] - s[s.length - 1]) <= JOIN;
+  } catch {
+    return false;
+  }
+}
+
+// Words on separate lines: centres further apart in y than half the taller word.
+function lineCount(words) {
+  const ys = [];
+  for (const w of words.slice().sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2))) {
+    const cy = w.y + w.h / 2, last = ys[ys.length - 1];
+    if (last && Math.abs(cy - last.cy) < 0.5 * Math.max(w.h, last.h)) continue;
+    ys.push({ cy, h: w.h });
+  }
+  return ys.length;
+}
+
+/**
+ * Whether a legend symbol is a tag bubble: an outline the tag is written
+ * inside. Its ring is the smallest closed path holding every placeholder
+ * word. It is a bubble when the placeholder runs to two lines or more (a tag
+ * is a code over a number; a lone letter such as an actuator's M is not a
+ * tag) and some closed path holding the words is the symbol's whole outline
+ * (a flag on a leader line is not).
+ */
+export function bubbleOf(symbolPaths, placeholderWords, box) {
+  const none = { bubble: false, ring: null };
+  try {
+    const ws = cleanWords(placeholderWords);
+    const b = asArr(box);
+    if (!ws.length || b.length < 4 || !b.slice(0, 4).every(isNum)) return none;
+    const holding = asArr(symbolPaths).filter(isClosedPath).map(p => boxOfSegs(p.segs)).filter(Boolean)
+      .filter(q => ws.every(w => { const cx = w.x + w.w / 2, cy = w.y + w.h / 2; return cx > q[0] && cx < q[2] && cy > q[1] && cy < q[3]; }));
+    if (!holding.length) return none;
+    const area = q => (q[2] - q[0]) * (q[3] - q[1]);
+    const ring = holding.reduce((m, q) => (area(q) < area(m) ? q : m));
+    const whole = holding.some(q => [0, 1, 2, 3].every(i => Math.abs(q[i] - b[i]) <= TOL));
+    // A tag placeholder has some length to it; two single letters (an X over
+    // an L in a measurement mark) do not.
+    const chars = ws.map(w => w.str).join('').replace(/[^\p{L}\p{N}]/gu, '').length;
+    return { bubble: whole && lineCount(ws) >= 2 && chars >= 4, ring: ring.slice() };
+  } catch {
+    return none;
+  }
+}
+
 /**
  * Find the ruled tables on a legend page and read each row as label + symbol.
  * Rows that cannot be read that way are returned in `unsplit`, and ruled
@@ -308,11 +364,67 @@ export function legendCells(paths, words, options) {
     });
   }
 
+  // A ruled area with no SYMBOL heading and no divider, read as symbols only
+  // when every row splits into one cluster of linework (or a stack of them)
+  // on one side and label words on the other. All or nothing: an area that
+  // only partly splits is a line-type box or a worked example, not a table.
+  const bareTable = a => {
+    const groups = [];
+    let header = '', side = '', symbolRows = 0;
+    for (let i = 0; i < a.rows.length; i++) {
+      const r = a.rows[i], c = [a.x0, r.ya, a.x1, r.yb];
+      const ps = pathsIn(c).sort((p, q) => p.b[1] - q.b[1]), ws = wordsIn(c);
+      if (!ps.length && !ws.length) continue;
+      if (!ps.length) { if (groups.length || header) return null; header = textOf(ws); continue; }
+      symbolRows++;
+      // Paths stacked with a gap of more than 5 pt are separate symbols.
+      const stack = [];
+      for (const q of ps) {
+        const g = stack[stack.length - 1];
+        if (g && q.b[1] <= g.box[3] + 5) { g.ps.push(q); g.box = [Math.min(g.box[0], q.b[0]), g.box[1], Math.max(g.box[2], q.b[2]), Math.max(g.box[3], q.b[3])]; }
+        else stack.push({ ps: [q], box: q.b.slice(), inside: [], labels: [] });
+      }
+      for (const w of ws) {
+        const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+        const home = stack.find(g => cx > g.box[0] - TOL && cx < g.box[2] + TOL && cy > g.box[1] - TOL && cy < g.box[3] + TOL);
+        if (home) { home.inside.push(w); continue; }
+        const gapTo = g => (cy < g.box[1] ? g.box[1] - cy : cy > g.box[3] ? cy - g.box[3] : 0);
+        stack.reduce((m, g) => (gapTo(g) < gapTo(m) ? g : m)).labels.push(w);
+      }
+      for (const g of stack) {
+        if (!g.labels.length) return null;
+        // Text inside a symbol sits inside one of its outlines. Words merely
+        // between pieces of linework are a second column of labels.
+        if (g.inside.length && !bubbleOf(g.ps.map(q => q.p), g.inside, g.box).ring) return null;
+        const right = g.labels.every(w => w.x >= g.box[2] + TOL), left = g.labels.every(w => w.x + w.w <= g.box[0] - TOL);
+        const s = right ? 'left' : left ? 'right' : '';   // the symbol's side, as symbolSide
+        if (!s || (side && s !== side)) return null;
+        side = s;
+        groups.push(g);
+      }
+    }
+    // Two ruled rows with linework at least: one ruled row holding a stack of
+    // drawings is a box of worked examples, not a table.
+    if (symbolRows < 2) return null;
+    return { header, side, groups };
+  };
+
   for (const a of areas) {
     if (a.headIdx < 0) {
       // 8. Not a symbol table. A frame around other areas, and linework ruled
       // inside a symbol table's own cells, are not listed.
       if (areas.some(o => o !== a && (contains(a.box, o.box) || (o.headIdx >= 0 && contains(o.box, a.box))))) continue;
+      const bare = bareTable(a);
+      if (bare) {
+        const table = out.tables.length;
+        out.tables.push({ header: bare.header, tagId: '', symbolSide: bare.side, box: a.box, rowCount: bare.groups.length, bare: true });
+        for (const g of bare.groups) {
+          out.rows.push({ table, label: textOf(g.labels), header: bare.header, tagId: '', symbolPaths: g.ps.map(q => q.p),
+            lettersInside: g.inside.map(w => ({ text: w.str.trim(), x: w.x, y: w.y, size: w.h })), box: g.box,
+            ...bubbleOf(g.ps.map(q => q.p), g.inside, g.box) });
+        }
+        continue;
+      }
       const rows = [];
       for (const r of a.rows) {
         const c = [a.x0, r.ya, a.x1, r.yb];
@@ -346,7 +458,8 @@ export function legendCells(paths, words, options) {
       const box = [Infinity, Infinity, -Infinity, -Infinity];
       for (const q of sp) { box[0] = Math.min(box[0], q.b[0]); box[1] = Math.min(box[1], q.b[1]); box[2] = Math.max(box[2], q.b[2]); box[3] = Math.max(box[3], q.b[3]); }
       out.rows.push({ table, label, header: a.header, tagId: a.tagId, symbolPaths: sp.map(q => q.p),
-        lettersInside: symWords.map(w => ({ text: w.str.trim(), x: w.x, y: w.y, size: w.h })), box });
+        lettersInside: symWords.map(w => ({ text: w.str.trim(), x: w.x, y: w.y, size: w.h })), box,
+        ...bubbleOf(sp.map(q => q.p), symWords, box) });
       entry.rowCount++;
     });
   }
@@ -386,7 +499,9 @@ export function readLegendPage(input) {
 // Library = { version: 1, legend: [{ sheet, rev, page }], importedAt,
 //   families: {}, symbols: Symbol[], exceptions: [{ name, status, note, ref }] }
 // Symbol  = { id, name, legendName, group, tagId, sheet, w, h, paths, letters,
-//   flags: { simple, stretch, manual, unmatched }, aliases, notes }
+//   flags: { simple, stretch, manual, unmatched, bubble, bubbleByHand }, aliases, notes,
+//   ring? }  ring = [x0, y0, x1, y1], only on a tag bubble: the outline the tag
+//   is written inside. bubbleByHand = the owner changed the automatic mark.
 // legendName is the label as extracted; name is what the owner may have
 // renamed it to. Paths and letters are relative to the symbol's own top-left.
 
@@ -419,7 +534,10 @@ function cleanLetters(list, dx, dy) {
     .map(l => ({ text: l.text.trim(), x: round2(l.x - dx), y: round2(l.y - dy), size: round2(l.size) }));
 }
 const cleanFlags = f => ({ ...asObj(f), simple: asObj(f).simple === true, stretch: asObj(f).stretch === true,
-  manual: asObj(f).manual === true, unmatched: asObj(f).unmatched === true });
+  manual: asObj(f).manual === true, unmatched: asObj(f).unmatched === true,
+  bubble: asObj(f).bubble === true, bubbleByHand: asObj(f).bubbleByHand === true });
+// A ring is four finite numbers with some size to it, or nothing.
+const cleanRing = r => (Array.isArray(r) && r.length === 4 && r.every(isNum) && r[2] > r[0] && r[3] > r[1] ? r.map(round2) : null);
 const cleanAliases = list => asArr(list).filter(a => typeof a === 'string' && a.trim()).map(a => a.trim());
 const cleanNotes = list => asArr(list).filter(isPlain)
   .map(n => ({ text: text(n.text).trim(), ref: text(n.ref).trim(), date: text(n.date).trim() })).filter(n => n.text);
@@ -450,13 +568,18 @@ export function buildLibrary(pages, importedAt) {
       const dx = has ? x0 : 0, dy = has ? y0 : 0;
       n++;
       const name = row.label.replace(/\s+/g, ' ').trim();
+      // A tag bubble's placeholder text is replaced by the tag on a drawing,
+      // so it is not kept as letters a drawing must show.
+      const ring = row.bubble === true && has ? cleanRing(asArr(row.ring).map((v, i) => (i % 2 ? v - dy : v - dx))) : null;
+      const bubble = !!ring;
       lib.symbols.push({
         id: 'p' + pg + '-' + String(n).padStart(3, '0'), name, legendName: name,
         group: text(row.header).trim(), tagId: text(row.tagId).trim(), sheet,
         w: has ? round2(x1 - x0) : 0, h: has ? round2(y1 - y0) : 0,
         paths: asArr(row.symbolPaths).map(p => cleanPath(p, dx, dy)).filter(Boolean),
-        letters: cleanLetters(row.lettersInside, dx, dy),
-        flags: { simple: false, stretch: false, manual: false, unmatched: false }, aliases: [], notes: [],
+        letters: bubble ? [] : cleanLetters(row.lettersInside, dx, dy),
+        flags: { simple: false, stretch: false, manual: false, unmatched: false, bubble, bubbleByHand: false }, aliases: [], notes: [],
+        ...(ring ? { ring } : {}),
       });
     }
   }
@@ -489,8 +612,11 @@ export function parseLibrary(source) {
 
   const symbols = data.symbols.map((s, i) => {
     const name = s.name.trim();
+    const ring = cleanRing(s.ring);
+    const { ring: _drop, ...rest } = s;
     return {
-      ...s,
+      ...rest,
+      ...(ring ? { ring } : {}),
       id: keeps[i] ? s.id : freshId(),
       name,
       legendName: typeof s.legendName === 'string' && s.legendName.trim() ? s.legendName.trim() : name,
@@ -527,6 +653,7 @@ export function libraryCounts(library) {
     aliases: symbols.reduce((n, s) => n + asArr(s.aliases).length, 0),
     exceptions: asArr(asObj(library).exceptions).filter(isPlain).length,
     manual: symbols.filter(s => asObj(s.flags).manual === true).length,
+    bubbles: symbols.filter(s => asObj(s.flags).bubble === true).length,
   };
 }
 
@@ -611,7 +738,7 @@ function mapSymbol(library, id, fn) {
   return hit ? { ...library, symbols } : library;
 }
 
-/** Change the fields an owner may edit: name, group, tagId, sheet, aliases, simple, stretch. */
+/** Change the fields an owner may edit: name, group, tagId, sheet, aliases, simple, stretch, bubble. */
 export function updateSymbol(library, id, patch) {
   const p = asObj(patch);
   return mapSymbol(library, id, s => {
@@ -623,6 +750,8 @@ export function updateSymbol(library, id, patch) {
     if (Array.isArray(p.aliases)) next.aliases = cleanAliases(p.aliases);
     if (typeof p.simple === 'boolean') next.flags.simple = p.simple;
     if (typeof p.stretch === 'boolean') next.flags.stretch = p.stretch;
+    // The automatic tag-bubble mark, changed by the owner, is hand work.
+    if (typeof p.bubble === 'boolean' && p.bubble !== (next.flags.bubble === true)) { next.flags.bubble = p.bubble; next.flags.bubbleByHand = true; }
     return next;
   });
 }
@@ -750,6 +879,7 @@ export function carryOver(oldLibrary, newLibrary) {
       f.aliases = mergeAliases(aliases, f.aliases);
       f.flags.simple = flags.simple === true;
       f.flags.stretch = flags.stretch === true;
+      if (flags.bubbleByHand === true) { f.flags.bubble = flags.bubble === true; f.flags.bubbleByHand = true; }
       if (normName(s.name) !== legendKey(s)) { f.name = s.name; summary.renames++; }
       if (!text(f.tagId).trim() && text(s.tagId).trim()) f.tagId = s.tagId;
       summary.matched++; summary.notes += notes.length; summary.aliases += aliases.length;
@@ -758,7 +888,7 @@ export function carryOver(oldLibrary, newLibrary) {
     // Kept whenever it carries anything entered by hand: a note, an alias, a
     // rename, or a simple / drawn-to-suit mark. Only a symbol exactly as the
     // old legend gave it is let go, because a fresh import can regenerate it.
-    const handWork = notes.length || aliases.length || normName(s.name) !== legendKey(s) || flags.simple === true || flags.stretch === true;
+    const handWork = notes.length || aliases.length || normName(s.name) !== legendKey(s) || flags.simple === true || flags.stretch === true || flags.bubbleByHand === true;
     if (handWork) {
       carried.push({ ...s, flags: { ...flags, unmatched: true } });
       unmatched.push({ name: s.name, group: text(s.group), notes: notes.length, aliases: aliases.length });

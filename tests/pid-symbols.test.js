@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pagePaths, textWords, CURVE_STEPS, legendCells, titleBlock, readLegendPage, normName, buildLibrary, parseLibrary, serialiseLibrary, libraryCounts, searchSymbols, updateSymbol, deleteSymbol, addManualSymbol, addNote, removeNote, setException, removeException, carryOver } from '../assets/js/pid-symbols.js';
+import { pagePaths, textWords, CURVE_STEPS, legendCells, titleBlock, readLegendPage, normName, buildLibrary, parseLibrary, serialiseLibrary, libraryCounts, searchSymbols, updateSymbol, deleteSymbol, addManualSymbol, addNote, removeNote, setException, removeException, carryOver, isClosedPath, bubbleOf } from '../assets/js/pid-symbols.js';
 import { FAKE_OPS as O, opList } from './fixtures/symbol-ops.js';
 import { loadVendoredPdfjs, openPdf } from '../scripts/pdfjs-node.mjs';
 import { tinyPdf, TINY_CONTENT, TINY_FORM } from './fixtures/tiny-pdf.js';
@@ -124,7 +124,7 @@ test('pagePaths: typed-array arguments are read like plain arrays', () => {
   assert.deepEqual(pagePaths(fnArray, argsArray, O, FLIP), [{ segs: [5, 100, 15, 100], width: 1, stroked: true, filled: false, grey: 128 }]);
 });
 
-import { rule, box, word, ruledTable, widgetTable, toOps, toTextItems } from './fixtures/symbol-table.js';
+import { rule, box, word, ruledTable, widgetTable, toOps, toTextItems, ringPath, bubbleTable, junkArea, bubblePage } from './fixtures/symbol-table.js';
 
 test('legendCells: reads heading, tag identifier and every row, including the last', () => {
   const { paths, words } = widgetTable();
@@ -136,6 +136,64 @@ test('legendCells: reads heading, tag identifier and every row, including the la
   assert.deepEqual(r.rows[1].lettersInside, [{ text: 'M', x: 315, y: 165, size: 8 }]);
   assert.equal(r.rows[0].symbolPaths.length, 1); // the rules themselves are never symbol linework
   assert.deepEqual([r.unsplit, r.other, r.emptyRows], [[], [], 0]);
+});
+
+test('isClosedPath: a ring and a pentagon are closed; a bar, a two-segment path and rubbish are not', () => {
+  assert.equal(isClosedPath(ringPath(10, 10, 10)), true);
+  assert.equal(isClosedPath(box(0, 0, 10, 5)), true);
+  assert.equal(isClosedPath(rule(0, 0, 20, 0)), false);
+  assert.equal(isClosedPath({ segs: [0, 0, 5, 0, 5, 0, 0, 0] }), false);
+  assert.equal(isClosedPath({ segs: [0, 0, 5, 0, 5, 1, 5, 5, 5, 5, 0, 0] }), false);   // a gap between segments
+  for (const x of [null, {}, { segs: 'x' }, { segs: [0, 0, NaN, 1, 1, 1, 0, 0, 0, 0, 0, 0] }]) assert.equal(isClosedPath(x), false);
+});
+
+test('legendCells: a headingless table with no divider is read as symbols, the stacked row split in two', () => {
+  const { paths, words } = bubbleTable();
+  const out = legendCells(paths, words);
+  assert.deepEqual(out.rows.map(r => r.label), ['PLAIN RING', 'BARRED RING', 'BOXED RING', 'BOXED BARRED RING', 'GIZMO FLAG']);
+  assert.deepEqual(out.tables.map(t => [t.header, t.bare, t.rowCount, t.symbolSide]), [['GIZMO TAGS', true, 5, 'left']]);
+  assert.deepEqual([out.other.length, out.unsplit.length], [0, 0]);
+  assert.deepEqual(out.rows.map(r => r.symbolPaths.length), [1, 2, 2, 2, 3]);
+  assert.deepEqual(out.rows[0].lettersInside.map(l => l.text), ['AA-ZZ', '0001']);
+});
+
+test('legendCells: tag bubbles are marked and given a ring; the flag and one-letter symbols are not', () => {
+  const { paths, words } = bubbleTable();
+  const rows = legendCells(paths, words).rows;
+  assert.deepEqual(rows.map(r => r.bubble), [true, true, true, true, false]);
+  assert.ok(rows[2].ring.every((v, i) => Math.abs(v - rows[2].box[i]) < 1.5));   // inscribed ring and square share one box
+  assert.ok(rows[4].ring !== null);                                                // the flag's pentagon holds its text...
+  assert.equal(rows[4].bubble, false);                                             // ...but the leader makes it no bubble
+  const lone = bubbleOf([ringPath(10, 10, 10)], [word('H', 7, 6, 6, 8)], [0, 0, 20, 20]);
+  assert.deepEqual([lone.bubble, lone.ring.map(Math.round)], [false, [0, 0, 20, 20]]);
+  assert.deepEqual(bubbleOf([ringPath(10, 10, 10)], [], [0, 0, 20, 20]), { bubble: false, ring: null });
+  // Two lines of single letters are a measurement mark, not a tag: a tag placeholder has 4 letters or digits at least.
+  assert.equal(bubbleOf([ringPath(10, 10, 10)], [word('X', 7, 2, 6, 8), word('L', 7, 11, 6, 8)], [0, 0, 20, 20]).bubble, false);
+  assert.equal(bubbleOf([ringPath(10, 10, 10)], [word('-', 8, 2, 4, 8), word('0001', 4, 11, 12, 8)], [0, 0, 20, 20]).bubble, true);
+  assert.deepEqual(bubbleOf(null, null, null), { bubble: false, ring: null });
+});
+
+test('legendCells: an area whose rows do not all split stays in other, all or nothing', () => {
+  const { paths, words } = junkArea();
+  const out = legendCells(paths, words);
+  assert.deepEqual([out.rows.length, out.other.length], [0, 1]);
+  // One bubble row, however clean, is not a table: it takes two.
+  const t = bubbleTable();
+  const one = legendCells([...[50, 110, 170].map(y => rule(0, y, 300, y)), rule(0, 50, 0, 170), rule(300, 50, 300, 170), ringPath(40, 140, 20)],
+    t.words.filter(w => w.y < 170));
+  assert.deepEqual([one.rows.length, one.other.length], [0, 1]);
+  // Nor is one ruled row holding a stack of examples: it takes two ruled rows with linework.
+  const stacked = legendCells([...[50, 110, 300].map(y => rule(0, y, 300, y)), rule(0, 50, 0, 300), rule(300, 50, 300, 300),
+    box(20, 130, 40, 20), box(20, 170, 40, 20), box(20, 210, 40, 20)],
+  [word('EXAMPLES', 10, 75), word('FIRST', 90, 136), word('SECOND', 90, 176), word('THIRD', 90, 216)]);
+  assert.deepEqual([stacked.rows.length, stacked.other.length], [0, 1]);
+});
+
+test('legendCells: the existing widget table reads exactly as before, each row with bubble false', () => {
+  const { paths, words } = widgetTable();
+  const out = legendCells(paths, words);
+  assert.ok(out.rows.length === 3 && out.rows.every(r => r.bubble === false));
+  assert.deepEqual(out.rows.map(r => r.ring), [null, [290, 160, 350, 180], null]);   // a one-letter box has a ring but is no bubble
 });
 
 test('legendCells: a row with no divider is listed, not dropped', () => {
@@ -229,7 +287,7 @@ test('buildLibrary: one symbol per row, drawn from its own top-left corner', () 
   assert.deepEqual(lib.symbols[0], {
     id: 'p3-001', name: 'ROUND WIDGET', legendName: 'ROUND WIDGET', group: 'WIDGETS', tagId: 'Q', sheet: '7', w: 40, h: 20,
     paths: [{ segs: [0, 0, 40, 0, 40, 0, 40, 20, 40, 20, 0, 20, 0, 20, 0, 0], width: 0.7, stroked: true, filled: false, grey: 0 }],
-    letters: [], flags: { simple: false, stretch: false, manual: false, unmatched: false }, aliases: [], notes: [] });
+    letters: [], flags: { simple: false, stretch: false, manual: false, unmatched: false, bubble: false, bubbleByHand: false }, aliases: [], notes: [] });
   assert.deepEqual(lib.symbols.map(s => s.id), ['p3-001', 'p3-002', 'p3-003']);
   assert.deepEqual(lib.symbols[1].letters, [{ text: 'M', x: 25, y: 5, size: 8 }]);
 });
@@ -257,7 +315,7 @@ test('parseLibrary: round trip, and the invented fixture is valid', () => {
   assert.deepEqual(parseLibrary(serialiseLibrary(lib)), { ok: true, library: lib });
   const inv = parseLibrary(INVENTED);
   assert.equal(inv.ok, true);
-  assert.deepEqual(libraryCounts(inv.library), { symbols: 4, notes: 2, aliases: 2, exceptions: 2, manual: 1 });
+  assert.deepEqual(libraryCounts(inv.library), { symbols: 4, notes: 2, aliases: 2, exceptions: 2, manual: 1, bubbles: 0 });
 });
 
 test('parseLibrary: a structurally bad or newer file is refused, never half-read', () => {
@@ -283,8 +341,55 @@ test('parseLibrary: fills defaults, repairs ids, cleans linework and keeps field
   assert.deepEqual([r.library.legend, r.library.exceptions, r.library.families], [[], [], {}]);
 });
 
+test('buildLibrary: a bubble row gives flags.bubble, a ring relative to the symbol, and no letters', () => {
+  const lib = buildLibrary([readLegendPage(bubblePage())], 'T');
+  const plain = lib.symbols.find(s => s.name === 'PLAIN RING');
+  assert.deepEqual([plain.flags.bubble, plain.flags.bubbleByHand, plain.letters], [true, false, []]);
+  assert.deepEqual(plain.ring, [0, 0, plain.w, plain.h]);
+  const flag = lib.symbols.find(s => s.name === 'GIZMO FLAG');
+  assert.deepEqual(['ring' in flag, flag.flags.bubble, flag.letters.map(l => l.text)], [false, false, ['AA-ZZ-0001']]);
+});
+
+test('parseLibrary: keeps a valid ring and the bubble flags; drops a broken ring; an old file reads as before', () => {
+  const lib = { version: 1, symbols: [
+    { id: 'a', name: 'A', flags: { bubble: true }, ring: [0, 0, 10, 10] },
+    { id: 'b', name: 'B', flags: { bubble: true }, ring: [0, 'x', 10, 10] },
+    { id: 'c', name: 'C' },
+    { id: 'd', name: 'D', flags: { bubble: 'yes' }, ring: [10, 0, 0, 10] }] };
+  const out = parseLibrary(JSON.stringify(lib)).library.symbols;
+  assert.deepEqual(out.map(s => [s.flags.bubble, s.flags.bubbleByHand, 'ring' in s ? s.ring : null]),
+    [[true, false, [0, 0, 10, 10]], [true, false, null], [false, false, null], [false, false, null]]);
+});
+
+test('updateSymbol: changing the bubble mark records it as done by hand; re-applying the same value does not', () => {
+  const lib = buildLibrary([readLegendPage(bubblePage())], 'T');
+  const id = lib.symbols.find(s => s.name === 'PLAIN RING').id;
+  const same = updateSymbol(lib, id, { bubble: true }).symbols.find(s => s.id === id);
+  assert.equal(same.flags.bubbleByHand, false);
+  const off = updateSymbol(lib, id, { bubble: false }).symbols.find(s => s.id === id);
+  assert.deepEqual([off.flags.bubble, off.flags.bubbleByHand], [false, true]);
+  const back = updateSymbol(updateSymbol(lib, id, { bubble: false }), id, { bubble: true }).symbols.find(s => s.id === id);
+  assert.deepEqual([back.flags.bubble, back.flags.bubbleByHand], [true, true]);
+});
+
+test('carryOver: an owner\'s bubble correction survives a re-import; an automatic mark is recomputed', () => {
+  const fresh = buildLibrary([readLegendPage(bubblePage())], 'T2');
+  const old0 = buildLibrary([readLegendPage(bubblePage())], 'T1');
+  const old = updateSymbol(old0, old0.symbols.find(s => s.name === 'PLAIN RING').id, { bubble: false });
+  const out = carryOver(old, fresh).library.symbols;
+  assert.deepEqual([out.find(s => s.name === 'PLAIN RING').flags.bubble, out.find(s => s.name === 'PLAIN RING').flags.bubbleByHand], [false, true]);
+  assert.equal(out.find(s => s.name === 'BARRED RING').flags.bubble, true);
+  // A symbol gone from the legend whose bubble mark was set by hand is kept, as other hand work is.
+  const gone = carryOver(old, buildLibrary([], 'T3'));
+  assert.equal(gone.library.symbols.some(s => s.name === 'PLAIN RING' && s.flags.unmatched), true);
+});
+
+test('libraryCounts: counts tag bubbles', () => {
+  assert.equal(libraryCounts(buildLibrary([readLegendPage(bubblePage())], 'T')).bubbles, 4);
+});
+
 test('libraryCounts and normName degrade', () => {
-  assert.deepEqual(libraryCounts(null), { symbols: 0, notes: 0, aliases: 0, exceptions: 0, manual: 0 });
+  assert.deepEqual(libraryCounts(null), { symbols: 0, notes: 0, aliases: 0, exceptions: 0, manual: 0, bubbles: 0 });
   assert.equal(normName('  round \n widget '), 'ROUND WIDGET');
   assert.equal(normName(null), '');
 });

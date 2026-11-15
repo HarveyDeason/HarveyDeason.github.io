@@ -9,6 +9,8 @@
 //   node scripts/check-symbol-check.mjs "<drawing pdf>" (--legend "<legend pdf>" | --library "<symbol-library.json>")
 //        [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]
 //        [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--verbose]
+//        [--instrument "<CODE,CODE,...>"]   function codes the tool's lookup classes as instruments
+//   node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]
 //
 // It runs the same module code, through the same vendored pdf.js, as the
 // Check symbols button in the tool. It writes no file. Tags and symbol names
@@ -21,13 +23,15 @@ import { openPdf, loadVendoredPdfjs } from './pdfjs-node.mjs';
 import { importLegend } from './check-symbol-import.mjs';
 import { pagePaths, parseLibrary } from '../assets/js/pid-symbols.js';
 import { extractTags } from '../assets/js/pid-core.js';
-import { checkSheet, VERDICTS } from '../assets/js/pid-symbol-check.js';
+import { checkSheet, VERDICTS, prepareSymbols } from '../assets/js/pid-symbol-check.js';
+import { bubbleSummary } from '../assets/js/pid-symbol-check-view.js';
 
 const USAGE = [
   'Usage:',
   '  node scripts/check-symbol-check.mjs "<drawing pdf>" (--legend "<legend pdf>" | --library "<symbol-library.json>")',
   '       [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]',
-  '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--verbose]',
+  '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--instrument "<CODE,...>"] [--verbose]',
+  '  node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]',
 ].join('\n');
 const LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-family': 'Wrong family', exception: 'Approved exception', look: 'Needs a look', 'not-checked': 'Not checked' };
 
@@ -89,13 +93,46 @@ export function tally(verdicts) {
   return out;
 }
 
+/**
+ * Each tag bubble in the library, stamped on an invented page round an
+ * invented two-line tag, must come back as itself and as nothing else.
+ * Nothing is written; the page exists only in memory.
+ */
+export function bubbleSelfTest(library, options) {
+  try {
+    const lib = library && typeof library === 'object' ? library : null;
+    if (!lib || !Array.isArray(lib.symbols)) return [];
+    const prepared = prepareSymbols(lib, options);
+    return lib.symbols.filter(s => s && s.flags && s.flags.bubble === true).map(s => {
+      const p = prepared.find(x => x.symbol === s);
+      const ring = p ? p.ring : [0, 0, Number(s.w) || 0, Number(s.h) || 0];
+      const cx = 100 + (ring[0] + ring[2]) / 2, cy = 100 + (ring[1] + ring[3]) / 2;
+      const h = Math.max(2, (ring[3] - ring[1]) * 0.2), cw = h * 0.55;
+      const item = (str, x, y) => ({ str, transform: [h, 0, 0, h, x, y], width: str.length * cw, height: h });
+      const paths = (Array.isArray(s.paths) ? s.paths : []).map(q => ({ ...q, segs: (q.segs || []).map((v, i) => v + 100) }));
+      const r = checkSheet({ paths, viewportTransform: [1, 0, 0, 1, 0, 0], library: lib, lookups: {}, options,
+        textItems: [item('AA-ZZ', cx - 2.75 * cw, cy - 1.1 * h), item('0001', cx - 2.75 * cw, cy + 0.15 * h)],
+        tags: [{ tag: 'AA-ZZ-0001', fc: 'ZZ' }] });
+      const v = r.ok ? r.verdicts[0] : {};
+      const oneOf = Array.isArray(v.oneOf) ? v.oneOf : [];
+      return { name: s.name, verdict: v.verdict || 'failed', symbol: v.symbol || '', oneOf, score: v.score ?? null,
+        pass: v.verdict === 'ok' && v.symbol === s.name && !oneOf.length };
+    });
+  } catch {
+    return [];
+  }
+}
+
 function fail(message) { console.error(message); process.exitCode = 1; }
+// --instrument "LE,PE": these function codes are instruments, as the tool's own lookup says.
+const instrumentCodes = list => Object.fromEntries(String(list || '').split(/[\s,]+/).map(c => c.trim().toUpperCase()).filter(Boolean).map(c => [c, 'instrument']));
 async function readOr(file, encoding) { try { return await fs.readFile(file, encoding); } catch { return null; } }
 function parseArgs(argv) {
   const opts = { file: null, setTagId: [], expect: [], verbose: false, noTwin: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--verbose') opts.verbose = true;
+    else if (a === '--bubble-self-test') opts.selfTest = true;
     else if (a === '--no-twin') opts.noTwin = true;
     else if (a === '--set-tag-id') opts.setTagId.push(argv[++i]);
     else if (a === '--expect') opts.expect.push(argv[++i]);
@@ -122,6 +159,18 @@ async function loadLibrary(opts) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.selfTest) {
+    if (!opts.legend && !opts.library) return fail(USAGE);
+    const lib = await loadLibrary(opts);
+    if (!lib) return;
+    const r = bubbleSelfTest(lib);
+    if (!r.length) return fail('The library has no tag bubbles to test. Import a legend with a tag bubble table.');
+    if (opts.verbose) for (const x of r) console.log(`${x.pass ? 'PASS' : 'FAIL'}  ${x.name}  ->  ${x.symbol || x.verdict}${x.oneOf.length ? ' (one of ' + x.oneOf.join(', ') + ')' : ''}  ${x.score ?? ''}`);
+    const good = r.filter(x => x.pass).length;
+    console.log(`${good} of ${r.length} identified as themselves`);
+    if (good < r.length) fail(`${r.length - good} tag bubble(s) not identified as themselves.`);
+    return;
+  }
   if (!opts.file || (!opts.legend && !opts.library)) return fail(USAGE);
   const buf = await readOr(opts.file);
   if (!buf) return fail(`Could not read ${opts.file}.`);
@@ -137,7 +186,7 @@ async function main() {
   if (!sheet.ok) return fail(`${opts.file} could not be read as a PDF.`);
 
   let input = { paths: sheet.paths, textItems: sheet.textItems, viewportTransform: sheet.viewportTransform, tags: sheet.tags,
-    library, lookups: {}, options: opts.noTwin ? { twin: false } : {} };
+    library, lookups: { fc: instrumentCodes(opts.instrument) }, options: opts.noTwin ? { twin: false } : {} };
   const grid = opts.grid ? String(opts.grid).split(':') : null;
   if (grid) {
     // Stand-in places on a grid, for a drawing with no text. The checker is not told where the symbols are.
@@ -173,6 +222,8 @@ async function main() {
     console.log(`  Wrong family: ${result.counts['wrong-family']}`);
     const pct = result.checked ? Math.round(100 * result.recognised / result.checked) : 0;
     console.log(`  Recognised: ${result.recognised} of ${result.checked} checked (${pct}%)`);
+    const bubbled = result.verdicts.filter(v => v.bubble && (v.verdict === 'ok' || v.verdict === 'off-size')).length;
+    if (bubbled) console.log(opts.verbose ? `  ${bubbleSummary(result)}` : `  Tag bubbles recognised: ${bubbled}`);
     for (const e of opts.expect) {
       const [code, least] = String(e || '').split('=');
       const got = (t[String(code).toUpperCase()] || {}).ok || 0;

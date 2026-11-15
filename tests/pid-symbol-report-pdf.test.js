@@ -141,3 +141,11 @@ test('pdfSafe: text the font cannot hold becomes ?, and the report still builds'
   assert.equal(await buildReportPdf(MODEL, null, null), null);
   assert.equal(await buildReportPdf(MODEL, null, {}), null);
 });
+
+test('buildReportPdf: the tag bubble line is written under the sheet counts', async () => {
+  const m = { ...MODEL, sheets: MODEL.sheets.map((s, i) => (i === 0 ? { ...s, bubbleLine: 'Tag bubbles: 2 RING, 1 HEXAGON' } : s)) };
+  const ps = await pages(await buildReportPdf(m, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(ps[1].text.includes('Tag bubbles: 2 RING, 1 HEXAGON'));
+  const plain = await pages(await buildReportPdf(MODEL, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(!plain[1].text.includes('Tag bubbles'));
+});

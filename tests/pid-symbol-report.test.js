@@ -109,7 +109,7 @@ test('workbookRows and writeWorkbook: Tags, Sheets and About', async () => {
   assert.deepEqual(w.tags.columns, ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail']);
   assert.deepEqual(w.sheets.columns, ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages']);
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles']);
   assert.equal(w.tags.rows.length, 11);
   assert.ok(w.tags.rows.every(r => r[0] === 'INV-0001' && r.length === 15));
   assert.equal(w.sheets.rows.length, 3);
@@ -156,4 +156,16 @@ test('hostile input: a model, never a throw; text kept plain for the renderer', 
   assert.equal(await M.writeWorkbook(null, ExcelJS), null);
   assert.equal(await M.writeWorkbook(model(), null), null);
   assert.ok(await M.writeWorkbook(m, ExcelJS));
+});
+
+test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kind', () => {
+  const bv = (tag, verdict, symbol) => ({ tag, fc: 'ZI', verdict, why: '', symbol, oneOf: [], tagId: '', exceptions: [], sizePct: 100, score: 1,
+    filled: false, letters: '', tagBox: [0, 0, 1, 1], box: [0, 0, 1, 1], closest: null, bubble: true });
+  const result = { ok: true, ms: 5, timedOut: false, verdicts: [bv('21-ZI-1', 'ok', 'RING'), bv('21-ZI-2', 'ok', 'RING'), bv('21-ZI-3', 'ok', 'HEXAGON')],
+    counts: { ok: 3 } };
+  const m = model({ outcomes: [{ ...checked, result }, noPdf], stopped: false, ms: 1 });
+  assert.deepEqual(m.sheets.map(s => s.bubbleLine), ['Tag bubbles: 2 RING, 1 HEXAGON', '']);
+  const w = M.workbookRows(m);
+  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 1]), ['2 RING, 1 HEXAGON', '']);
+  assert.equal(model().sheets[0].bubbleLine, '');
 });

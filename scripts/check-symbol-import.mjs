@@ -72,13 +72,20 @@ export async function importLegend(data) {
   return { pages, library: buildLibrary(pages, new Date().toISOString()) };
 }
 
+/** The tag bubbles the import found: a count always, their names (client data) only when verbose. */
+export function bubbleReport(library, verbose) {
+  const bubbles = (library && Array.isArray(library.symbols) ? library.symbols : []).filter(s => s && s.flags && s.flags.bubble === true);
+  return [`tag bubbles ${bubbles.length}`, ...(verbose ? bubbles.map(s => '  ' + s.name) : [])];
+}
+
 function fail(message) { console.error(message); process.exitCode = 1; }
 async function readOr(file, encoding) { try { return await fs.readFile(file, encoding); } catch { return null; } }
 function parseArgs(argv) {
   const opts = { file: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) opts[a.slice(2)] = argv[++i]; else if (!opts.file) opts.file = a;
+    if (a === '--verbose') opts.verbose = true;
+    else if (a.startsWith('--')) opts[a.slice(2)] = argv[++i]; else if (!opts.file) opts.file = a;
   }
   return opts;
 }
@@ -103,6 +110,7 @@ async function importMode(opts) {
   const total = result.library.symbols.length;
   console.log(`\nTOTAL  symbols ${total}  rows not split ${unsplit}  rows in other ruled areas ${other}  empty rows ${empty}`);
   console.log('By page: ' + result.pages.map(p => p.rows.length).join(' / '));
+  for (const line of bubbleReport(result.library, opts.verbose)) console.log(line);
   // An empty read looks exactly like "nothing to report". Refuse it.
   if (!total) return fail('No symbol rows found. Either this is not a legend, or its table headings have changed.');
 

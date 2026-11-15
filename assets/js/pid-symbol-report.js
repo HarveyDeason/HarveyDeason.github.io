@@ -8,7 +8,7 @@
 // They are kept here as plain text: the PDF renderer passes them through
 // pdfSafe, and the workbook strips control characters.
 
-import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence } from './pid-symbol-check-view.js';
+import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary } from './pid-symbol-check-view.js';
 import { STATUS_LABELS } from './pid-precheck.js';
 import { REASONS } from './pid-symbol-report-run.js';
 
@@ -85,6 +85,7 @@ function sheetFor(o) {
     status: isChecked ? 'checked' : 'not-checked', reason,
     resultText: isChecked ? 'Checked' : 'Not checked: ' + reason,
     counts, seconds: tenths(o.ms), pages,
+    bubbleLine: isChecked ? bubbleSummary(result) : '',
     pageNote: isChecked && pages > 1 ? 'Page 1 of ' + pages + ' only.' : '',
     timedOutLine: isChecked && result.timedOut === true ? TIMED_OUT : '',
     pageSize: Array.isArray(o.pageSize) && o.pageSize.length === 2 && o.pageSize.every(x => isNum(x) && x > 0) ? o.pageSize.slice() : null,
@@ -141,7 +142,7 @@ export function workbookRows(model) {
   const tags = { columns: ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail'], rows: [] };
   const sh = { columns: ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages'], rows: [] };
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles'], rows: [] };
   for (const s of sheets) {
     const checked = s.status === 'checked';
     for (const r of asArr(s.rows).filter(x => x && typeof x === 'object')) {
@@ -151,7 +152,7 @@ export function workbookRows(model) {
     const c = obj(s.counts);
     sh.rows.push([s.drawing, s.rev, s.family, s.precheckLabel, checked ? 'Checked' : 'Not checked', s.reason,
       ...SUMMARY_ORDER.map(k => (checked ? count(c[k]) : '')), checked ? s.seconds : '', s.timedOutLine ? 'Yes' : '',
-      checked ? (count(s.pages) || '') : ''].map(cell));
+      checked ? (count(s.pages) || '') : '', str(s.bubbleLine).replace(/^Tag bubbles: /, '')].map(cell));
   }
   const about = [['Report', str(m.title)], ['Run', str(m.when)], ['Checked by', str(m.checkedBy)], ['What it checks', FAMILY_NOTE],
     ['Library', str(lib.legend)], ['Library imported', str(lib.importedAt)], ['Sheets ticked', count(run.ticked)],

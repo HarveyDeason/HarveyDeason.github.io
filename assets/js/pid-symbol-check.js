@@ -16,7 +16,7 @@
 //
 // All geometry is in PDF points with a top-left origin.
 
-import { textWords } from './pid-symbols.js';
+import { textWords, isClosedPath } from './pid-symbols.js';
 
 const isNum = x => typeof x === 'number' && Number.isFinite(x);
 const asArr = x => (Array.isArray(x) ? x : []);
@@ -266,10 +266,16 @@ function prepareOne(symbol, cfg) {
   out.keys = out.segs.slice().sort((a, b) => b[4] - a[4]).slice(0, cfg.keyLines).filter(k => k[4] >= cfg.minKeyLine);
   out.w = isNum(s.w) && s.w > 0 ? s.w : (x1 >= x0 ? x1 - x0 : 0);
   out.h = isNum(s.h) && s.h > 0 ? s.h : (y1 >= y0 ? y1 - y0 : 0);
+  // A tag bubble is placed on the outline round a tag's text, not by pairing
+  // lines, so it is checked however plain it is. Its ring is the outline the
+  // tag sits in; without one stored, the whole symbol.
+  out.bubble = flags.bubble === true;
+  const r = s.ring;
+  out.ring = Array.isArray(r) && r.length === 4 && r.every(isNum) && r[2] > r[0] && r[3] > r[1] ? r.slice() : [0, 0, out.w, out.h];
   if (flags.manual === true) out.why = 'manual';
   else if (!out.segs.length) out.why = 'no-linework';
   else if (flags.stretch === true) out.why = 'stretch';
-  else if (flags.simple === true || out.segs.length < cfg.simpleSegs || total < cfg.simpleLength || !out.keys.length) out.why = 'simple';
+  else if (!out.bubble && (flags.simple === true || out.segs.length < cfg.simpleSegs || total < cfg.simpleLength || !out.keys.length)) out.why = 'simple';
   else if (wild || Math.max(out.w, out.h) > cfg.maxSize || Math.min(out.w, out.h) < cfg.minSize) out.why = 'size';
   out.checkable = !out.why;
   // Points about a point apart, for the quick look. Only for a symbol that
@@ -294,7 +300,7 @@ export function prepareSymbols(library, options) {
   try {
     const cfg = settings(options);
     return asArr(asObj(library).symbols).map(s => {
-      try { return prepareOne(s, cfg); } catch { return { symbol: s, checkable: false, why: 'no-linework', segs: [], keys: [], loops: [], points: [], w: 0, h: 0, codes: [] }; }
+      try { return prepareOne(s, cfg); } catch { return { symbol: s, checkable: false, why: 'no-linework', segs: [], keys: [], loops: [], points: [], w: 0, h: 0, codes: [], bubble: false, ring: [0, 0, 0, 0] }; }
     });
   } catch {
     return [];
@@ -482,6 +488,9 @@ export function scorePlacement(prepared, placement, window, options) {
 const NO_POSITION = 'Tag position not found on this page.';
 const NEAR_MISS_LOOK = 0.3;    // share of sampled points on ink before a poor match is scored at all
 const NEAR_MISS_FLOOR = 0.3;   // below this a "closest symbol" means nothing and is not reported
+const OUTLINE_MARGIN = 3;     // points a tag's text may stand out of the outline it is written in
+const ASPECT_TOL = 0.1;       // how far a bubble's width-to-height may differ from the outline's
+const NO_BUBBLES = 'The library has no tag bubbles. Import the legend again to add them.';
 const OUT_OF_TIME ='The check reached its time limit before this tag.';
 const clock = () => (typeof performance === 'object' && performance && typeof performance.now === 'function' ? performance.now() : Date.now());
 
@@ -499,7 +508,9 @@ export function expectedFamily(fc, library, lookups, prepared) {
     if (!carrying.length) {
       const fcs = asObj(lookups).fc;
       const instrument = own(fcs, code) && fcs[code] === 'instrument';
-      return { mode: 'skip', symbols: [], why: instrument ? 'Instrument bubbles are not checked yet.' : 'No symbol in the library carries the tag identifier ' + code + '.' };
+      if (!instrument) return { mode: 'skip', symbols: [], why: 'No symbol in the library carries the tag identifier ' + code + '.' };
+      // An instrument is drawn as a tag bubble round its tag.
+      return all.some(p => p && p.bubble && p.checkable) ? { mode: 'bubble', symbols: [], why: '' } : { mode: 'skip', symbols: [], why: NO_BUBBLES };
     }
     const fam = own(lib.families, code) ? asObj(lib.families[code]) : null;
     if (fam && fam.mode === 'skip') {
@@ -523,6 +534,77 @@ export function expectedFamily(fc, library, lookups, prepared) {
   }
 }
 
+// ── Tag bubbles ───────────────────────────────────────────────────────────
+
+function outlineFrom(boxed, tagBox, maxOutline, cfg) {
+  const t = tagBox, cx = (t[0] + t[2]) / 2, cy = (t[1] + t[3]) / 2, m = OUTLINE_MARGIN;
+  let best = null, bestArea = Infinity;
+  for (const q of boxed) {
+    const b = q.b, w = b[2] - b[0], h = b[3] - b[1];
+    if (w > maxOutline || h > maxOutline || w <= 0 || h <= 0) continue;
+    if (!(cx > b[0] && cx < b[2] && cy > b[1] && cy < b[3])) continue;
+    if (t[0] < b[0] - m || t[1] < b[1] - m || t[2] > b[2] + m || t[3] > b[3] + m) continue;
+    if ((isNum(q.p.grey) ? q.p.grey : 0) >= cfg.inkGrey || !isClosedPath(q.p)) continue;
+    if (w * h < bestArea) { best = b; bestArea = w * h; }
+  }
+  return best ? best.slice() : null;
+}
+
+/**
+ * The outline a tag is written inside: the smallest single closed path whose
+ * box holds the tag's text (standing out by at most 3 pt) and is no larger
+ * than options.maxOutline on either side, so a sheet frame never counts.
+ */
+export function findOutline(paths, tagBox, options) {
+  try {
+    const t = asArr(tagBox), o = asObj(options);
+    if (t.length < 4 || !t.slice(0, 4).every(isNum) || !isNum(o.maxOutline) || o.maxOutline <= 0) return null;
+    return outlineFrom(boxesOf(paths), t, o.maxOutline, settings(options));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lay each bubble's ring on an outline and score it two ways. A bubble whose
+ * width-to-height does not fit the outline's is not tried: a ring is not a
+ * hexagon at any size. Returns the best match at or above `recognise`, the
+ * names of kinds too close to it to tell apart, and otherwise the closest.
+ */
+export function matchBubble(bubbles, outline, window, options) {
+  const none = { best: null, oneOf: [], closest: null };
+  try {
+    const cfg = settings(options), o = asArr(outline);
+    if (o.length < 4 || !o.slice(0, 4).every(isNum)) return none;
+    const ow = o[2] - o[0], oh = o[3] - o[1], ocx = (o[0] + o[2]) / 2, ocy = (o[1] + o[3]) / 2;
+    const scored = [];
+    let near = null;
+    for (const p of asArr(bubbles)) {
+      if (!p || p.checkable !== true || p.bubble !== true) continue;
+      const r = p.ring, rw = r[2] - r[0], rh = r[3] - r[1];
+      if (!(rw > 0 && rh > 0 && ow > 0 && oh > 0)) continue;
+      const kw = ow / rw, kh = oh / rh;
+      if (Math.abs(kw - kh) / kh > ASPECT_TOL) continue;
+      const k = (kw + kh) / 2;
+      if (k < cfg.minScale || k > cfg.maxScale) continue;
+      const tx = ocx - k * (r[0] + r[2]) / 2, ty = ocy - k * (r[1] + r[3]) / 2;
+      const pl = { o: 0, k, tx, ty, cx: tx + k * p.w / 2, cy: ty + k * p.h / 2 };
+      const s = scorePlacement(p, pl, window, cfg);
+      if (s && s.score >= cfg.recognise) scored.push({ p, score: s.score, k, box: s.box });
+      else {
+        const loose = s || scorePlacement(p, pl, window, { ...cfg, quickLook: NEAR_MISS_LOOK });
+        if (loose && (!near || loose.score > near.score)) near = { symbol: nameOf(p), score: round3(loose.score) };
+      }
+    }
+    if (!scored.length) return { ...none, closest: near && near.score >= NEAR_MISS_FLOOR ? near : null };
+    scored.sort((a, b) => b.score - a.score);
+    const close = scored.filter(m => m.score >= scored[0].score - cfg.oneOf);
+    return { best: scored[0], oneOf: close.length > 1 ? close.map(m => nameOf(m.p)) : [], closest: null };
+  } catch {
+    return none;
+  }
+}
+
 // ── The sheet's verdicts ──────────────────────────────────────────────────
 
 const wordsOf = s => str(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean)
@@ -533,7 +615,7 @@ const round3 = x => Math.round(x * 1000) / 1000;
 
 function emptyVerdict(tag, fc) {
   return { tag, fc, verdict: 'not-checked', why: '', symbol: '', oneOf: [], tagId: '', exceptions: [],
-    sizePct: null, score: null, filled: false, letters: '', tagBox: null, box: null, closest: null };
+    sizePct: null, score: null, filled: false, letters: '', tagBox: null, box: null, closest: null, bubble: false };
 }
 
 // Approved exceptions whose name shares a word with a table heading of the
@@ -574,7 +656,8 @@ export function checkSheet(input) {
     if (!tags.length) return { ok: false, why: 'no-tags' };
 
     const prepared = prepareSymbols(lib, cfg);
-    const checkable = prepared.filter(p => p.checkable);
+    const checkable = prepared.filter(p => p.checkable && !p.bubble);   // bubbles are found by their outline, below
+    const bubbles = prepared.filter(p => p.checkable && p.bubble);
     const boxed = boxesOf(inp.paths);
     const segments = drawingSegments(inp.paths, cfg);
     const placed = tagPlaces(inp.textItems, tags, inp.viewportTransform);
@@ -592,9 +675,37 @@ export function checkSheet(input) {
     let proposals = 0;
     const reach = cfg.radius + 40;
 
+    // Tag bubbles first: a tag written inside an outline is answered by the
+    // bubble that outline is, whatever its code. The outline's spot is
+    // claimed at once, so no family symbol found there can answer another tag.
+    const bubbleClosest = tags.map(() => null);
+    const maxOutline = bubbles.reduce((m, p) => Math.max(m, p.ring[2] - p.ring[0], p.ring[3] - p.ring[1]), 0) * cfg.maxScale;
+    if (bubbles.length) {
+      tags.forEach((t, ti) => {
+        for (const place of asArr(asObj(placed[ti]).places)) {
+          if (done[ti]) break;
+          if (clock() - started > cfg.timeLimitMs) { late[ti] = true; break; }
+          const outline = outlineFrom(boxed, place.box, maxOutline, cfg);
+          if (!outline) continue;
+          const m = matchBubble(bubbles, outline, windowFrom(boxed, centreOf(outline), cfg), cfg);
+          if (!m.best) {
+            if (m.closest && (!bubbleClosest[ti] || m.closest.score > bubbleClosest[ti].score)) bubbleClosest[ti] = m.closest;
+            continue;
+          }
+          const v = verdicts[ti], b = m.best;
+          v.symbol = nameOf(b.p); v.tagId = ''; v.sizePct = Math.round(b.k * 100); v.score = round3(b.score);
+          v.box = b.box.map(round3); v.tagBox = place.box.map(round3); v.oneOf = m.oneOf; v.bubble = true;
+          v.verdict = Math.abs(b.k - 1) > cfg.sizeBand ? 'off-size' : 'ok';
+          const c = centreOf(outline);
+          spots.push({ cx: c[0], cy: c[1], best: new Map(), top: 0, claimed: true });
+          done[ti] = true;
+        }
+      });
+    }
+
     tags.forEach((t, ti) => {
       const places = asArr(asObj(placed[ti]).places);
-      if (families[ti].mode === 'check') {
+      if (families[ti].mode === 'check' && !done[ti] && !late[ti]) {
         for (const place of places) {
           // Hostile or enormous input must not run for ever: past the limit,
           // the tags not yet reached are marked as such and the rest is reported.
@@ -686,8 +797,13 @@ export function checkSheet(input) {
       const v = verdicts[ti], places = asArr(asObj(placed[ti]).places);
       if (places.length) v.tagBox = places[0].box.map(round3);
       if (!places.length) { v.why = NO_POSITION; return; }
-      if (families[ti].mode !== 'check') { v.why = families[ti].why; return; }
       if (late[ti]) { v.why = OUT_OF_TIME; return; }
+      if (families[ti].mode === 'bubble') {
+        v.verdict = 'look'; v.bubble = true; v.closest = bubbleClosest[ti];
+        v.why = 'No standard tag bubble recognised round the tag.';
+        return;
+      }
+      if (families[ti].mode !== 'check') { v.why = families[ti].why; return; }
       v.exceptions = familyExceptions(lib, prepared, t.fc.toUpperCase());
       v.verdict = v.exceptions.length ? 'exception' : 'look';
       v.closest = closestOf(places, families[ti].symbols);
@@ -695,7 +811,7 @@ export function checkSheet(input) {
 
     const counts = Object.fromEntries(VERDICTS.map(k => [k, 0]));
     for (const v of verdicts) counts[v.verdict]++;
-    const checked = tags.filter((t, ti) => families[ti].mode === 'check' && !late[ti] && asArr(asObj(placed[ti]).places).length).length;
+    const checked = verdicts.filter(v => v.verdict !== 'not-checked').length;
     return { ok: true, verdicts, counts, checked, recognised: counts.ok + counts['off-size'], proposals,
       timedOut: late.some(Boolean), ms: Math.round(clock() - started) };
   } catch {

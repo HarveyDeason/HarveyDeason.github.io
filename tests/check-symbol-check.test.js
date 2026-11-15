@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readSheet, setTagIds, relabel, tally } from '../scripts/check-symbol-check.mjs';
-import { LIBRARY, SHEET, sheetPdfBytes } from './fixtures/symbol-check-sheet.js';
+import { readSheet, setTagIds, relabel, tally, bubbleSelfTest } from '../scripts/check-symbol-check.mjs';
+import { LIBRARY, SHEET, sheetPdfBytes, BUBBLE_LIBRARY } from './fixtures/symbol-check-sheet.js';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/check-symbol-check.mjs', import.meta.url));
 const run = args => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
@@ -74,5 +74,35 @@ test('the command line: counts, expectations, relabelling and missing files', ()
     assert.equal(missing.status, 1);
     assert.match(missing.stderr, /Could not read .*absent\.pdf\./);
     assert.doesNotMatch(missing.stderr, /\n\s+at /);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('bubbleSelfTest: each bubble, stamped round an invented tag, is identified as itself', () => {
+  const r = bubbleSelfTest(BUBBLE_LIBRARY);
+  assert.equal(r.length, 6);
+  assert.ok(r.every(x => x.pass), JSON.stringify(r.filter(x => !x.pass)));
+  // Strip the bar from one: it is now the plain ring twice over, and cannot be told apart.
+  const lib = { ...BUBBLE_LIBRARY, symbols: BUBBLE_LIBRARY.symbols.map(s => (s.name === 'RING, ONE BAR' ? { ...s, paths: s.paths.slice(0, 1) } : s)) };
+  assert.ok(bubbleSelfTest(lib).some(x => !x.pass));
+  assert.deepEqual(bubbleSelfTest(null), []);
+});
+
+test('the command line: the bubble self-test, and instrument codes passed in', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-check-'));
+  try {
+    const lib = path.join(dir, 'library.json'), old = path.join(dir, 'old.json'), pdf = path.join(dir, 'invented.pdf');
+    fs.writeFileSync(lib, JSON.stringify(BUBBLE_LIBRARY));
+    fs.writeFileSync(old, JSON.stringify(LIBRARY));
+    fs.writeFileSync(pdf, sheetPdfBytes());
+    const self = run(['--bubble-self-test', '--library', lib]);
+    assert.equal(self.status, 0, self.stdout + self.stderr);
+    assert.match(self.stdout, /6 of 6 identified as themselves/);
+    assert.doesNotMatch(self.stdout, /RING/);   // names only with --verbose
+    assert.match(run(['--bubble-self-test', '--library', lib, '--verbose']).stdout, /PASS +RING, BROKEN BAR/);
+    const none = run(['--bubble-self-test', '--library', old]);
+    assert.equal(none.status, 1);
+    assert.match(none.stderr, /no tag bubbles/);
+    const inst = run([pdf, '--library', old, '--instrument', 'ZI', '--allow-wrong', '1', '--verbose']);
+    assert.match(inst.stdout, /21-ZI-5001 +Not checked .*The library has no tag bubbles/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

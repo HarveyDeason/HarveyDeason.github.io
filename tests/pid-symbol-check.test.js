@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../assets/js/pid-symbol-check.js';
-import { LIBRARY, LOOKUPS, SHEET, place, label, octagon } from './fixtures/symbol-check-sheet.js';
+import { LIBRARY, LOOKUPS, SHEET, place, label, octagon, BUBBLE_LIBRARY, BUBBLE_SHEET, LOOKUPS_B, BUBBLES } from './fixtures/symbol-check-sheet.js';
 
 const VT = SHEET.viewportTransform;
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
@@ -161,7 +161,7 @@ test('expectedFamily: checked, or why not', () => {
   const prepared = C.prepareSymbols(LIBRARY);
   const f = fc => C.expectedFamily(fc, LIBRARY, LOOKUPS, prepared);
   assert.deepEqual([f('W').mode, f('W').symbols.map(p => p.symbol.name)], ['check', ['WIDGET', 'WIDGET, BARRED']]);
-  assert.deepEqual([f('ZI').mode, f('ZI').why], ['skip', 'Instrument bubbles are not checked yet.']);
+  assert.deepEqual([f('ZI').mode, f('ZI').why], ['skip', 'The library has no tag bubbles. Import the legend again to add them.']);
   assert.deepEqual([f('X').mode, f('X').why], ['skip', 'No symbol in the library carries the tag identifier X.']);
   assert.deepEqual([f('D').mode, f('D').why], ['skip', 'Every symbol in this family is drawn to suit, too simple to judge, or has no linework.']);
   assert.equal(f('T').mode, 'skip');
@@ -301,6 +301,81 @@ test('checkSheet: past its time limit it stops, says so, and marks the tags it d
   assert.deepEqual([r.ok, r.timedOut], [true, true]);
   const v = verdictOf(r, '21-W-1001');
   assert.deepEqual([v.verdict, v.why], ['not-checked', 'The check reached its time limit before this tag.']);
-  assert.equal(verdictOf(r, '21-ZI-5001').why, 'Instrument bubbles are not checked yet.');   // its own reason is kept
+  assert.equal(verdictOf(r, '21-ZI-5001').why, 'The library has no tag bubbles. Import the legend again to add them.');   // its own reason is kept
   assert.equal(run().timedOut, false);
+});
+
+// ── Tag bubbles ───────────────────────────────────────────────────────────
+const runB = (over = {}) => C.checkSheet({ ...BUBBLE_SHEET, library: BUBBLE_LIBRARY, lookups: LOOKUPS_B, ...over });
+
+test('checkSheet: each bubble kind round a tag is identified as itself, with no one-of', () => {
+  const r = runB();
+  assert.equal(r.ok, true);
+  const want = { '21-ZI-8001': 'RING', '21-ZI-8002': 'RING, ONE BAR', '21-ZI-8003': 'RING, TWO BARS',
+    '21-ZI-8004': 'RING, BROKEN BAR', '21-ZI-8005': 'BOXED RING', '21-ZI-8006': 'HEXAGON' };
+  for (const [tag, name] of Object.entries(want)) {
+    const v = verdictOf(r, tag);
+    assert.deepEqual([v.verdict, v.symbol, v.bubble, v.oneOf, v.tagId], ['ok', name, true, [], ''], tag);
+    assert.equal(v.sizePct, 100, tag);
+  }
+  assert.doesNotThrow(() => structuredClone(r));
+});
+test('checkSheet: an off-size bubble reads OK, off size', () => {
+  const v = verdictOf(runB(), '21-ZI-8007');
+  assert.deepEqual([v.verdict, v.symbol], ['off-size', 'RING']);
+  assert.ok(near(v.sizePct, 125, 2));
+});
+test('checkSheet: an equipment code drawn in a bubble reads OK', () => {
+  const v = verdictOf(runB(), '21-X-8008');
+  assert.deepEqual([v.verdict, v.symbol, v.bubble], ['ok', 'RING', true]);
+});
+test('checkSheet: an instrument tag with no bubble needs a look; one in a non-standard outline names the closest bubble', () => {
+  const r = runB();
+  const none = verdictOf(r, '21-ZP-8009');
+  assert.deepEqual([none.verdict, none.bubble, none.closest], ['look', true, null]);
+  const odd = verdictOf(r, '21-ZI-8011');
+  assert.deepEqual([odd.verdict, odd.bubble], ['look', true]);
+  assert.ok(odd.closest && odd.closest.score < 0.9 && odd.closest.score >= 0.3, JSON.stringify(odd.closest));
+});
+test('checkSheet: a bubble is not claimed by a neighbouring tag', () => {
+  const r = runB();
+  assert.notEqual(verdictOf(r, '21-W-8010').verdict, 'ok');
+  assert.equal(verdictOf(r, '21-W-8010').bubble, false);
+});
+test('checkSheet: a tag written twice, once in a bubble, reads OK once', () => {
+  assert.equal(verdictOf(runB(), '21-ZI-8012').verdict, 'ok');
+});
+test('checkSheet: checked counts every tag given a verdict other than Not checked', () => {
+  const r = runB();
+  assert.equal(r.checked, r.verdicts.filter(v => v.verdict !== 'not-checked').length);
+});
+test('findOutline: tag text 1 pt wider than the ring on each side is still inside; the sheet frame is never an outline', () => {
+  const paths = BUBBLE_SHEET.paths;   // includes the frame
+  assert.deepEqual(C.findOutline(paths, [99, 114, 141, 126], { maxOutline: 62 }).map(Math.round), [100, 100, 140, 140]);
+  assert.equal(C.findOutline(paths, [40, 40, 60, 50], { maxOutline: 62 }), null);   // inside only the frame
+  assert.equal(C.findOutline(paths, [94, 114, 146, 126], { maxOutline: 62 }), null); // 6 pt over each side: not inside
+  for (const bad of [[null, null, null], [paths, 'x', {}], ['x', [0, 0, 1, 1], null]]) assert.equal(C.findOutline(...bad), null);
+});
+test('checkSheet: a bubble with no stored ring is matched on its whole box', () => {
+  const noRing = s => { const { ring, ...rest } = s; return rest; };
+  const lib = { ...BUBBLE_LIBRARY, symbols: BUBBLE_LIBRARY.symbols.map(s => (s.name === 'RING' ? noRing(s) : s)) };
+  const v = verdictOf(runB({ library: lib }), '21-ZI-8001');
+  assert.deepEqual([v.verdict, v.symbol], ['ok', 'RING']);
+});
+test('checkSheet: with an old library, instrument tags say to re-import the legend', () => {
+  const v = verdictOf(C.checkSheet({ ...BUBBLE_SHEET, library: LIBRARY, lookups: LOOKUPS_B }), '21-ZI-8001');
+  assert.deepEqual([v.verdict, v.why], ['not-checked', 'The library has no tag bubbles. Import the legend again to add them.']);
+});
+test('expectedFamily: an instrument code with no family expects a bubble when the library has them', () => {
+  assert.equal(C.expectedFamily('ZI', BUBBLE_LIBRARY, LOOKUPS_B, C.prepareSymbols(BUBBLE_LIBRARY)).mode, 'bubble');
+});
+test('prepareSymbols: a bubble is checkable however plain, and carries its ring', () => {
+  const p = C.prepareSymbols(BUBBLE_LIBRARY).find(x => x.symbol.name === 'RING');
+  assert.deepEqual([p.checkable, p.bubble, p.ring], [true, true, [0, 0, 40, 40]]);
+});
+test('checkSheet: any tag written inside a recognised bubble is answered by it, whatever its code (spec: the drawing decides)', () => {
+  const ring = BUBBLES.find(s => s.name === 'RING');
+  const r = C.checkSheet({ viewportTransform: [1, 0, 0, 1, 0, 0], library: BUBBLE_LIBRARY, lookups: LOOKUPS_B,
+    paths: place(ring, { x: 100, y: 100 }), textItems: label('21-W-9001', 109, 111, { split: true }), tags: [{ tag: '21-W-9001', fc: 'W' }] });
+  assert.deepEqual([r.verdicts[0].verdict, r.verdicts[0].bubble, r.verdicts[0].symbol], ['ok', true, 'RING']);
 });

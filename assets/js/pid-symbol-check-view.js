@@ -49,6 +49,18 @@ export function progressHtml(done, total) {
 function sentence(v, kind) {
   if (kind === 'not-checked') return str(v.why) || 'Not checked.';
   const c = v.closest && typeof v.closest === 'object' ? v.closest : null;
+  if (v.bubble === true) {
+    if (kind === 'look') {
+      return 'No standard tag bubble recognised round the tag.'
+        + (c && str(c.symbol) && isNum(c.score) ? ' Closest: ' + str(c.symbol) + ' at ' + Math.round(c.score * 100) + '%.' : '')
+        + ' Could be non-standard, modified, or a gap in the library.';
+    }
+    if (kind === 'ok' || kind === 'off-size') {
+      const kinds = asArr(v.oneOf).map(str).filter(Boolean);
+      return 'Tag bubble: ' + (kinds.length > 1 ? 'One of: ' + kinds.join(', ') : str(v.symbol))
+        + (kind === 'off-size' ? ', drawn at ' + count(v.sizePct) + '% of legend size' : '') + '.';
+    }
+  }
   const closest = c && str(c.symbol) && isNum(c.score) ? ' Closest in its family: ' + str(c.symbol) + ' at ' + Math.round(c.score * 100) + '%.' : '';
   if (kind === 'look') return 'Nothing recognised within 60 pt.' + closest + ' Could be non-standard, modified, or a gap in the library.';
   if (kind === 'exception') {
@@ -63,6 +75,21 @@ function sentence(v, kind) {
   if (v.letters === 'read') out += ', letter read';
   if (v.letters === 'not judged') out += ', letter not judged';
   return out + '.';
+}
+
+/** Recognised tag bubbles counted by kind, most first: 'Tag bubbles: 2 RING, 1 HEXAGON', or '' when there are none. */
+export function bubbleSummary(result) {
+  try {
+    const n = new Map();
+    for (const v of asArr(result && typeof result === 'object' ? result.verdicts : null)) {
+      if (!v || typeof v !== 'object' || v.bubble !== true || (v.verdict !== 'ok' && v.verdict !== 'off-size') || !str(v.symbol)) continue;
+      n.set(str(v.symbol), (n.get(str(v.symbol)) || 0) + 1);
+    }
+    if (!n.size) return '';
+    return 'Tag bubbles: ' + [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, c]) => c + ' ' + k).join(', ');
+  } catch {
+    return '';
+  }
 }
 
 /** The sentence the screen shows for one verdict, as plain text (the report's Detail). */
@@ -90,7 +117,9 @@ export function resultsHtml(result) {
     + '<div class="sc-note">' + esc(FAMILY_NOTE) + '</div>'
     + '<div class="sc-summary">'
     + (result.timedOut === true ? 'The check stopped at its time limit. Tags it did not reach are marked Not checked. ' : '')
-    + 'Results are shown here and are not saved.</div><ul class="sc-list">';
+    + 'Results are shown here and are not saved.</div>'
+    + (bubbleSummary(result) ? '<div class="sc-summary">' + esc(bubbleSummary(result)) + '</div>' : '')
+    + '<ul class="sc-list">';
   for (const { v, i, kind } of list) {
     out += '<li><button type="button" class="sc-row sc-' + kind + '" data-act="sym-jump" data-i="' + i + '">'
       + '<strong>' + esc(str(v.tag)) + '</strong> <span class="sc-label">' + VERDICT_LABELS[kind] + '</span> '

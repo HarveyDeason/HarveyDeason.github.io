@@ -91,3 +91,47 @@ export function sheetPdfBytes({ rotate = 0, origin = [0, 0] } = {}) {
   out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Uint8Array.from(out, ch => ch.charCodeAt(0));
 }
+
+// ── Tag bubbles (invented) ────────────────────────────────────────────────
+// Six invented bubble kinds, near a real legend's proportions: a 40 pt ring,
+// bars 3 pt apart, a broken bar with an 8 pt gap.
+const ringPts = (cx, cy, r) => Array.from({ length: 32 }, (_, i) => [cx + r * Math.cos(Math.PI * i / 16), cy + r * Math.sin(Math.PI * i / 16)]);
+const RING = () => [loop(ringPts(20, 20, 20))];
+const bubble = (id, name, w, h, paths, ring = [0, 0, w, h]) => ({ ...sym(id, name, 'GIZMO TAGS', '', w, h, paths, { bubble: true, bubbleByHand: false }), ring });
+export const BUBBLES = [
+  bubble('b1', 'RING', 40, 40, RING()),
+  bubble('b2', 'RING, ONE BAR', 40, 40, [...RING(), line([0, 20, 40, 20])]),
+  bubble('b3', 'RING, TWO BARS', 40, 40, [...RING(), line([0, 18.5, 40, 18.5]), line([0, 21.5, 40, 21.5])]),
+  bubble('b4', 'RING, BROKEN BAR', 40, 40, [...RING(), line([0, 20, 16, 20]), line([24, 20, 40, 20])]),
+  bubble('b5', 'BOXED RING', 40, 40, [...RING(), loop([[0, 0], [40, 0], [40, 40], [0, 40]])]),
+  bubble('b6', 'HEXAGON', 46, 40, [loop([[0, 20], [11.5, 0], [34.5, 0], [46, 20], [34.5, 40], [11.5, 40]])]),
+];
+export const BUBBLE_LIBRARY = { ...LIBRARY, symbols: [...LIBRARY.symbols, ...BUBBLES] };
+export const LOOKUPS_B = { fc: { ZI: 'instrument', ZP: 'instrument' } };
+const bub = n => BUBBLES.find(s => s.name === n);
+// A tag split over two lines, centred on (cx, cy): the code line is 22 pt wide, the whole 18 pt tall.
+const inside = (tag, cx, cy) => label(tag, cx - 11, cy - 9, { split: true });
+const B_ROWS = [
+  // [tag, drawn paths, text items]
+  ['21-ZI-8001', place(bub('RING'), { x: 100, y: 100 }), inside('21-ZI-8001', 120, 120)],
+  ['21-ZI-8002', place(bub('RING, ONE BAR'), { x: 220, y: 100 }), inside('21-ZI-8002', 240, 120)],
+  ['21-ZI-8003', place(bub('RING, TWO BARS'), { x: 340, y: 100 }), inside('21-ZI-8003', 360, 120)],
+  ['21-ZI-8004', place(bub('RING, BROKEN BAR'), { x: 460, y: 100 }), inside('21-ZI-8004', 480, 120)],
+  ['21-ZI-8005', place(bub('BOXED RING'), { x: 100, y: 220 }), inside('21-ZI-8005', 120, 240)],
+  ['21-ZI-8006', place(bub('HEXAGON'), { x: 220, y: 220 }), inside('21-ZI-8006', 243, 240)],
+  ['21-ZI-8007', place(bub('RING'), { x: 340, y: 220, k: 1.25 }), inside('21-ZI-8007', 365, 245)],
+  ['21-X-8008', place(bub('RING'), { x: 460, y: 220 }), inside('21-X-8008', 480, 240)],
+  ['21-ZP-8009', [], inside('21-ZP-8009', 120, 360)],
+  // Written beside a ring, not in it: the ring's centre is (240, 360), the tag 30 pt clear of its edge.
+  ['21-W-8010', place(bub('RING'), { x: 220, y: 340 }), label('21-W-8010', 290, 356)],
+  // A bare square round the text: an outline, but no standard bubble.
+  ['21-ZI-8011', [loop([[340, 340], [380, 340], [380, 380], [340, 380]])], inside('21-ZI-8011', 360, 360)],
+  // In a ring, and written a second time below it with no outline.
+  ['21-ZI-8012', place(bub('RING'), { x: 460, y: 340 }), [...inside('21-ZI-8012', 480, 360), ...label('21-ZI-8012', 460, 420)]],
+];
+export const BUBBLE_SHEET = {
+  viewportTransform: [1, 0, 0, 1, 0, 0],
+  paths: [...B_ROWS.flatMap(r => r[1]), loop([[10, 10], [590, 10], [590, 470], [10, 470]])],
+  textItems: B_ROWS.flatMap(r => r[2]),
+  tags: B_ROWS.map(r => ({ tag: r[0], fc: r[0].split('-')[1] })),
+};

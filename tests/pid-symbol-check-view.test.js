@@ -37,7 +37,7 @@ test('resultsHtml: the family note, the counts, and a row for every tag in order
   assert.ok(rowFor(html, '21-P-6001').includes('One of: PENNANT, LEFT, PENNANT, RIGHT'));
   assert.ok(rowFor(html, '21-W-1004').includes('Approved exceptions for this family: Folding widget. The tool cannot tell whether this item is one of them.'));
   assert.ok(rowFor(html, '21-G-2002').includes('Nothing recognised within 60 pt. Could be non-standard, modified, or a gap in the library.'));
-  assert.ok(rowFor(html, '21-ZI-5001').includes('Instrument bubbles are not checked yet.'));
+  assert.ok(rowFor(html, '21-ZI-5001').includes('The library has no tag bubbles. Import the legend again to add them.'));
   // data-i is the verdict's place in the result, whatever order the rows are shown in
   assert.ok(rows(html)[0].includes('data-i="' + RESULT.verdicts.findIndex(v => v.tag === '21-G-2001') + '"'));
 });
@@ -128,4 +128,34 @@ test('progressHtml: how far it has got, and a way to stop', () => {
   assert.ok(html.includes('Checking symbols: 3 of 71 tags'));
   assert.ok(html.includes('data-act="sym-cancel"'));
   assert.ok(V.progressHtml(HOSTILE, null).includes('Checking symbols: 0 of 0 tags'));
+});
+
+// ── Tag bubbles ───────────────────────────────────────────────────────────
+const bv = (tag, verdict, more = {}) => ({ tag, fc: 'ZI', verdict, why: '', symbol: '', oneOf: [], tagId: '', exceptions: [], sizePct: 100,
+  score: 1, filled: false, letters: '', tagBox: [0, 0, 1, 1], box: [0, 0, 1, 1], closest: null, bubble: true, ...more });
+const BUBBLE_RESULT = { ok: true, ms: 10, timedOut: false, verdicts: [
+  bv('21-ZI-1', 'ok', { symbol: 'RING' }), bv('21-ZI-2', 'ok', { symbol: 'RING' }), bv('21-ZI-3', 'off-size', { symbol: 'HEXAGON', sizePct: 125 }),
+  bv('21-ZI-4', 'look', { closest: { symbol: 'BOXED RING', score: 0.56 } }), bv('21-W-5', 'ok', { symbol: 'WIDGET', bubble: false })] };
+
+test('verdictSentence: a bubble reads as a tag bubble of its kind; one not found says so and names the closest', () => {
+  assert.equal(V.verdictSentence(bv('t', 'ok', { symbol: 'RING' })), 'Tag bubble: RING.');
+  assert.equal(V.verdictSentence(bv('t', 'off-size', { symbol: 'RING', sizePct: 125 })), 'Tag bubble: RING, drawn at 125% of legend size.');
+  assert.equal(V.verdictSentence(bv('t', 'ok', { symbol: 'RING', oneOf: ['RING', 'RING, BROKEN BAR'] })), 'Tag bubble: One of: RING, RING, BROKEN BAR.');
+  assert.equal(V.verdictSentence(bv('t', 'look', { closest: { symbol: 'BOXED RING', score: 0.56 } })),
+    'No standard tag bubble recognised round the tag. Closest: BOXED RING at 56%. Could be non-standard, modified, or a gap in the library.');
+  assert.equal(V.verdictSentence(bv('t', 'look')), 'No standard tag bubble recognised round the tag. Could be non-standard, modified, or a gap in the library.');
+  assert.equal(V.verdictSentence(bv('t', 'ok', { symbol: 'WIDGET', bubble: false })), 'WIDGET.');
+});
+
+test('bubbleSummary: counts recognised bubbles by kind, most first', () => {
+  assert.equal(V.bubbleSummary(BUBBLE_RESULT), 'Tag bubbles: 2 RING, 1 HEXAGON');
+  assert.equal(V.bubbleSummary(RESULT), '');
+  for (const bad of [null, undefined, 5, { verdicts: 'x' }, { verdicts: [null, 7] }]) assert.equal(V.bubbleSummary(bad), '');
+});
+
+test('resultsHtml: shows the tag bubble line, escaped', () => {
+  assert.ok(V.resultsHtml(BUBBLE_RESULT).includes('Tag bubbles: 2 RING, 1 HEXAGON'));
+  const evil = { ...BUBBLE_RESULT, verdicts: [bv('21-ZI-1', 'ok', { symbol: HOSTILE })] };
+  assert.ok(!V.resultsHtml(evil).includes('<img'));
+  assert.ok(!V.resultsHtml(RESULT).includes('Tag bubbles'));
 });
