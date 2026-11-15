@@ -79,6 +79,18 @@ test('boxRects: one rectangle per tag, around the symbol when there is one', () 
   assert.deepEqual(V.boxRects({ ok: true, verdicts: [{ tag: 'a', verdict: 'ok', box: [0, 0, NaN, 1], tagBox: null }] }, 1), []);
 });
 
+test('resultsHtml: a row with nothing recognised says which symbol came closest, and by how much', () => {
+  const v = RESULT.verdicts.find(x => x.verdict === 'look');
+  const near = { ...RESULT, verdicts: [{ ...v, closest: { symbol: 'GADGET', score: 0.857 } }, { ...v, tag: '21-G-9', closest: { symbol: HOSTILE, score: HOSTILE } },
+    { ...v, tag: '21-G-8', verdict: 'exception', exceptions: ['Sliding gadget'], closest: { symbol: 'GADGET', score: 0.5 } }] };
+  const html = V.resultsHtml(near);
+  assert.ok(html.includes('Nothing recognised within 60 pt. Closest in its family: GADGET at 86%. Could be non-standard, modified, or a gap in the library.'));
+  assert.ok(html.includes('Nothing recognised. Closest in its family: GADGET at 50%. Approved exceptions for this family: Sliding gadget.'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(V.boxRects(near, 1)[0].title.includes('Closest in its family: GADGET at 86%.'));
+  assert.ok(!V.resultsHtml(RESULT).includes('Closest in its family'));
+});
+
 test('resultsHtml: a check that hit its time limit says so', () => {
   assert.ok(V.resultsHtml({ ...RESULT, timedOut: true }).includes('The check stopped at its time limit. Tags it did not reach are marked Not checked.'));
   assert.ok(!V.resultsHtml(RESULT).includes('time limit'));

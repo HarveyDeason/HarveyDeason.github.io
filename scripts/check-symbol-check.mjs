@@ -188,7 +188,7 @@ async function main() {
     for (const v of result.verdicts) {
       if (v.verdict === 'ok' && !grid) continue;
       if (grid && v.verdict !== 'ok' && v.verdict !== 'off-size') continue;
-      console.log(`    ${v.tag}  ${LABELS[v.verdict]}  ${v.symbol}${v.sizePct ? ' ' + v.sizePct + '%' : ''}${v.score ? ' ' + v.score : ''}${v.filled ? ' filled' : ''}  ${v.why}`);
+      console.log(`    ${v.tag}  ${LABELS[v.verdict]}  ${v.symbol}${v.sizePct ? ' ' + v.sizePct + '%' : ''}${v.score ? ' ' + v.score : ''}${v.filled ? ' filled' : ''}  ${v.why}${v.closest ? 'closest ' + v.closest.symbol + ' ' + Math.round(v.closest.score * 100) + '%' : ''}`);
     }
   }
 

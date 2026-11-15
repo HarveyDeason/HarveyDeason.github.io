@@ -48,9 +48,11 @@ export function progressHtml(done, total) {
 // The sentence for one verdict. Plain text: the caller escapes it.
 function sentence(v, kind) {
   if (kind === 'not-checked') return str(v.why) || 'Not checked.';
-  if (kind === 'look') return 'Nothing recognised within 60 pt. Could be non-standard, modified, or a gap in the library.';
+  const c = v.closest && typeof v.closest === 'object' ? v.closest : null;
+  const closest = c && str(c.symbol) && isNum(c.score) ? ' Closest in its family: ' + str(c.symbol) + ' at ' + Math.round(c.score * 100) + '%.' : '';
+  if (kind === 'look') return 'Nothing recognised within 60 pt.' + closest + ' Could be non-standard, modified, or a gap in the library.';
   if (kind === 'exception') {
-    return 'Nothing recognised. Approved exceptions for this family: ' + asArr(v.exceptions).map(str).filter(Boolean).join(', ')
+    return 'Nothing recognised.' + closest + ' Approved exceptions for this family: ' + asArr(v.exceptions).map(str).filter(Boolean).join(', ')
       + '. The tool cannot tell whether this item is one of them.';
   }
   if (kind === 'wrong-family') return 'Recognised as ' + str(v.symbol) + ' (tag identifier ' + str(v.tagId) + '), which does not fit ' + str(v.fc) + '.';

@@ -261,6 +261,22 @@ test('checkSheet: a wrong-family symbol also answers one tag only', () => {
   assert.deepEqual(r.verdicts.map(v => v.verdict), ['look', 'wrong-family']);
 });
 
+test('checkSheet: a tag with nothing recognised names the closest symbol of its family and how close it came', () => {
+  // The barred widget is on the sheet but not in this library, so the plain widget is a near miss.
+  const noBarred = { ...LIBRARY, symbols: LIBRARY.symbols.filter(s => s.name !== 'WIDGET, BARRED') };
+  const tags = SHEET.tags.map(t => (t.tag === '21-G-2001' ? { tag: t.tag, fc: 'W' } : t));
+  const r = run({ library: noBarred, tags });
+  const v = verdictOf(r, '21-G-2001');
+  assert.equal(v.verdict, 'exception');
+  assert.equal(v.closest.symbol, 'WIDGET');
+  assert.ok(v.closest.score > 0.6 && v.closest.score < 0.9, String(v.closest.score));
+  assert.equal(v.box, null);                                   // a near miss draws no box round a symbol
+  assert.equal(verdictOf(r, '21-G-2002').closest, null);       // nothing of its family comes near an octagon
+  assert.equal(verdictOf(r, '21-W-1001').closest, null);       // recognised: no "closest" to report
+  assert.equal(verdictOf(r, '21-ZI-5001').closest, null);
+  assert.doesNotThrow(() => structuredClone(r));
+});
+
 test('checkSheet: past its time limit it stops, says so, and marks the tags it did not reach', () => {
   const r = run({ options: { timeLimitMs: 0.0001 } });
   assert.deepEqual([r.ok, r.timedOut], [true, true]);

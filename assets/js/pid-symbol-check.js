@@ -480,7 +480,9 @@ export function scorePlacement(prepared, placement, window, options) {
 // ── Families ──────────────────────────────────────────────────────────────
 
 const NO_POSITION = 'Tag position not found on this page.';
-const OUT_OF_TIME = 'The check reached its time limit before this tag.';
+const NEAR_MISS_LOOK = 0.3;    // share of sampled points on ink before a poor match is scored at all
+const NEAR_MISS_FLOOR = 0.3;   // below this a "closest symbol" means nothing and is not reported
+const OUT_OF_TIME ='The check reached its time limit before this tag.';
 const clock = () => (typeof performance === 'object' && performance && typeof performance.now === 'function' ? performance.now() : Date.now());
 
 /**
@@ -521,7 +523,7 @@ const round3 = x => Math.round(x * 1000) / 1000;
 
 function emptyVerdict(tag, fc) {
   return { tag, fc, verdict: 'not-checked', why: '', symbol: '', oneOf: [], tagId: '', exceptions: [],
-    sizePct: null, score: null, filled: false, letters: '', tagBox: null, box: null };
+    sizePct: null, score: null, filled: false, letters: '', tagBox: null, box: null, closest: null };
 }
 
 // Approved exceptions whose name shares a word with a table heading of the
@@ -644,6 +646,28 @@ export function checkSheet(input) {
       v.verdict = 'wrong-family';
       pr.spot.claimed = true; done[pr.ti] = true;   // one symbol answers one tag here too
     }
+    // For a tag left with nothing recognised: the symbol of its OWN family
+    // that came closest, and how close. "Needs a look" at 86% and at 59% are
+    // different findings, and the user cannot tell them apart without this.
+    // Only these tags pay for it: the quick look is relaxed so that poor
+    // matches are scored at all.
+    const closestOf = (places, symbols) => {
+      let best = null;
+      for (const place of places) {
+        if (clock() - started > cfg.timeLimitMs) break;
+        const c = centreOf(place.box);
+        const win = windowFrom(boxed, c, cfg);
+        const nearby = segments.filter(g => Math.hypot((g[0] + g[2]) / 2 - c[0], (g[1] + g[3]) / 2 - c[1]) <= reach);
+        for (const p of symbols) {
+          for (const pl of proposePlacements(p, nearby, c, cfg)) {
+            const s = scorePlacement(p, pl, win, { ...cfg, quickLook: NEAR_MISS_LOOK });
+            if (s && (!best || s.score > best.score)) best = { symbol: nameOf(p), score: round3(s.score) };
+          }
+        }
+      }
+      return best && best.score >= NEAR_MISS_FLOOR ? best : null;
+    };
+
     // The rest.
     tags.forEach((t, ti) => {
       if (done[ti]) return;
@@ -654,6 +678,7 @@ export function checkSheet(input) {
       if (late[ti]) { v.why = OUT_OF_TIME; return; }
       v.exceptions = familyExceptions(lib, prepared, t.fc.toUpperCase());
       v.verdict = v.exceptions.length ? 'exception' : 'look';
+      v.closest = closestOf(places, families[ti].symbols);
     });
 
     const counts = Object.fromEntries(VERDICTS.map(k => [k, 0]));
