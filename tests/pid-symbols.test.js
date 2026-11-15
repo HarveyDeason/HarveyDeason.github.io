@@ -68,6 +68,17 @@ test('pagePaths: a stroke gives one path per subpath, a fill keeps its subpaths 
   assert.deepEqual(c.map(x => x.grey), [255, 0]);
 });
 
+test('pagePaths: a line or curve with no point to start from draws nothing, as on screen', () => {
+  // The first lineTo of a path, with no moveTo before it, only puts the pen down. A browser draws nothing
+  // for it, so neither do we: a line invented from the page corner would cross real symbols.
+  assert.deepEqual(walk([['path', ['L', 50, 50]], ['stroke']]), []);
+  assert.deepEqual(walk([['path', ['L', 50, 50, 'L', 60, 50]], ['stroke']]).map(x => x.segs), [[50, 50, 60, 50]]);
+  assert.deepEqual(walk([['path', ['M', 0, 0, 'L', 10, 0]], ['stroke'], ['path', ['L', 50, 50, 'L', 60, 50]], ['stroke']]).map(x => x.segs),
+    [[0, 100, 10, 100], [50, 50, 60, 50]]);
+  const curve = walk([['path', ['C', 10, 10, 20, 10, 30, 20]], ['stroke']]);
+  assert.ok(curve.length === 1 && curve[0].segs.every((v, i) => i % 2 === 1 || v >= 10), JSON.stringify(curve));   // nothing reaches back to x = 0
+});
+
 test('pagePaths: hostile input degrades and never throws', () => {
   for (const bad of [undefined, null, 5, 'x', {}]) assert.deepEqual(pagePaths(bad, bad, bad, bad), []);
   assert.doesNotThrow(() => pagePaths([O.constructPath, O.stroke, O.restore, 77777], [null, null], O, FLIP));

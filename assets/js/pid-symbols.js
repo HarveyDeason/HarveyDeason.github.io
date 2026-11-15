@@ -89,15 +89,24 @@ export function pagePaths(fnArray, argsArray, OPS, viewportTransform) {
       }
     };
     const close = () => { if (cur && (ux !== sux || uy !== suy)) lineTo(sux, suy); cur = null; ux = sux; uy = suy; };
+    // A path that opens with a line or a curve has no point to start from.
+    // A browser canvas then only puts the pen down at the first point given
+    // and draws nothing. Do the same. Starting from (0, 0) instead invents a
+    // line from the page corner that is not on the drawing, and that line
+    // crosses real symbols: found on a real sheet, where it took two of four
+    // identical valves below the recognition score.
+    let has = false;
+    const start = (x, y) => { ux = x; uy = y; sux = x; suy = y; cur = null; has = true; };
     for (const op of ops) {
-      if (op === OPS.moveTo) { ux = c[j++]; uy = c[j++]; sux = ux; suy = uy; cur = null; }
-      else if (op === OPS.lineTo) { lineTo(c[j++], c[j++]); }
-      else if (op === OPS.curveTo) { curve(c[j], c[j + 1], c[j + 2], c[j + 3], c[j + 4], c[j + 5]); j += 6; }
-      else if (op === OPS.curveTo2) { curve(ux, uy, c[j], c[j + 1], c[j + 2], c[j + 3]); j += 4; }
-      else if (op === OPS.curveTo3) { curve(c[j], c[j + 1], c[j + 2], c[j + 3], c[j + 2], c[j + 3]); j += 4; }
+      if (op === OPS.moveTo) { start(c[j++], c[j++]); }
+      else if (op === OPS.lineTo) { const x = c[j++], y = c[j++]; if (has) lineTo(x, y); else start(x, y); }
+      else if (op === OPS.curveTo) { if (!has) start(c[j], c[j + 1]); curve(c[j], c[j + 1], c[j + 2], c[j + 3], c[j + 4], c[j + 5]); j += 6; }
+      else if (op === OPS.curveTo2) { if (!has) start(c[j], c[j + 1]); curve(ux, uy, c[j], c[j + 1], c[j + 2], c[j + 3]); j += 4; }
+      else if (op === OPS.curveTo3) { if (!has) start(c[j], c[j + 1]); curve(c[j], c[j + 1], c[j + 2], c[j + 3], c[j + 2], c[j + 3]); j += 4; }
       else if (op === OPS.closePath) { close(); }
       else if (op === OPS.rectangle) {
         const x = c[j++], y = c[j++], w = c[j++], h = c[j++];
+        has = true;
         ux = x; uy = y; sux = x; suy = y; cur = null;
         lineTo(x + w, y); lineTo(x + w, y + h); lineTo(x, y + h); lineTo(x, y);
         cur = null;

@@ -670,6 +670,8 @@ export function checkSheet(input) {
         const nearby = segments.filter(g => Math.hypot((g[0] + g[2]) / 2 - c[0], (g[1] + g[3]) / 2 - c[1]) <= reach);
         for (const p of symbols) {
           for (const pl of proposePlacements(p, nearby, c, cfg)) {
+            // A symbol that has already answered another tag is not this tag's near miss.
+            if (spots.some(q => q.claimed && Math.hypot(q.cx - pl.cx, q.cy - pl.cy) < cfg.sameSpot)) continue;
             const s = scorePlacement(p, pl, win, { ...cfg, quickLook: NEAR_MISS_LOOK });
             if (s && (!best || s.score > best.score)) best = { symbol: nameOf(p), score: round3(s.score) };
           }

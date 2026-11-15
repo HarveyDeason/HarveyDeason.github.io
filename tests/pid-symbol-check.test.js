@@ -204,6 +204,8 @@ test('checkSheet: one symbol answers one tag, the nearer', () => {
     textItems: [...label('21-W-0001', 100, 86), ...label('21-W-0002', 100, 130)], tags: [{ tag: '21-W-0002', fc: 'W' }, { tag: '21-W-0001', fc: 'W' }] };
   const r = C.checkSheet({ ...sheet, library: LIBRARY, lookups: LOOKUPS });
   assert.deepEqual(r.verdicts.map(v => v.verdict), ['exception', 'ok']);
+  // and the symbol that answered the other tag is not offered to this one as its "closest"
+  assert.equal(r.verdicts[0].closest, null);
 });
 test('checkSheet: a tag written twice is checked at both places and gets one verdict', () => {
   const sheet = { viewportTransform: VT, paths: place(byName('WIDGET'), { x: 300, y: 300 }),
