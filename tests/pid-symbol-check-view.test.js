@@ -108,6 +108,21 @@ test('resultsHtml: a check that hit its time limit says so', () => {
   assert.ok(!V.resultsHtml(RESULT).includes('time limit'));
 });
 
+test('verdictSentence, kindOf and ROW_ORDER: the report says exactly what the screen says', () => {
+  const decode = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  const html = V.resultsHtml(RESULT);
+  for (const v of RESULT.verdicts) {
+    const row = rows(html).find(r => r.includes('data-i="' + RESULT.verdicts.indexOf(v) + '"'));
+    const detail = row.slice(row.indexOf('<span class="sc-detail">') + '<span class="sc-detail">'.length, row.indexOf('</span></button>'));
+    assert.equal(V.verdictSentence(v), decode(detail), v.tag);
+  }
+  assert.equal(V.kindOf({ verdict: 'constructor' }), 'not-checked');
+  assert.equal(V.kindOf({ verdict: 'look' }), 'look');
+  assert.equal(V.ROW_ORDER[0], 'wrong-family');
+  assert.deepEqual(V.SUMMARY_ORDER, ['ok', 'off-size', 'wrong-family', 'exception', 'look', 'not-checked']);
+  assert.equal(V.verdictSentence(null), 'Not checked.');
+});
+
 test('progressHtml: how far it has got, and a way to stop', () => {
   const html = V.progressHtml(3, 71);
   assert.ok(html.includes('Checking symbols: 3 of 71 tags'));

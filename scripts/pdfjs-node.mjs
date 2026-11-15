@@ -21,6 +21,11 @@ function loadUmd(file) {
   return module.exports;
 }
 
+/** Any UMD build in assets/vendor/ (for example 'pdf-lib.min.js'), as its module.exports. */
+export function loadVendoredUmd(fileName) {
+  return loadUmd(path.join(VENDOR, path.basename(String(fileName))));
+}
+
 export function loadVendoredPdfjs() {
   if (cached) return cached;
   // With no real Worker available, pdf.js runs its worker code in-process when

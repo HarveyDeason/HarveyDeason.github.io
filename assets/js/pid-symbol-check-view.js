@@ -22,10 +22,10 @@ export const VERDICT_LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-fam
   exception: 'Approved exception', look: 'Needs a look', 'not-checked': 'Not checked' };
 
 const COULD_NOT_RUN = 'The symbol check could not run on this sheet.';
-const SUMMARY_ORDER = ['ok', 'off-size', 'wrong-family', 'exception', 'look', 'not-checked'];
-const ROW_ORDER = ['wrong-family', 'look', 'exception', 'off-size', 'not-checked', 'ok'];   // what needs attention first
+export const SUMMARY_ORDER = ['ok', 'off-size', 'wrong-family', 'exception', 'look', 'not-checked'];
+export const ROW_ORDER = ['wrong-family', 'look', 'exception', 'off-size', 'not-checked', 'ok'];   // what needs attention first
 // hasOwnProperty, not `in`: a verdict of 'constructor' must not pass as known.
-const kindOf = v => (v && Object.prototype.hasOwnProperty.call(VERDICT_LABELS, v.verdict) ? v.verdict : 'not-checked');
+export const kindOf = v => (v && Object.prototype.hasOwnProperty.call(VERDICT_LABELS, v.verdict) ? v.verdict : 'not-checked');
 const usable = result => !!result && typeof result === 'object' && result.ok === true && Array.isArray(result.verdicts);
 const verdictsOf = result => result.verdicts.map((v, i) => ({ v, i })).filter(x => x.v && typeof x.v === 'object');
 
@@ -63,6 +63,12 @@ function sentence(v, kind) {
   if (v.letters === 'read') out += ', letter read';
   if (v.letters === 'not judged') out += ', letter not judged';
   return out + '.';
+}
+
+/** The sentence the screen shows for one verdict, as plain text (the report's Detail). */
+export function verdictSentence(v) {
+  const x = v && typeof v === 'object' ? v : {};
+  return sentence(x, kindOf(x));
 }
 
 /** The results under the sheet toolbar: what the check can say, the counts, and a row per tag that jumps to it. */

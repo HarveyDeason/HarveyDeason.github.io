@@ -69,9 +69,12 @@ export const SHEET = {
 };
 
 // The same sheet as a one-page 500 x 400 pt PDF, for the Gate 3 script's tests and the browser.
-export function sheetPdfBytes() {
+// rotate: the page's /Rotate. origin: where the MediaBox starts; the content is moved with it, so the
+// sheet looks the same in a viewer. With no options, the bytes are exactly what they always were.
+export function sheetPdfBytes({ rotate = 0, origin = [0, 0] } = {}) {
   const H = 400, n = v => String(Math.round(v * 100) / 100);
-  let c = '';
+  const [ox, oy] = origin;
+  let c = ox || oy ? `1 0 0 1 ${n(ox)} ${n(oy)} cm\n` : '';
   for (const p of SHEET.paths) {
     c += `${n(p.width)} w\n`;
     for (let i = 0; i + 3 < p.segs.length; i += 4) c += `${n(p.segs[i])} ${n(H - p.segs[i + 1])} m ${n(p.segs[i + 2])} ${n(H - p.segs[i + 3])} l\n`;
@@ -79,7 +82,7 @@ export function sheetPdfBytes() {
   }
   for (const t of SHEET.textItems) if (t.str) c += `BT /F1 8 Tf ${n(t.transform[4])} ${n(H - t.transform[5] - 8)} Td (${t.str}) Tj ET\n`;
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 400] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [${n(ox)} ${n(oy)} ${n(ox + 500)} ${n(oy + 400)}]${rotate ? ` /Rotate ${rotate}` : ''} /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`,
     `<< /Length ${c.length} >>\nstream\n${c}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   let out = '%PDF-1.4\n'; const offsets = [];
   objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
