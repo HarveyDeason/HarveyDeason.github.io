@@ -91,6 +91,18 @@ test('resultsHtml: a row with nothing recognised says which symbol came closest,
   assert.ok(!V.resultsHtml(RESULT).includes('Closest in its family'));
 });
 
+test('resultsHtml: the list folds away to one line, so the drawing can be seen', () => {
+  const html = V.resultsHtml(RESULT);
+  assert.ok(html.startsWith('<details class="sc-results" open>'), html.slice(0, 60));
+  assert.ok(html.endsWith('</details>'));
+  const summary = html.slice(html.indexOf('<summary'), html.indexOf('</summary>'));
+  // what stays on screen when folded: the counts, and the limit of what the check can say
+  for (const part of ['3 OK', '1 Wrong family', '4 Not checked', 'It checks the family of symbol, not which member of it.']) assert.ok(summary.includes(part), part);
+  assert.ok(!summary.includes('data-act'));
+  const body = html.slice(html.indexOf('</summary>'));
+  assert.ok(body.includes(V.FAMILY_NOTE) && body.includes('Results are shown here and are not saved.') && body.includes('<ul class="sc-list">'));
+});
+
 test('resultsHtml: a check that hit its time limit says so', () => {
   assert.ok(V.resultsHtml({ ...RESULT, timedOut: true }).includes('The check stopped at its time limit. Tags it did not reach are marked Not checked.'));
   assert.ok(!V.resultsHtml(RESULT).includes('time limit'));

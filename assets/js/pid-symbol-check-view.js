@@ -76,16 +76,21 @@ export function resultsHtml(result) {
     .map(c => c[1] + ' ' + VERDICT_LABELS[c[0]]).join(' · ');
   const took = isNum(result.ms) ? ' Checked in ' + (Math.max(0, result.ms) / 1000).toFixed(1) + ' s.' : '';
   list.sort((a, b) => ROW_ORDER.indexOf(a.kind) - ROW_ORDER.indexOf(b.kind) || str(a.v.tag).localeCompare(str(b.v.tag)));
-  let out = '<div class="sc-note">' + esc(FAMILY_NOTE) + '</div>'
-    + '<div class="sc-summary">' + esc(counts || 'No tags.') + '.' + took
-    + (result.timedOut === true ? ' The check stopped at its time limit. Tags it did not reach are marked Not checked.' : '')
-    + ' Results are shown here and are not saved.</div><ul class="sc-list">';
+  // A <details>, so the list folds away to its one summary line and the
+  // drawing can be seen. The summary keeps the counts and, in short, the limit
+  // of what the check can say; the full note is the first thing in the body.
+  let out = '<details class="sc-results" open><summary>' + esc(counts || 'No tags.') + '.' + took
+    + ' <span class="sc-hint">It checks the family of symbol, not which member of it.</span></summary>'
+    + '<div class="sc-note">' + esc(FAMILY_NOTE) + '</div>'
+    + '<div class="sc-summary">'
+    + (result.timedOut === true ? 'The check stopped at its time limit. Tags it did not reach are marked Not checked. ' : '')
+    + 'Results are shown here and are not saved.</div><ul class="sc-list">';
   for (const { v, i, kind } of list) {
     out += '<li><button type="button" class="sc-row sc-' + kind + '" data-act="sym-jump" data-i="' + i + '">'
       + '<strong>' + esc(str(v.tag)) + '</strong> <span class="sc-label">' + VERDICT_LABELS[kind] + '</span> '
       + '<span class="sc-detail">' + esc(sentence(v, kind)) + '</span></button></li>';
   }
-  return out + '</ul>';
+  return out + '</ul></details>';
 }
 
 const isBox = b => Array.isArray(b) && b.length === 4 && b.every(isNum);
