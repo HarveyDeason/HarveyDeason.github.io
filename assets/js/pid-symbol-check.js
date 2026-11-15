@@ -506,6 +506,16 @@ export function expectedFamily(fc, library, lookups, prepared) {
       return { mode: 'skip', symbols: [], why: 'Family marked as not checked: ' + (str(fam.why).trim() || 'no reason given') + '.' };
     }
     const symbols = carrying.filter(p => p.checkable);
+    // Tanks, conveyors and the like are drawn to suit: their size and shape
+    // follow the scheme, so a tag of such a family would read "Needs a look"
+    // on every sheet and teach the user to ignore that verdict. Such a family
+    // shows itself in the legend: most of its symbols are too large, or too
+    // varied, to be matched. The library can overrule this for a family with
+    // families[code].mode = 'check'.
+    const judged = carrying.filter(p => p.why !== 'manual' && p.why !== 'no-linework');
+    if (symbols.length && !(fam && fam.mode === 'check') && symbols.length * 2 < judged.length) {
+      return { mode: 'skip', symbols: [], why: 'Drawn to suit: most symbols in this family are too large or too varied to judge.' };
+    }
     if (!symbols.length) return { mode: 'skip', symbols: [], why: 'Every symbol in this family is drawn to suit, too simple to judge, or has no linework.' };
     return { mode: 'check', symbols, why: '' };
   } catch {

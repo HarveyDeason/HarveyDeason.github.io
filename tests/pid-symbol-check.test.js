@@ -277,6 +277,23 @@ test('checkSheet: a tag with nothing recognised names the closest symbol of its 
   assert.doesNotThrow(() => structuredClone(r));
 });
 
+test('expectedFamily: a family made mostly of symbols too large to judge is drawn to suit, and not checked', () => {
+  const big = n => ({ ...byName('WIDGET'), id: 'k' + n, name: 'HOPPER ' + n, group: 'HOPPERS', tagId: 'K', w: 300, h: 200,
+    paths: [{ segs: [0, 0, 300, 0, 300, 0, 300, 200, 300, 200, 0, 200, 0, 200, 0, 0], width: 0.7, stroked: true, filled: false, grey: 0 }] });
+  const small = { ...byName('WIDGET'), id: 'k0', name: 'HOPPER, SMALL', group: 'HOPPERS', tagId: 'K' };
+  const lib = extra => ({ ...LIBRARY, symbols: [...LIBRARY.symbols, small, ...extra] });
+  const mostlyBig = C.expectedFamily('K', lib([big(1), big(2)]), LOOKUPS);
+  assert.deepEqual([mostlyBig.mode, mostlyBig.why], ['skip', 'Drawn to suit: most symbols in this family are too large or too varied to judge.']);
+  assert.equal(C.expectedFamily('K', lib([big(1)]), LOOKUPS).mode, 'check');                       // half can be checked: checked
+  const forced = C.expectedFamily('K', { ...lib([big(1), big(2)]), families: { K: { mode: 'check' } } }, LOOKUPS);
+  assert.deepEqual([forced.mode, forced.symbols.map(p => p.symbol.name)], ['check', ['HOPPER, SMALL']]);   // the library can overrule it
+  assert.equal(C.expectedFamily('W', LIBRARY, LOOKUPS).mode, 'check');   // BROKEN has no linework, but most widgets can be checked
+  // on a sheet: the tag reads Not checked with that reason, not Needs a look
+  const sheet = { viewportTransform: VT, paths: octagon(100, 100), textItems: label('21-K-0001', 100, 80), tags: [{ tag: '21-K-0001', fc: 'K' }] };
+  const v = C.checkSheet({ ...sheet, library: lib([big(1), big(2)]), lookups: LOOKUPS }).verdicts[0];
+  assert.deepEqual([v.verdict, v.why], ['not-checked', 'Drawn to suit: most symbols in this family are too large or too varied to judge.']);
+});
+
 test('checkSheet: past its time limit it stops, says so, and marks the tags it did not reach', () => {
   const r = run({ options: { timeLimitMs: 0.0001 } });
   assert.deepEqual([r.ok, r.timedOut], [true, true]);
