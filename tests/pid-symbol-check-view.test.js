@@ -16,9 +16,9 @@ test('blockerText: why the check cannot run, or nothing when it can', () => {
   assert.equal(V.blockerText({ ...ok, running: true }), 'A check is running.');
   assert.equal(V.blockerText({ ...ok, hasLibrary: false }), 'Load the symbol library first, on the Symbols tab.');
   assert.equal(V.blockerText({ ...ok, status: '' }), 'This sheet has not been pre-checked yet.');
-  for (const status of ['comments', 'none', 'constructor']) {
-    assert.equal(V.blockerText({ ...ok, status }), 'Only a sheet that is Readable can be checked: its tags need positions on the page.');
-  }
+  assert.equal(V.blockerText({ ...ok, status: 'comments' }), '');
+  assert.equal(V.blockerText({ ...ok, status: 'none' }), 'This sheet has no readable text: printed and scanned sheets cannot be checked yet.');
+  assert.equal(V.blockerText({ ...ok, status: 'constructor' }), 'Only a sheet that is Readable, or Readable from comments, can be checked.');
   assert.equal(V.blockerText(null), 'Open a sheet first.');
 });
 
@@ -104,7 +104,7 @@ test('resultsHtml: the list folds away to one line, so the drawing can be seen',
 });
 
 test('resultsHtml: a check that hit its time limit says so', () => {
-  assert.ok(V.resultsHtml({ ...RESULT, timedOut: true }).includes('The check stopped at its time limit. Tags it did not reach are marked Not checked.'));
+  assert.ok(V.resultsHtml({ ...RESULT, timedOut: true, tagsTimedOut: true }).includes('The check stopped at its time limit. Tags it did not reach are marked Not checked.'));
   assert.ok(!V.resultsHtml(RESULT).includes('time limit'));
 });
 
@@ -158,4 +158,71 @@ test('resultsHtml: shows the tag bubble line, escaped', () => {
   const evil = { ...BUBBLE_RESULT, verdicts: [bv('21-ZI-1', 'ok', { symbol: HOSTILE })] };
   assert.ok(!V.resultsHtml(evil).includes('<img'));
   assert.ok(!V.resultsHtml(RESULT).includes('Tag bubbles'));
+});
+
+// ── Symbols found by the sweep ────────────────────────────────────────────
+import { SWEEP_SHEET, SWEEP_LIBRARY, LOOKUPS_B } from './fixtures/symbol-check-sheet.js';
+const NO_TAGS = checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
+const sy = (name, tag = null, more = {}) => ({ name, tagId: '', box: [10, 10, 20, 20], sizePct: 100, score: 1, oneOf: [], bubble: false, tag, ...more });
+
+test('progressHtml: the sweep says which row it is on, with the same Cancel', () => {
+  const html = V.progressHtml(3, 5, 'sweep');
+  assert.ok(html.includes('Looking for symbols: row 3 of 5'), html);
+  assert.ok(html.includes('data-act="sym-cancel"'));
+  assert.ok(V.progressHtml(3, 71, 'tags').includes('Checking symbols: 3 of 71 tags'));
+});
+test('symbolSummary: how many standard symbols, and how many with tags', () => {
+  assert.equal(V.symbolSummary({ symbols: [sy('A', 't1'), sy('B', 't2'), sy('C'), sy('D'), sy('E')] }), '5 standard symbols found, 2 with tags.');
+  assert.equal(V.symbolSummary({ symbols: [sy('A')] }), '1 standard symbol found, 0 with tags.');
+  assert.equal(V.symbolSummary({ symbols: [] }), 'No standard symbols found.');
+  for (const bad of [null, 5, {}, { symbols: 'x' }]) assert.equal(V.symbolSummary(bad), '');
+});
+test('resultsHtml: a sheet with no tags shows its symbols, what it skipped, and a row per untagged symbol', () => {
+  const html = V.resultsHtml(NO_TAGS);
+  assert.ok(html.includes('No tags read.'), html.slice(0, 200));
+  assert.ok(html.includes('5 standard symbols found, 0 with tags.'));
+  assert.ok(html.includes('Title block not checked.'));
+  assert.ok(html.includes('Symbols with no tag'));
+  assert.equal(html.split('data-act="sym-jump-s"').length - 1, 5);
+  assert.equal(html.split('data-act="sym-jump"').length - 1, 0);
+  // rows by name; data-s is the symbol's place in result.symbols
+  const order = [...html.matchAll(/data-s="(\d+)"/g)].map(m => NO_TAGS.symbols[Number(m[1])].name);
+  assert.deepEqual(order, ['GADGET', 'RING', 'SIGNAL', 'WIDGET', 'WIDGET']);
+  assert.ok(html.includes(V.FAMILY_NOTE));
+});
+test('resultsHtml: tagged symbols are not listed again; one-of names shown; everything escaped', () => {
+  const r = { ok: true, verdicts: [], symbols: [sy('A', 't1'), sy(HOSTILE, null, { oneOf: [HOSTILE, 'B'] }), sy('C', null, { oneOf: ['C'] })] };
+  const html = V.resultsHtml(r);
+  assert.ok(!html.includes('<img'));
+  assert.equal(html.split('data-act="sym-jump-s"').length - 1, 2);
+  assert.ok(html.includes('(one of: &lt;img'));
+  assert.ok(!html.includes('(one of: C)'));
+  assert.ok(!V.resultsHtml(RESULT).includes('Symbols with no tag'));
+});
+test('boxRects: a rectangle per untagged symbol and one for the skipped title block, at the viewer scale', () => {
+  const rects = V.boxRects(NO_TAGS, 2);
+  const syms = rects.filter(r => r.kind === 'symbol'), skip = rects.filter(r => r.kind === 'skipped');
+  assert.equal(syms.length, 5); assert.equal(skip.length, 1);
+  const s0 = syms.find(r => r.s === 0), b = NO_TAGS.symbols[0].box;
+  assert.deepEqual([s0.left, s0.top, s0.width, s0.height], [b[0] * 2 - 3, b[1] * 2 - 3, (b[2] - b[0]) * 2 + 6, (b[3] - b[1]) * 2 + 6]);
+  assert.equal(s0.title, NO_TAGS.symbols[0].name + ': standard symbol, no tag.');
+  const k = NO_TAGS.skipped;
+  assert.deepEqual([skip[0].left, skip[0].top, skip[0].width, skip[0].height, skip[0].title],
+    [k[0] * 2 - 3, k[1] * 2 - 3, (k[2] - k[0]) * 2 + 6, (k[3] - k[1]) * 2 + 6, 'Title block not checked.']);
+  assert.equal(skip[0].s, undefined); assert.equal(skip[0].i, undefined);
+  // tag rects are unchanged: none here, and a symbol with a tag gets none of its own
+  assert.equal(V.boxRects({ ok: true, verdicts: [], symbols: [sy('A', 't1')] }, 1).length, 0);
+  assert.equal(V.boxRects({ ok: true, verdicts: [], symbols: [sy('A', null, { box: [0, 0, NaN, 1] })], skipped: [1, 2] }, 1).length, 0);
+});
+
+test('a sweep cut short says its symbol list is incomplete, and does not blame the tags', () => {
+  const r = { ok: true, verdicts: [], symbols: [{ name: 'A', box: [0, 0, 1, 1], oneOf: [], tag: null }], timedOut: true, sweepTimedOut: true, tagsTimedOut: false };
+  assert.equal(V.symbolSummary(r), '1 standard symbol found, 0 with tags. The time limit was reached: this list is incomplete.');
+  assert.equal(V.symbolSummary({ ...r, symbols: [] }), 'No standard symbols found before the time limit: this list is incomplete.');
+  const html = V.resultsHtml(r);
+  assert.ok(html.includes('this list is incomplete'));
+  assert.ok(!html.includes('Tags it did not reach'));
+  assert.ok(V.resultsHtml({ ...r, tagsTimedOut: true }).includes('Tags it did not reach are marked Not checked.'));
+  // a result from before these flags existed still says what it always said
+  assert.ok(V.resultsHtml({ ok: true, verdicts: [], timedOut: true }).includes('Tags it did not reach are marked Not checked.'));
 });

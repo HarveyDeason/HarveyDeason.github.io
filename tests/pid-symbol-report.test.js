@@ -83,7 +83,7 @@ test('toUserRect: a box on screen maps back to the page, rotated or offset', () 
 });
 
 test('buildReportModel: page 1 only, and the time limit, are said', () => {
-  const m = model({ outcomes: [{ ...checked, pages: 3, result: { ...RESULT, timedOut: true } }], stopped: false, ms: 1 });
+  const m = model({ outcomes: [{ ...checked, pages: 3, result: { ...RESULT, timedOut: true, tagsTimedOut: true } }], stopped: false, ms: 1 });
   assert.equal(m.sheets[0].pageNote, 'Page 1 of 3 only.');
   assert.equal(m.sheets[0].timedOutLine, M.TIMED_OUT);
   assert.equal(M.TIMED_OUT, 'The check stopped at its time limit. Tags it did not reach are marked Not checked.');
@@ -125,7 +125,7 @@ test('workbookRows and writeWorkbook: Tags, Sheets and About', async () => {
   assert.ok(buf && buf.byteLength > 0);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
-  assert.deepEqual(wb.worksheets.map(s => s.name), ['Tags', 'Sheets', 'About']);
+  assert.deepEqual(wb.worksheets.map(s => s.name), ['Tags', 'Symbols', 'Sheets', 'About']);
   const tags = wb.getWorksheet('Tags');
   assert.equal(tags.views[0].state, 'frozen');
   assert.equal(tags.views[0].ySplit, 1);
@@ -168,4 +168,56 @@ test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kin
   const w = M.workbookRows(m);
   assert.deepEqual(w.sheets.rows.map(r => r[r.length - 1]), ['2 RING, 1 HEXAGON', '']);
   assert.equal(model().sheets[0].bubbleLine, '');
+});
+
+// ── Symbols found by the sweep ────────────────────────────────────────────
+const sy = (name, tag, box, more = {}) => ({ name, tagId: 'W', box, sizePct: 100, score: 0.987, oneOf: [], bubble: false, tag, ...more });
+const SYMBOLS = [sy('GADGET', null, [100, 100, 120, 120], { tagId: 'G', oneOf: ['GADGET', 'WIDGET'] }), sy('WIDGET', '21-W-1001', [100, 200, 124, 212]),
+  sy('WIDGET', null, [300, 300, 324, 312], { sizePct: 120 })];
+const withSymbols = { ...checked, result: { ...RESULT, symbols: SYMBOLS, skipped: [400, 0, 500, 400] } };
+
+test('buildReportModel: each checked sheet gets its symbol line, untagged symbol boxes and every symbol', () => {
+  const m = model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 });
+  const [s, n] = m.sheets;
+  assert.equal(s.symbolLine, '3 standard symbols found, 1 with tags.');
+  assert.equal(s.skippedLine, 'Title block not checked.');
+  assert.deepEqual(s.symbolRows.map(r => r.name), ['GADGET', 'WIDGET']);
+  assert.deepEqual(s.symbolRows[0].userRect, M.toUserRect([100, 100, 120, 120], VT, 3));
+  assert.equal(s.allSymbols.length, 3);
+  assert.deepEqual(s.allSymbols[0], { page: 1, symbol: 'GADGET', oneOf: 'GADGET, WIDGET', tagId: 'G', sizePct: 100, score: 0.987, tag: '' });
+  assert.equal(s.allSymbols[1].tag, '21-W-1001');
+  assert.deepEqual([n.symbolLine, n.skippedLine, n.symbolRows, n.allSymbols], ['', '', [], []]);
+  assert.equal(model().sheets[0].skippedLine, '');
+});
+test('workbookRows: a Symbols sheet, one row per physical symbol', async () => {
+  const m = model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 });
+  const w = M.workbookRows(m);
+  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag']);
+  assert.deepEqual(w.symbols.rows, [
+    ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, ''],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001'],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '']]);
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await M.writeWorkbook(m, ExcelJS));
+  assert.deepEqual(wb.worksheets.map(s => s.name), ['Tags', 'Symbols', 'Sheets', 'About']);
+  assert.equal(wb.getWorksheet('Symbols').rowCount, 4);
+});
+test('the print colour for a standard symbol with no tag', () => {
+  assert.equal(M.PRINT_COLOURS.symbol, '#546E7A');
+});
+test('hostile symbols: a model, never a throw; text kept plain', () => {
+  const odd = { ...checked, result: { ...RESULT, symbols: [null, 5, { name: '<b>\u0001', tag: null, box: [0, 0, 'x', 1] }, { name: 7 }], skipped: 'x' } };
+  const m = model({ outcomes: [odd], stopped: false, ms: 1 });
+  assert.equal(m.sheets[0].symbolRows.length, 1); assert.equal(m.sheets[0].symbolRows[0].userRect, null);
+  assert.equal(m.sheets[0].skippedLine, '');
+  assert.ok(!JSON.stringify(M.workbookRows(m)).includes('\\u0001'));
+});
+test('report: a sweep cut short says the symbol list is incomplete and does not blame the tags', () => {
+  const res = { ...RESULT, symbols: SYMBOLS, timedOut: true, sweepTimedOut: true, tagsTimedOut: false };
+  const s = model({ outcomes: [{ ...checked, result: res }], stopped: false, ms: 1 }).sheets[0];
+  assert.ok(s.symbolLine.endsWith('The time limit was reached: this list is incomplete.'), s.symbolLine);
+  assert.equal(s.timedOutLine, '');
+  const t = model({ outcomes: [{ ...checked, result: { ...res, tagsTimedOut: true } }], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(t.timedOutLine, M.TIMED_OUT);
 });

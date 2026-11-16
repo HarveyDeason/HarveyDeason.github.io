@@ -43,6 +43,8 @@ const KEY = {
   look: 'Nothing recognised beside the tag.',
   'not-checked': 'The check could not judge this tag; the row says why.',
 };
+const SYMBOL_KEY = 'Standard symbol with no tag: found on the sheet, with no readable tag beside it. Listed, not flagged.';
+const SYMBOL_LINE = 0.5;
 
 function duration(seconds) {
   const s = Math.round(isNum(seconds) && seconds > 0 ? seconds : 0);
@@ -154,6 +156,16 @@ const AXES = { 0: [[1, 0], [0, 1]], 90: [[0, 1], [-1, 0]], 180: [[-1, 0], [0, -1
 // The corner a viewer sees as top left, of an upright rectangle in user space.
 const TOP_LEFT = { 0: r => [r[0], r[3]], 90: r => [r[0], r[1]], 180: r => [r[2], r[1]], 270: r => [r[2], r[3]] };
 
+// A thin box in the symbol colour round each standard symbol with no tag: no number, it has no row.
+function drawSymbolBoxes(page, PDFLib, symbolRows) {
+  const colour = colourOf(PDFLib, PRINT_COLOURS.symbol);
+  for (const r of symbolRows) {
+    const rect = obj(r).userRect;
+    if (!isRect(rect)) continue;
+    page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: colour, borderWidth: SYMBOL_LINE });
+  }
+}
+
 function drawBoxes(page, PDFLib, fonts, rows) {
   let angle = 0;
   try { angle = page.getRotation().angle; } catch { angle = 0; }
@@ -238,6 +250,10 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.page.drawText(pdfSafe(VERDICT_LABELS[k] + ': ' + KEY[k]), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
     w.y -= 12;
   }
+  w.room(12);
+  w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS.symbol), borderWidth: SYMBOL_LINE });
+  w.page.drawText(pdfSafe(SYMBOL_KEY), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
+  w.y -= 12;
 
   // A section per checked sheet
   for (const s of sheets) {
@@ -249,6 +265,8 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
     w.text(countsLine(s.counts), { size: 10, gap: 0.1 });
     if (str(s.bubbleLine)) w.text(str(s.bubbleLine), { size: 10, gap: 0.1 });
+    if (str(s.symbolLine)) w.text(str(s.symbolLine), { size: 10, gap: 0.1 });
+    if (str(s.skippedLine)) w.text(str(s.skippedLine), { size: 10, gap: 0.1 });
     w.text('Checked in ' + (isNum(s.seconds) ? s.seconds : 0) + ' s.', { size: 10, gap: 0.1 });
     if (str(s.timedOutLine)) w.text(str(s.timedOutLine), { size: 10, gap: 0.1 });
     if (str(s.pageNote)) w.text(str(s.pageNote), { size: 10, gap: 0.1 });
@@ -259,6 +277,7 @@ async function render(model, sources, PDFLib, withDrawings) {
     const rows = asArr(s.rows).filter(r => r && typeof r === 'object');
     if (drawingPage) {
       const page = doc.addPage(drawingPage);
+      try { drawSymbolBoxes(page, PDFLib, asArr(s.symbolRows)); } catch { /* the drawing stays, with what was drawn */ }
       try { drawBoxes(page, PDFLib, fonts, rows); } catch { /* the drawing stays, with what was drawn */ }
     }
     w.newPage();

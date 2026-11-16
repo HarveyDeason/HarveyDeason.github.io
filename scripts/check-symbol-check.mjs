@@ -10,6 +10,8 @@
 //        [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]
 //        [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--verbose]
 //        [--instrument "<CODE,CODE,...>"]   function codes the tool's lookup classes as instruments
+//        [--words text|comments]           where the words are: the text layer (default), or the comments
+//                                          ("Readable from comments": letters drawn as strokes, text kept in comments)
 //   node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]
 //
 // It runs the same module code, through the same vendored pdf.js, as the
@@ -24,30 +26,49 @@ import { importLegend } from './check-symbol-import.mjs';
 import { pagePaths, parseLibrary } from '../assets/js/pid-symbols.js';
 import { extractTags } from '../assets/js/pid-core.js';
 import { checkSheet, VERDICTS, prepareSymbols } from '../assets/js/pid-symbol-check.js';
-import { bubbleSummary } from '../assets/js/pid-symbol-check-view.js';
+import { bubbleSummary, symbolSummary } from '../assets/js/pid-symbol-check-view.js';
+import { sheetComments } from '../assets/js/pid-precheck.js';
+import { commentWords, letterBoxes, removeLetterInk } from '../assets/js/pid-sheet-read.js';
 
 const USAGE = [
   'Usage:',
   '  node scripts/check-symbol-check.mjs "<drawing pdf>" (--legend "<legend pdf>" | --library "<symbol-library.json>")',
   '       [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]',
-  '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--instrument "<CODE,...>"] [--verbose]',
+  '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--instrument "<CODE,...>"]',
+  '       [--words text|comments] [--verbose]',
   '  node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]',
 ].join('\n');
 const LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-family': 'Wrong family', exception: 'Approved exception', look: 'Needs a look', 'not-checked': 'Not checked' };
 
-/** Page 1 of a drawing: linework, text items and confirmed tags, read as the tool reads them. */
-export async function readSheet(data) {
+/**
+ * Page 1 of a drawing: linework, text items and confirmed tags, read as the
+ * tool reads them. words: 'comments' reads the words from the page's comments
+ * (as the pre-check does for a "Readable from comments" sheet) and leaves the
+ * stroked letters inside them out of the linework, as the worker does.
+ */
+export async function readSheet(data, options) {
   try {
+    const words = options && options.words === 'comments' ? 'comments' : 'text';
     const pdfjsLib = loadVendoredPdfjs();
     const doc = await openPdf(data);
     const page = await doc.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
     const ol = await page.getOperatorList();
-    const textItems = (await page.getTextContent()).items;
-    const paths = pagePaths(ol.fnArray, ol.argsArray, pdfjsLib.OPS, viewport.transform);
+    let textItems = (await page.getTextContent()).items;
+    let paths = pagePaths(ol.fnArray, ol.argsArray, pdfjsLib.OPS, viewport.transform);
+    let text = textItems.map(i => i.str).join(' ') + '\n', removed = 0, comments = [];
+    if (words === 'comments') {
+      comments = sheetComments(await page.getAnnotations()).comments;
+      const kept = removeLetterInk(paths, letterBoxes(comments, viewport.transform));
+      paths = kept.paths; removed = kept.removed;
+      textItems = commentWords(comments);
+      // The same joining as assessSheet for one page: a space between comments, a newline after the page.
+      text = comments.map(c => c.text).join(' ') + '\n';
+    }
     // Tag reading does not depend on the DS310 lookup tables, which stay in the tool.
-    const found = extractTags(textItems.map(i => i.str).join(' ') + '\n', { drawingName: 'CHECK', revision: '', lookups: {} });
+    const found = extractTags(text, { drawingName: 'CHECK', revision: '', lookups: {} });
     return { ok: true, paths, textItems, viewportTransform: viewport.transform, width: viewport.width, height: viewport.height,
+      pageSize: [viewport.width, viewport.height], words, comments: comments.length, removed,
       tags: found.confirmed.map(t => ({ tag: t.tag, fc: t.fc })) };
   } catch {
     return { ok: false };
@@ -182,10 +203,13 @@ async function main() {
     console.log(`Tag identifier set on ${set.changed} symbols.`);
     if (!set.changed) return fail('No symbol has that table heading. Check --set-tag-id.');
   }
-  const sheet = await readSheet(new Uint8Array(buf));
+  const words = opts.words === 'comments' ? 'comments' : 'text';
+  if (opts.words && opts.words !== 'comments' && opts.words !== 'text') return fail('--words is text or comments.');
+  const sheet = await readSheet(new Uint8Array(buf), { words });
   if (!sheet.ok) return fail(`${opts.file} could not be read as a PDF.`);
+  if (words === 'comments') console.log(`Words from ${sheet.comments} comments; ${sheet.removed} letter paths left out of the linework.`);
 
-  let input = { paths: sheet.paths, textItems: sheet.textItems, viewportTransform: sheet.viewportTransform, tags: sheet.tags,
+  let input = { paths: sheet.paths, textItems: sheet.textItems, viewportTransform: sheet.viewportTransform, tags: sheet.tags, pageSize: sheet.pageSize,
     library, lookups: { fc: instrumentCodes(opts.instrument) }, options: opts.noTwin ? { twin: false } : {} };
   const grid = opts.grid ? String(opts.grid).split(':') : null;
   if (grid) {
@@ -232,7 +256,20 @@ async function main() {
     const allowed = Number(opts['allow-wrong'] || 0);
     if (result.counts['wrong-family'] > allowed) fail(`  Wrong family verdicts: ${result.counts['wrong-family']}, allowed ${allowed}.`);
   }
-  console.log(`  Proposals per tag: ${Math.round(result.proposals / input.tags.length)}`);
+  const symbols = Array.isArray(result.symbols) ? result.symbols : [];
+  const withTags = symbols.filter(s => s.tag).length;
+  console.log(`  symbols found ${symbols.length}, with tags ${withTags}, without tags ${symbols.length - withTags}`);
+  console.log(`  Title block skipped: ${result.skipped ? 'yes, ' + Math.round(result.skipped[2] - result.skipped[0]) + ' x ' + Math.round(result.skipped[3] - result.skipped[1]) + ' pt' : 'no'}`);
+  if (opts.verbose) {
+    console.log(`  ${symbolSummary(result)}`);
+    const byName = new Map();
+    for (const s of symbols) { const k = s.name + (s.tag ? '' : ' (no tag)'); byName.set(k, (byName.get(k) || 0) + 1); }
+    for (const [k, n] of [...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    ${n}  ${k}`);
+    for (const s of symbols.filter(x => !x.tag)) {
+      console.log(`    untagged  ${s.name}  ${s.sizePct}%  ${s.score}  [${s.box.map(v => Math.round(v * 10) / 10).join(', ')}]${s.oneOf.length ? '  one of ' + s.oneOf.join(' | ') : ''}`);
+    }
+  }
+  console.log(`  Proposals per tag: ${input.tags.length ? Math.round(result.proposals / input.tags.length) : 0}`);
   console.log(`  Time: ${(result.ms / 1000).toFixed(1)} s`);
   if (opts['max-seconds'] && result.ms / 1000 > Number(opts['max-seconds'])) fail(`  Took longer than ${opts['max-seconds']} s.`);
   if (opts.verbose) {

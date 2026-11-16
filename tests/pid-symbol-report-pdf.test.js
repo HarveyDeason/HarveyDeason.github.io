@@ -149,3 +149,31 @@ test('buildReportPdf: the tag bubble line is written under the sheet counts', as
   const plain = await pages(await buildReportPdf(MODEL, new Map([['INV-0001||C01', BYTES]]), PDFLib));
   assert.ok(!plain[1].text.includes('Tag bubbles'));
 });
+
+// ── Symbols found by the sweep ────────────────────────────────────────────
+function rectCounts(ol) {
+  // pdf-lib draws each rectangle as a path then a paint operator: count stroke-only and filled ones.
+  const { OPS } = loadVendoredPdfjs();
+  let stroked = 0, filled = 0;
+  for (const fn of ol.fnArray) {
+    if (fn === OPS.stroke || fn === OPS.closeStroke) stroked++;
+    if (fn === OPS.fill || fn === OPS.eoFill || fn === OPS.fillStroke || fn === OPS.eoFillStroke) filled++;
+  }
+  return { stroked, filled };
+}
+test('buildReportPdf: the symbol line under the counts; a box per untagged symbol, with no number; the key says so', async () => {
+  const s0 = MODEL.sheets[0];
+  const ur = s0.rows.find(r => r.userRect).userRect;
+  const m = { ...MODEL, sheets: MODEL.sheets.map((s, i) => (i === 0 ? { ...s, symbolLine: '7 standard symbols found, 4 with tags.',
+    skippedLine: 'Title block not checked.', symbolRows: [{ name: 'GADGET', userRect: [10, 10, 40, 40] }, { name: 'WIDGET', userRect: [ur[0] + 50, ur[1], ur[2] + 50, ur[3]] }] } : s)) };
+  const ps = await pages(await buildReportPdf(m, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  const before = await pages(await buildReportPdf(MODEL, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(ps[1].text.includes('7 standard symbols found, 4 with tags.'));
+  assert.ok(ps[1].text.includes('Title block not checked.'));
+  assert.ok(ps[0].text.includes('Standard symbol with no tag'));
+  const drawing = ps.find(p => !isA4(p)), drawingBefore = before.find(p => !isA4(p));
+  const a = rectCounts(await drawing.page.getOperatorList()), b = rectCounts(await drawingBefore.page.getOperatorList());
+  assert.equal(a.stroked - b.stroked, 2, JSON.stringify([a, b]));
+  assert.equal(a.filled, b.filled);   // no number tab
+  assert.equal(drawing.text, drawingBefore.text);   // no number
+});

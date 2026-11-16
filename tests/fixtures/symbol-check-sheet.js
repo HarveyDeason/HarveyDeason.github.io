@@ -71,19 +71,23 @@ export const SHEET = {
 // The same sheet as a one-page 500 x 400 pt PDF, for the Gate 3 script's tests and the browser.
 // rotate: the page's /Rotate. origin: where the MediaBox starts; the content is moved with it, so the
 // sheet looks the same in a viewer. With no options, the bytes are exactly what they always were.
-export function sheetPdfBytes({ rotate = 0, origin = [0, 0] } = {}) {
-  const H = 400, n = v => String(Math.round(v * 100) / 100);
+// sheet: another invented sheet in the same shape (its pageSize, else 500 x 400). text: false leaves the
+// text layer out. comments: [{ text, rect }] in PDF user space, written as AutoCAD SHX Text comments.
+export function sheetPdfBytes({ rotate = 0, origin = [0, 0], sheet = SHEET, text = true, comments = [] } = {}) {
+  const [W, H] = Array.isArray(sheet.pageSize) ? sheet.pageSize : [500, 400], n = v => String(Math.round(v * 100) / 100);
   const [ox, oy] = origin;
   let c = ox || oy ? `1 0 0 1 ${n(ox)} ${n(oy)} cm\n` : '';
-  for (const p of SHEET.paths) {
+  for (const p of sheet.paths) {
     c += `${n(p.width)} w\n`;
     for (let i = 0; i + 3 < p.segs.length; i += 4) c += `${n(p.segs[i])} ${n(H - p.segs[i + 1])} m ${n(p.segs[i + 2])} ${n(H - p.segs[i + 3])} l\n`;
     c += p.filled ? 'B\n' : 'S\n';
   }
-  for (const t of SHEET.textItems) if (t.str) c += `BT /F1 8 Tf ${n(t.transform[4])} ${n(H - t.transform[5] - 8)} Td (${t.str}) Tj ET\n`;
+  if (text) for (const t of sheet.textItems) if (t.str) c += `BT /F1 8 Tf ${n(t.transform[4])} ${n(H - t.transform[5] - 8)} Td (${t.str}) Tj ET\n`;
+  const annots = comments.map((a, i) => `<< /Type /Annot /Subtype /Square /Rect [${a.rect.map(n).join(' ')}] /Contents (${a.text}) /T (AutoCAD SHX Text) /F 64 /BS << /W 0 >> >>`);
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    `<< /Type /Page /Parent 2 0 R /MediaBox [${n(ox)} ${n(oy)} ${n(ox + 500)} ${n(oy + 400)}]${rotate ? ` /Rotate ${rotate}` : ''} /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`,
-    `<< /Length ${c.length} >>\nstream\n${c}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+    `<< /Type /Page /Parent 2 0 R /MediaBox [${n(ox)} ${n(oy)} ${n(ox + W)} ${n(oy + H)}]${rotate ? ` /Rotate ${rotate}` : ''} /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >>`
+      + (annots.length ? ` /Annots [${annots.map((_, i) => (6 + i) + ' 0 R').join(' ')}]` : '') + ' >>',
+    `<< /Length ${c.length} >>\nstream\n${c}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', ...annots];
   let out = '%PDF-1.4\n'; const offsets = [];
   objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
   const xref = out.length;
@@ -107,6 +111,7 @@ export const BUBBLES = [
   bubble('b6', 'HEXAGON', 46, 40, [loop([[0, 20], [11.5, 0], [34.5, 0], [46, 20], [34.5, 40], [11.5, 40]])]),
 ];
 export const BUBBLE_LIBRARY = { ...LIBRARY, symbols: [...LIBRARY.symbols, ...BUBBLES] };
+
 export const LOOKUPS_B = { fc: { ZI: 'instrument', ZP: 'instrument' } };
 const bub = n => BUBBLES.find(s => s.name === n);
 // A tag split over two lines, centred on (cx, cy): the code line is 22 pt wide, the whole 18 pt tall.
@@ -135,3 +140,32 @@ export const BUBBLE_SHEET = {
   textItems: B_ROWS.flatMap(r => r[2]),
   tags: B_ROWS.map(r => ({ tag: r[0], fc: r[0].split('-')[1] })),
 };
+
+// ── The sweep (invented) ──────────────────────────────────────────────────
+// A pennant with a long tail and a flag box: a PENNANT, LEFT found on its
+// pennant is a part of it, not an alternative (most of SIGNAL's ink is not
+// the pennant's).
+export const SIGNAL = sym('s10', 'SIGNAL', 'SIGNALS', 'S', 40, 20,
+  [line([0, 0, 0, 20]), loop([[0, 0], [10, 5], [0, 10]]), line([10, 5, 40, 5]), loop([[25, 0], [40, 0], [40, 10], [25, 10]])]);
+export const SWEEP_LIBRARY = { ...BUBBLE_LIBRARY, symbols: [...BUBBLE_LIBRARY.symbols, SIGNAL] };
+
+// A 600 x 400 pt sheet with no tags: a frame, a title block cut off by a line
+// at x = 500, and untagged symbols. WIDGET at (60, 60) is drawn twice on the
+// same spot; the WIDGET at (520, 60) sits inside the title block.
+const SWEEP_FRAME = () => [loop([[10, 10], [590, 10], [590, 390], [10, 390]])];
+export const SWEEP_SHEET = {
+  pageSize: [600, 400],
+  viewportTransform: [1, 0, 0, 1, 0, 0],
+  paths: [...SWEEP_FRAME(), line([500, 10, 500, 390]),
+    ...place(byName('WIDGET'), { x: 60, y: 60 }), ...place(byName('WIDGET'), { x: 60, y: 60 }),
+    ...place(byName('GADGET'), { x: 160, y: 60 }),
+    ...place(SIGNAL, { x: 260, y: 60 }),
+    ...place(byName('WIDGET'), { x: 360, y: 60, o: 1 }),
+    ...place(bub('RING'), { x: 60, y: 200 }),
+    ...place(byName('WIDGET'), { x: 520, y: 60 })],
+  textItems: [],
+  tags: [],
+};
+// The same frame with the title block cut off along the bottom instead.
+export const sweepFrameWith = extra => [...SWEEP_FRAME(), ...extra];
+export { line as fixtureLine };

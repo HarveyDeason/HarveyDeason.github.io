@@ -28,10 +28,10 @@ const obj = x => (x && typeof x === 'object' ? x : {});
 const count = x => (isNum(x) && x > 0 ? Math.floor(x) : 0);
 const fn = f => (typeof f === 'function' ? f : null);
 
-/** Why a sheet whose pre-check is not Readable was left out. */
+/** Why a sheet whose pre-check is neither Readable nor Readable from comments was left out. */
 export function notReadable(status) {
   const label = has(STATUS_LABELS, status) ? STATUS_LABELS[status] : 'unknown';
-  return 'Pre-check status is ' + label + ': only a Readable sheet can be checked.';
+  return 'Pre-check status is ' + label + ': printed and scanned sheets cannot be checked yet.';
 }
 
 const isTransform = t => Array.isArray(t) && t.length === 6 && t.every(isNum);
@@ -82,13 +82,15 @@ export async function runReport(opts) {
     const status = pre && typeof pre === 'object' && has(STATUS_LABELS, pre.status) ? pre.status : '';
     if (!status) { finish(REASONS.precheckFailed); continue; }
     out.precheck = status;
-    if (status !== 'readable') { finish(notReadable(status)); continue; }
+    if (status !== 'readable' && status !== 'comments') { finish(notReadable(status)); continue; }
     const tags = (Array.isArray(pre.tags) ? pre.tags : []).filter(t => t && typeof t === 'object')
       .map(t => ({ tag: str(t.tag), fc: str(t.fc) })).filter(t => t.tag);
 
     let r = null;
     try {
-      r = deps.check ? await deps.check(bytes, tags, (done, total) => progress({ sheet: i + 1, of, drawing: sheet.drawing, done: count(done), total: count(total) })) : null;
+      // The status tells the check where the words are: the text layer, or the comments.
+      r = deps.check ? await deps.check(bytes, tags, (done, total, stage) => progress({ sheet: i + 1, of, drawing: sheet.drawing,
+        done: count(done), total: count(total), stage: str(stage) }), status) : null;
     } catch { r = null; }
     if (isStopped() || (r && r.stopped === true)) { finish(REASONS.stopped); continue; }
     const res = r && typeof r === 'object' ? r.result : null;
@@ -157,7 +159,9 @@ export function reachHtml(opts) {
 export function progressText(p) {
   const o = obj(p);
   return 'Checking sheet ' + count(o.sheet) + ' of ' + count(o.of) + ': ' + str(o.drawing) + ', '
-    + (o.done === null || o.done === undefined ? 'reading the drawing…' : 'tag ' + count(o.done) + ' of ' + count(o.total) + '…');
+    + (o.done === null || o.done === undefined ? 'reading the drawing…'
+      : o.stage === 'sweep' ? 'looking for symbols, row ' + count(o.done) + ' of ' + count(o.total) + '…'
+        : 'tag ' + count(o.done) + ' of ' + count(o.total) + '…');
 }
 
 /**

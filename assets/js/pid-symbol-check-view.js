@@ -36,13 +36,39 @@ export function blockerText(state) {
   if (s.running) return 'A check is running.';
   if (!s.hasLibrary) return 'Load the symbol library first, on the Symbols tab.';
   if (!str(s.status)) return 'This sheet has not been pre-checked yet.';
-  if (s.status !== 'readable') return 'Only a sheet that is Readable can be checked: its tags need positions on the page.';
+  if (s.status === 'none') return 'This sheet has no readable text: printed and scanned sheets cannot be checked yet.';
+  if (s.status !== 'readable' && s.status !== 'comments') return 'Only a sheet that is Readable, or Readable from comments, can be checked.';
   return '';
 }
 
-export function progressHtml(done, total) {
-  return '<div class="sc-line">Checking symbols: ' + count(done) + ' of ' + count(total) + ' tags… '
-    + '<button type="button" class="btn" data-act="sym-cancel">Cancel</button></div>';
+const CANCEL = '<button type="button" class="btn" data-act="sym-cancel">Cancel</button>';
+/** The progress line: tags checked, then (stage 'sweep') the rows of the page looked over for symbols. */
+export function progressHtml(done, total, stage) {
+  if (stage === 'sweep') return '<div class="sc-line">Looking for symbols: row ' + count(done) + ' of ' + count(total) + '… ' + CANCEL + '</div>';
+  return '<div class="sc-line">Checking symbols: ' + count(done) + ' of ' + count(total) + ' tags… ' + CANCEL + '</div>';
+}
+
+const symbolsOf = result => (result && typeof result === 'object' && Array.isArray(result.symbols) ? result.symbols : null);
+const isSymbol = s => !!s && typeof s === 'object' && !!str(s.name);
+const untagged = s => isSymbol(s) && !str(s.tag);
+export const SKIPPED_NOTE = 'Title block not checked.';
+const INCOMPLETE = 'The time limit was reached: this list is incomplete.';
+/** True when the tags themselves ran out of time (a result from before the separate flags: whenever it timed out). */
+export const tagsTimedOut = result => !!result && typeof result === 'object'
+  && (result.tagsTimedOut === true || (result.timedOut === true && typeof result.tagsTimedOut !== 'boolean'));
+
+/** 'N standard symbols found, M with tags.'; 'No standard symbols found.' for none; '' when the result has no symbol list. */
+export function symbolSummary(result) {
+  try {
+    const list = symbolsOf(result);
+    if (!list) return '';
+    const all = list.filter(isSymbol), tagged = all.filter(s => !!str(s.tag)).length;
+    const short = result.sweepTimedOut === true;
+    if (!all.length) return short ? 'No standard symbols found before the time limit: this list is incomplete.' : 'No standard symbols found.';
+    return all.length + ' standard symbol' + (all.length === 1 ? '' : 's') + ' found, ' + tagged + ' with tags.' + (short ? ' ' + INCOMPLETE : '');
+  } catch {
+    return '';
+  }
 }
 
 // The sentence for one verdict. Plain text: the caller escapes it.
@@ -112,20 +138,41 @@ export function resultsHtml(result) {
   // A <details>, so the list folds away to its one summary line and the
   // drawing can be seen. The summary keeps the counts and, in short, the limit
   // of what the check can say; the full note is the first thing in the body.
-  let out = '<details class="sc-results" open><summary>' + esc(counts || 'No tags.') + '.' + took
+  let out = '<details class="sc-results" open><summary>' + esc(counts ? counts + '.' : 'No tags read.') + took
     + ' <span class="sc-hint">It checks the family of symbol, not which member of it.</span></summary>'
     + '<div class="sc-note">' + esc(FAMILY_NOTE) + '</div>'
     + '<div class="sc-summary">'
-    + (result.timedOut === true ? 'The check stopped at its time limit. Tags it did not reach are marked Not checked. ' : '')
+    + (tagsTimedOut(result) ? 'The check stopped at its time limit. Tags it did not reach are marked Not checked. ' : '')
     + 'Results are shown here and are not saved.</div>'
     + (bubbleSummary(result) ? '<div class="sc-summary">' + esc(bubbleSummary(result)) + '</div>' : '')
+    + (symbolSummary(result) ? '<div class="sc-summary">' + esc(symbolSummary(result)) + '</div>' : '')
+    + (isBox(result.skipped) ? '<div class="sc-summary">' + SKIPPED_NOTE + '</div>' : '')
     + '<ul class="sc-list">';
   for (const { v, i, kind } of list) {
     out += '<li><button type="button" class="sc-row sc-' + kind + '" data-act="sym-jump" data-i="' + i + '">'
       + '<strong>' + esc(str(v.tag)) + '</strong> <span class="sc-label">' + VERDICT_LABELS[kind] + '</span> '
       + '<span class="sc-detail">' + esc(sentence(v, kind)) + '</span></button></li>';
   }
-  return out + '</ul></details>';
+  out += '</ul>';
+  // Symbols with no tag beside them: listed, not flagged. Padlocks and capped
+  // ends carry none, and on some sheets the tags cannot be read yet.
+  const loose = asArr(symbolsOf(result)).map((s, n) => ({ s, n })).filter(x => untagged(x.s))
+    .sort((a, b) => str(a.s.name).localeCompare(str(b.s.name)) || a.n - b.n);
+  if (loose.length) {
+    const byName = new Map();
+    for (const { s } of loose) byName.set(str(s.name), (byName.get(str(s.name)) || 0) + 1);
+    out += '<div class="sc-summary"><strong>Symbols with no tag</strong>: '
+      + esc([...byName].map(([k, c]) => c + ' ' + k).join(', ')) + '</div><ul class="sc-list">';
+    for (const { s, n } of loose) {
+      const alts = asArr(s.oneOf).map(str).filter(Boolean);
+      out += '<li><button type="button" class="sc-row sc-symbol" data-act="sym-jump-s" data-s="' + n + '">'
+        + '<strong>' + esc(str(s.name)) + '</strong>'
+        + (alts.length > 1 ? ' <span class="sc-detail">(one of: ' + esc(alts.join(', ')) + ')</span>' : '')
+        + '</button></li>';
+    }
+    out += '</ul>';
+  }
+  return out + '</details>';
 }
 
 const isBox = b => Array.isArray(b) && b.length === 4 && b.every(isNum);
@@ -147,5 +194,12 @@ export function boxRects(result, scale) {
       width: (b[2] - b[0]) * scale + 2 * MARGIN, height: (b[3] - b[1]) * scale + 2 * MARGIN,
       title: str(v.tag) + ': ' + VERDICT_LABELS[kind] + '. ' + sentence(v, kind) });
   }
+  const rect = b => ({ left: b[0] * scale - MARGIN, top: b[1] * scale - MARGIN,
+    width: (b[2] - b[0]) * scale + 2 * MARGIN, height: (b[3] - b[1]) * scale + 2 * MARGIN });
+  asArr(symbolsOf(result)).forEach((s, n) => {
+    if (!untagged(s) || !isBox(s.box)) return;
+    out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' });
+  });
+  if (isBox(result.skipped)) out.push({ kind: 'skipped', ...rect(result.skipped), title: SKIPPED_NOTE });
   return out;
 }

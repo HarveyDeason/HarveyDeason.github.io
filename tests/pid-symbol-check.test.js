@@ -220,15 +220,14 @@ test('checkSheet: a tag that is not on the page is Not checked, and says so', ()
 });
 test('checkSheet: progress is reported once per tag', () => {
   const seen = [];
-  run({ onProgress: (done, total) => seen.push([done, total]) });
+  run({ onProgress: (done, total, stage) => { if (stage === 'tags') seen.push([done, total]); } });
   assert.equal(seen.length, SHEET.tags.length);
   assert.deepEqual(seen[seen.length - 1], [SHEET.tags.length, SHEET.tags.length]);
   assert.equal(run({ onProgress: () => { throw new Error('boom'); } }).ok, true);
 });
-test('checkSheet: no library, no tags, or rubbish gives ok false, never a throw', () => {
+test('checkSheet: no library or rubbish gives ok false, never a throw', () => {
   assert.deepEqual(run({ library: null }), { ok: false, why: 'no-library' });
   assert.deepEqual(run({ library: { version: 1, symbols: [] } }), { ok: false, why: 'no-library' });
-  assert.deepEqual(run({ tags: [] }), { ok: false, why: 'no-tags' });
   assert.equal(C.checkSheet(null).ok, false);
   assert.equal(run({ paths: 'x', textItems: 7 }).ok, true);   // every tag then reads Not checked
 });
@@ -378,4 +377,250 @@ test('checkSheet: any tag written inside a recognised bubble is answered by it, 
   const r = C.checkSheet({ viewportTransform: [1, 0, 0, 1, 0, 0], library: BUBBLE_LIBRARY, lookups: LOOKUPS_B,
     paths: place(ring, { x: 100, y: 100 }), textItems: label('21-W-9001', 109, 111, { split: true }), tags: [{ tag: '21-W-9001', fc: 'W' }] });
   assert.deepEqual([r.verdicts[0].verdict, r.verdicts[0].bubble, r.verdicts[0].symbol], ['ok', true, 'RING']);
+});
+
+// ── One symbol per patch of ink ───────────────────────────────────────────
+import { SIGNAL, SWEEP_LIBRARY } from './fixtures/symbol-check-sheet.js';
+
+const SWEPT = C.prepareSymbols(SWEEP_LIBRARY);
+const sprep = name => SWEPT.find(p => p.symbol.name === name);
+// A hit for a library symbol whose placed box has its top-left at (x, y).
+function hit(name, x, y, { o = 0, k = 1, score = 0.95, tag = null } = {}) {
+  const p = sprep(name), [a, b, c, d] = C.ORIENTATIONS[o];
+  const cs = [[0, 0], [p.w, 0], [0, p.h], [p.w, p.h]].map(([u, v]) => [k * (a * u + c * v), k * (b * u + d * v)]);
+  const tx = x - Math.min(...cs.map(q => q[0])), ty = y - Math.min(...cs.map(q => q[1]));
+  const placement = { o, k, tx, ty, cx: tx + k * (a * p.w / 2 + c * p.h / 2), cy: ty + k * (b * p.w / 2 + d * p.h / 2) };
+  const bw = Math.max(...cs.map(q => q[0])) - Math.min(...cs.map(q => q[0])), bh = Math.max(...cs.map(q => q[1])) - Math.min(...cs.map(q => q[1]));
+  return { p, placement, score, k, box: [x, y, x + bw, y + bh], filled: false, bubble: false, ring: null, tag };
+}
+const names = spot => spot.matches.map(m => m.p.symbol.name);
+
+test('sharedInk: a hit on itself is nearly all shared; 40 pt away, nothing', () => {
+  assert.ok(C.sharedInk(hit('WIDGET', 100, 100), hit('WIDGET', 100, 100)) >= 0.95);
+  assert.equal(C.sharedInk(hit('WIDGET', 100, 100), hit('WIDGET', 140, 100)), 0);
+});
+test('sharedInk: mirror twins placed on the same spot share their ink both ways', () => {
+  const left = hit('PENNANT, LEFT', 100, 100, { o: 4 }), right = hit('PENNANT, RIGHT', 100, 100);
+  assert.ok(C.sharedInk(left, right) >= 0.5, String(C.sharedInk(left, right)));
+  assert.ok(C.sharedInk(right, left) >= 0.5, String(C.sharedInk(right, left)));
+});
+test('sharedInk: a pennant on SIGNAL lies on it, but most of SIGNAL is not the pennant', () => {
+  const part = hit('PENNANT, LEFT', 100, 100), whole = hit('SIGNAL', 100, 100);
+  assert.ok(C.sharedInk(part, whole) >= 0.95);
+  assert.ok(C.sharedInk(whole, part) < 0.5, String(C.sharedInk(whole, part)));
+});
+test('sharedInk: rubbish in gives 0, never a throw', () => {
+  for (const [a, b] of [[null, null], [{}, hit('WIDGET', 0, 0)], [hit('WIDGET', 0, 0), { p: {}, placement: {} }], [5, 'x']]) assert.equal(C.sharedInk(a, b), 0);
+});
+
+test('mergeHits: the same symbol found twice, 1 pt apart, is one spot', () => {
+  const spots = C.mergeHits([hit('WIDGET', 100, 100, { score: 0.97 }), hit('WIDGET', 101, 100, { score: 0.95 })]);
+  assert.equal(spots.length, 1);
+  assert.equal(spots[0].matches[0].score, 0.97);
+});
+test('mergeHits: two members drawn alike at one place; at equal score the one with more linework wins', () => {
+  const [s] = C.mergeHits([hit('WIDGET', 100, 100, { score: 0.95 }), hit('WIDGET, BARRED', 100, 100, { score: 0.95 })]);
+  assert.deepEqual(names(s), ['WIDGET, BARRED', 'WIDGET']);
+});
+test('mergeHits: an alternative further below than oneOf is dropped, not listed', () => {
+  const spots = C.mergeHits([hit('WIDGET', 100, 100, { score: 0.91 }), hit('WIDGET, BARRED', 100, 100, { score: 0.99 })]);
+  assert.equal(spots.length, 1); assert.deepEqual(names(spots[0]), ['WIDGET, BARRED']);
+});
+test('mergeHits: mirror twins are alternatives', () => {
+  const spots = C.mergeHits([hit('PENNANT, LEFT', 100, 100, { o: 4, score: 0.96 }), hit('PENNANT, RIGHT', 100, 100, { score: 0.97 })]);
+  assert.equal(spots.length, 1); assert.deepEqual(names(spots[0]), ['PENNANT, RIGHT', 'PENNANT, LEFT']);
+});
+test('mergeHits: a pennant found inside SIGNAL is a part, whichever scored higher', () => {
+  for (const [ps, ss] of [[0.99, 0.92], [0.92, 0.99]]) {
+    const spots = C.mergeHits([hit('PENNANT, LEFT', 100, 100, { score: ps }), hit('SIGNAL', 100, 100, { score: ss })]);
+    assert.equal(spots.length, 1); assert.equal(spots[0].matches.length, 1); assert.deepEqual(names(spots[0]), ['SIGNAL']);
+  }
+});
+test('mergeHits: a tagged hit wins its ink whatever its score; two tagged hits are never merged', () => {
+  const [s] = C.mergeHits([hit('WIDGET', 100, 100, { score: 0.99 }), hit('WIDGET', 100.5, 100, { score: 0.91, tag: '21-W-1001' })]);
+  assert.equal(s.tag, '21-W-1001'); assert.equal(s.matches[0].tag, '21-W-1001');
+  const two = C.mergeHits([hit('WIDGET', 100, 100, { tag: '21-W-1001' }), hit('WIDGET', 100.5, 100, { tag: '21-W-1002' })]);
+  assert.deepEqual(two.map(x => x.tag).sort(), ['21-W-1001', '21-W-1002']);
+});
+test('mergeHits: a spot carries its winner\'s box and centre; symbols apart stay apart', () => {
+  const spots = C.mergeHits([hit('WIDGET', 100, 100), hit('GADGET', 200, 100)]);
+  assert.equal(spots.length, 2);
+  const w = spots.find(s => s.matches[0].p.symbol.name === 'WIDGET');
+  assert.deepEqual(w.box, [100, 100, 124, 112]); assert.equal(w.cx, 112); assert.equal(w.cy, 106);
+  assert.equal(w.bubble, false); assert.equal(w.ring, null); assert.equal(w.tag, null);
+});
+test('mergeHits: rubbish in gives [], never a throw', () => {
+  for (const bad of [null, 5, 'x', [null, 5, {}, { p: null, placement: null, score: 'x' }]]) assert.deepEqual(C.mergeHits(bad), []);
+});
+test('the new defaults: shared-ink share 0.5, sweep grid 80 pt', () => {
+  assert.equal(C.CHECK_DEFAULTS.shareInk, 0.5); assert.equal(C.CHECK_DEFAULTS.sweepStep, 80);
+});
+test('matchBubble and the tag-led check keep each match\'s placement', () => {
+  const lib = C.prepareSymbols(BUBBLE_LIBRARY), bubbles = lib.filter(p => p.bubble);
+  const paths = place(BUBBLES[0], { x: 100, y: 100 });
+  const win = C.drawingWindow(paths, [120, 120]);
+  const m = C.matchBubble(bubbles, [100, 100, 140, 140], win);
+  assert.equal(m.best.p.symbol.name, 'RING');
+  assert.ok(m.best.placement && near(m.best.placement.tx, 100, 0.5) && near(m.best.placement.ty, 100, 0.5) && m.best.placement.o === 0);
+});
+
+// ── The sweep ─────────────────────────────────────────────────────────────
+import { SWEEP_SHEET, sweepFrameWith, fixtureLine } from './fixtures/symbol-check-sheet.js';
+
+const nearBox = (a, b, tol) => !!a && a.length === 4 && a.every((v, i) => near(v, b[i], tol));
+const spotNames = spots => spots.map(s => s.matches[0].p.symbol.name).sort();
+
+test('titleBlockBox: a full-height line in the right of the page cuts off the title block', () => {
+  assert.ok(nearBox(C.titleBlockBox(SWEEP_SHEET.paths, [600, 400]), [500, 0, 600, 400], 0.5));
+});
+test('titleBlockBox: a full-width line along the bottom cuts it off there instead', () => {
+  const paths = sweepFrameWith([fixtureLine([10, 330, 590, 330])]);
+  assert.ok(nearBox(C.titleBlockBox(paths, [600, 400]), [0, 330, 600, 400], 0.5));
+});
+test('titleBlockBox: a line drawn in pieces still counts', () => {
+  const paths = sweepFrameWith([fixtureLine([500, 10, 500, 200]), fixtureLine([500, 200, 500, 390])]);
+  assert.ok(nearBox(C.titleBlockBox(paths, [600, 400]), [500, 0, 600, 400], 0.5));
+});
+test('titleBlockBox: a frame alone, or rubbish, gives null', () => {
+  assert.equal(C.titleBlockBox(sweepFrameWith([]), [600, 400]), null);
+  for (const [p, s] of [[null, [600, 400]], [SWEEP_SHEET.paths, null], [SWEEP_SHEET.paths, [0, 0]], ['x', 'y'], [[{ segs: [NaN, 1, 2, 3] }], [600, 400]]]) {
+    assert.equal(C.titleBlockBox(p, s), null);
+  }
+});
+
+test('sweepSymbols: every invented symbol found once and named; nothing in the title block', () => {
+  const r = C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: SWEEP_LIBRARY, pageSize: SWEEP_SHEET.pageSize });
+  assert.deepEqual(spotNames(r.spots), ['GADGET', 'RING', 'SIGNAL', 'WIDGET', 'WIDGET']);
+  assert.ok(!r.spots.some(s => s.matches.some(m => m.p.symbol.name === 'PENNANT, LEFT')));
+  assert.ok(nearBox(r.skipped, [500, 0, 600, 400], 0.5));
+  assert.equal(r.rows, 5); assert.equal(r.timedOut, false);
+  const ring = r.spots.find(s => s.matches[0].p.symbol.name === 'RING');
+  assert.equal(ring.bubble, true); assert.ok(nearBox(ring.ring, [60, 200, 100, 240], 0.5));
+  assert.ok(r.spots.every(s => s.tag === null));
+});
+test('sweepSymbols: progress is reported after each grid row', () => {
+  const seen = [];
+  C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: SWEEP_LIBRARY, pageSize: SWEEP_SHEET.pageSize, onProgress: (d, t, s) => seen.push([d, t, s]) });
+  assert.deepEqual(seen, [1, 2, 3, 4, 5].map(d => [d, 5, 'sweep']));
+});
+test('sweepSymbols: a deadline already passed stops at once, no throw', () => {
+  const r = C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: SWEEP_LIBRARY, pageSize: SWEEP_SHEET.pageSize, deadline: -1 });
+  assert.equal(r.timedOut, true); assert.deepEqual(r.spots, []);
+});
+test('sweepSymbols: a hostile or empty library, no paths or no page size: an empty list, never a throw', () => {
+  const nanLib = { symbols: [{ name: 'X', w: 10, h: 10, paths: [{ segs: [NaN, 0, 1, 1, 0, 0, NaN, 5] }] }] };
+  const huge = { symbols: [{ name: 'Y', w: 10, h: 10, tagId: 'Y', paths: [{ segs: Array.from({ length: 20000 }, (_, i) => i % 7) }] }] };
+  for (const library of [{ symbols: [] }, null, nanLib, huge]) {
+    const r = C.sweepSymbols({ paths: SWEEP_SHEET.paths, library, pageSize: [600, 400] });
+    assert.deepEqual(r.spots, []); assert.equal(r.timedOut, false);
+  }
+  assert.deepEqual(C.sweepSymbols({ paths: null, library: SWEEP_LIBRARY, pageSize: [600, 400] }).spots, []);
+  const noSize = C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: SWEEP_LIBRARY, pageSize: [0, 0] });
+  assert.ok(Array.isArray(noSize.spots)); assert.equal(noSize.timedOut, false);
+  assert.deepEqual(C.sweepSymbols(null).spots, []);
+  assert.deepEqual(C.sweepSymbols('x').spots, []);
+});
+test('mergeHits: one symbol found in two orientations on the same ink is one match, not its own alternative', () => {
+  const [s] = C.mergeHits([hit('WIDGET', 100, 100, { o: 0 }), hit('WIDGET', 100, 100, { o: 2 }), hit('WIDGET', 100, 100, { o: 4 })]);
+  assert.deepEqual(names(s), ['WIDGET']);
+});
+
+// ── checkSheet returns every symbol ───────────────────────────────────────
+test('checkSheet: the sweep changes no tag verdict (goal 5 by construction)', () => {
+  assert.deepEqual(run().verdicts, run({ options: { sweep: false } }).verdicts);
+  assert.deepEqual(runB().verdicts, runB({ options: { sweep: false } }).verdicts);
+});
+test('checkSheet: each OK tag has exactly one symbol carrying its tag and name; no untagged symbol is invented', () => {
+  const r = run();
+  assert.ok(Array.isArray(r.symbols));
+  for (const v of r.verdicts.filter(x => x.verdict === 'ok' || x.verdict === 'off-size')) {
+    const mine = r.symbols.filter(s => s.tag === v.tag);
+    assert.equal(mine.length, 1, v.tag); assert.equal(mine[0].name, v.symbol, v.tag);
+  }
+  assert.deepEqual(r.symbols.filter(s => s.tag === null).map(s => s.name), []);
+  assert.doesNotThrow(() => structuredClone(r));
+});
+test('checkSheet: a symbol has its name, identifier, box, size, score, one-of, bubble and tag', () => {
+  const s = run().symbols.find(x => x.tag === '21-W-1003');
+  assert.deepEqual(Object.keys(s).sort(), ['box', 'bubble', 'name', 'oneOf', 'score', 'sizePct', 'tag', 'tagId']);
+  assert.deepEqual([s.name, s.tagId, s.bubble], ['WIDGET', 'W', false]);
+  assert.ok(near(s.sizePct, 120, 2) && s.score >= 0.9 && near(s.box[0], 300, 0.5));
+  const p = run().symbols.find(x => x.tag === '21-P-6001');
+  assert.deepEqual(p.oneOf.slice().sort(), ['PENNANT, LEFT', 'PENNANT, RIGHT']);
+  const b = runB().symbols.find(x => x.tag === '21-ZI-8001');
+  assert.deepEqual([b.name, b.bubble], ['RING', true]);
+});
+test('checkSheet: a sheet with no tags is still swept, and says what it skipped', () => {
+  const r = C.checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
+  assert.equal(r.ok, true); assert.deepEqual(r.verdicts, []);
+  assert.deepEqual([r.checked, r.recognised], [0, 0]);
+  assert.ok(Object.values(r.counts).every(n => n === 0));
+  assert.deepEqual(r.symbols.map(s => s.name), ['GADGET', 'RING', 'SIGNAL', 'WIDGET', 'WIDGET']);
+  assert.ok(r.symbols.every(s => s.tag === null));
+  assert.ok(nearBox(r.skipped, [500, 0, 600, 400], 0.5));
+  // ordered by name, then top, then left
+  const widgets = r.symbols.filter(s => s.name === 'WIDGET');
+  assert.ok(widgets[0].box[0] < widgets[1].box[0]);
+});
+test('checkSheet: with the sweep off, no symbols are listed', () => {
+  const r = C.checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B, options: { sweep: false } });
+  assert.equal(r.ok, true); assert.deepEqual(r.symbols, []); assert.equal(r.skipped, null);
+});
+
+// A long widget, too long for the window round its tag (it runs off the
+// window's edge), but whole in the window round a sweep centre: today's
+// tag-led look cannot score it; the sweep can, and the leftover tag takes it.
+const LONG = { id: 's20', name: 'LONG WIDGET', legendName: 'LONG WIDGET', group: 'WIDGETS', tagId: 'W', sheet: '1', w: 118, h: 20,
+  paths: [fixtureLine([0, 0, 118, 0, 118, 0, 118, 20, 118, 20, 0, 20, 0, 20, 0, 0]), fixtureLine([0, 0, 118, 20])],
+  letters: [], flags: { simple: false, stretch: false, manual: false, unmatched: false }, aliases: [], notes: [] };
+const LONG_LIB = { ...LIBRARY, exceptions: [], symbols: [...LIBRARY.symbols, LONG] };
+const LONG_SHEET = { pageSize: [400, 300], viewportTransform: VT,
+  paths: place(LONG, { x: 200 - 1.3 * 59, y: 187, k: 1.3 }),            // centred on (200, 200), 153 x 26 pt
+  textItems: label('21-W-1009', 145 - 19.8, 176), tags: [{ tag: '21-W-1009', fc: 'W' }] };   // tag centred 58.5 pt away
+test('checkSheet: a tag left without a symbol pairs with a swept symbol of its own family within reach', () => {
+  const before = C.checkSheet({ ...LONG_SHEET, library: LONG_LIB, lookups: LOOKUPS, options: { sweep: false } });
+  assert.equal(before.verdicts[0].verdict, 'look');
+  const r = C.checkSheet({ ...LONG_SHEET, library: LONG_LIB, lookups: LOOKUPS });
+  const v = r.verdicts[0];
+  assert.deepEqual([v.verdict, v.symbol, v.sizePct], ['off-size', 'LONG WIDGET', 130]);
+  assert.ok(v.tagBox && v.box);
+  const s = r.symbols.filter(x => x.name === 'LONG WIDGET');
+  assert.equal(s.length, 1); assert.equal(s[0].tag, '21-W-1009');
+});
+test('checkSheet: a leftover tag does not take a symbol of another family', () => {
+  const r = C.checkSheet({ ...LONG_SHEET, tags: [{ tag: '21-W-1009', fc: 'G' }], library: LONG_LIB, lookups: LOOKUPS });
+  assert.equal(r.verdicts[0].verdict, 'look');
+  assert.equal(r.symbols.find(x => x.name === 'LONG WIDGET').tag, null);
+});
+test('checkSheet: the time limit reached during the sweep; what was found stands, no throw', () => {
+  const r = run({ options: { timeLimitMs: 1 } });
+  assert.equal(r.ok, true); assert.equal(r.timedOut, true);
+  assert.equal(r.verdicts.length, SHEET.tags.length); assert.ok(Array.isArray(r.symbols));
+});
+test('checkSheet: progress says which stage, tags first, then the sweep', () => {
+  const stages = [];
+  run({ pageSize: [500, 400], onProgress: (d, t, s) => stages.push(s) });
+  assert.ok(stages.includes('tags') && stages.includes('sweep'));
+  assert.equal(stages.lastIndexOf('tags') < stages.indexOf('sweep'), true);
+});
+
+// ── Final review fixes ────────────────────────────────────────────────────
+const GSQ = { viewportTransform: VT, pageSize: [400, 300],
+  paths: [line4([100, 100, 120, 100, 120, 100, 120, 120, 120, 120, 100, 120, 100, 120, 100, 100])],   // a GADGET with its diagonal missing
+  textItems: label('21-G-3001', 100, 86), tags: [{ tag: '21-G-3001', fc: 'G' }] };
+function line4(segs) { return { segs, width: 0.7, stroked: true, filled: false, grey: 0 }; }
+test('checkSheet: the sweep running out of time does not take the closest near miss from a tag', () => {
+  const plain = C.checkSheet({ ...GSQ, library: LIBRARY, lookups: LOOKUPS, options: { sweep: false } }).verdicts[0];
+  assert.equal(plain.verdict, 'look'); assert.ok(plain.closest && plain.closest.symbol === 'GADGET', JSON.stringify(plain.closest));
+  let burnt = false;
+  const r = C.checkSheet({ ...GSQ, library: LIBRARY, lookups: LOOKUPS, options: { timeLimitMs: 1500 },
+    onProgress: (d, t, stage) => { if (stage === 'sweep' && !burnt) { burnt = true; const end = Date.now() + 1700; while (Date.now() < end) { /* the sweep overruns */ } } } });
+  assert.equal(burnt, true); assert.equal(r.sweepTimedOut, true);
+  assert.deepEqual(r.verdicts, C.checkSheet({ ...GSQ, library: LIBRARY, lookups: LOOKUPS, options: { sweep: false } }).verdicts);
+});
+test('checkSheet: says which part ran out of time, the tags or the sweep', () => {
+  const r = C.checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B, options: { timeLimitMs: 1 } });
+  assert.deepEqual([r.timedOut, r.sweepTimedOut, r.tagsTimedOut], [true, true, false]);
+  const ok = C.checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
+  assert.deepEqual([ok.timedOut, ok.sweepTimedOut, ok.tagsTimedOut], [false, false, false]);
 });

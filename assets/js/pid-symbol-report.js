@@ -8,14 +8,15 @@
 // They are kept here as plain text: the PDF renderer passes them through
 // pdfSafe, and the workbook strips control characters.
 
-import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary } from './pid-symbol-check-view.js';
+import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary, symbolSummary, SKIPPED_NOTE, tagsTimedOut } from './pid-symbol-check-view.js';
 import { STATUS_LABELS } from './pid-precheck.js';
 import { REASONS } from './pid-symbol-report-run.js';
 
 export const SHORT_NOTE = 'It checks the family of symbol, not which member of it.';
 export const TIMED_OUT = 'The check stopped at its time limit. Tags it did not reach are marked Not checked.';
 export const FALLBACK = 'The drawing could not be copied into this report. Results are listed below; open the sheet in the tool to see the boxes.';
-export const PRINT_COLOURS = { ok: '#2E7D32', 'off-size': '#E08E00', exception: '#E08E00', look: '#E08E00', 'wrong-family': '#C62828', 'not-checked': '#757575' };
+export const PRINT_COLOURS = { ok: '#2E7D32', 'off-size': '#E08E00', exception: '#E08E00', look: '#E08E00', 'wrong-family': '#C62828', 'not-checked': '#757575',
+  symbol: '#546E7A' };   // a standard symbol with no tag beside it
 const SAVED = 'Nothing from this check is saved in the register.';
 const MARGIN = 3; // pt, as on screen
 
@@ -71,6 +72,20 @@ function rowsFor(result, vt) {
   });
 }
 
+// The sweep's symbols: every one for the workbook; those with no tag boxed on the drawing.
+const symbolsOf = result => asArr(result.symbols).filter(s => s && typeof s === 'object' && str(s.name));
+function symbolParts(result, vt) {
+  const all = symbolsOf(result);
+  return {
+    symbolRows: all.filter(s => !str(s.tag)).map(s => ({ name: str(s.name), userRect: toUserRect(isBox(s.box) ? s.box : null, vt, MARGIN) })),
+    allSymbols: all.map(s => {
+      const alts = asArr(s.oneOf).map(str).filter(Boolean);
+      return { page: 1, symbol: str(s.name), oneOf: alts.length > 1 ? alts.join(', ') : '', tagId: str(s.tagId),
+        sizePct: isNum(s.sizePct) ? s.sizePct : null, score: isNum(s.score) ? s.score : null, tag: str(s.tag) };
+    }),
+  };
+}
+
 function sheetFor(o) {
   const drawing = str(o.drawing), rev = str(o.rev);
   const result = obj(o.result);
@@ -87,7 +102,10 @@ function sheetFor(o) {
     counts, seconds: tenths(o.ms), pages,
     bubbleLine: isChecked ? bubbleSummary(result) : '',
     pageNote: isChecked && pages > 1 ? 'Page 1 of ' + pages + ' only.' : '',
-    timedOutLine: isChecked && result.timedOut === true ? TIMED_OUT : '',
+    timedOutLine: isChecked && tagsTimedOut(result) ? TIMED_OUT : '',
+    symbolLine: isChecked ? symbolSummary(result) : '',
+    skippedLine: isChecked && isBox(result.skipped) ? SKIPPED_NOTE : '',
+    ...(isChecked ? symbolParts(result, isTransform(o.viewportTransform) ? o.viewportTransform : null) : { symbolRows: [], allSymbols: [] }),
     pageSize: Array.isArray(o.pageSize) && o.pageSize.length === 2 && o.pageSize.every(x => isNum(x) && x > 0) ? o.pageSize.slice() : null,
     key: drawing + '||' + rev,
     rows,
@@ -141,6 +159,7 @@ export function workbookRows(model) {
   const run = obj(m.run), lib = obj(m.library);
   const tags = { columns: ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail'], rows: [] };
+  const symbols = { columns: ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag'], rows: [] };
   const sh = { columns: ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
     'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles'], rows: [] };
   for (const s of sheets) {
@@ -148,6 +167,10 @@ export function workbookRows(model) {
     for (const r of asArr(s.rows).filter(x => x && typeof x === 'object')) {
       tags.rows.push([s.drawing, s.rev, r.no, r.tag, r.fc, r.label, r.symbol, r.tagId, isNum(r.sizePct) ? r.sizePct : '', pct(r.score),
         r.filled ? 'Yes' : '', r.letters, r.closestSymbol, pct(r.closestScore), r.detail].map(cell));
+    }
+    for (const y of asArr(s.allSymbols).filter(x => x && typeof x === 'object')) {
+      symbols.rows.push([s.drawing, s.rev, count(y.page) || 1, str(y.symbol), str(y.oneOf), str(y.tagId), isNum(y.sizePct) ? y.sizePct : '',
+        pct(y.score), str(y.tag)].map(cell));
     }
     const c = obj(s.counts);
     sh.rows.push([s.drawing, s.rev, s.family, s.precheckLabel, checked ? 'Checked' : 'Not checked', s.reason,
@@ -158,7 +181,7 @@ export function workbookRows(model) {
     ['Library', str(lib.legend)], ['Library imported', str(lib.importedAt)], ['Sheets ticked', count(run.ticked)],
     ['Checked', count(run.checked)], ['Not checked', count(run.notChecked)], ['Stopped', str(run.stoppedLine) || 'No'], ['Saved', SAVED]]
     .map(r => r.map(cell));
-  return { tags, sheets: sh, about };
+  return { tags, symbols, sheets: sh, about };
 }
 
 /** The workbook's bytes, or null if it could not be made. Never rejects. */
@@ -176,6 +199,7 @@ export async function writeWorkbook(model, ExcelJS) {
       ws.columns.forEach((col, i) => { col.width = Math.min(60, Math.max(8, columns[i].length + 2, ...rows.map(r => String(r[i] ?? '').length + 2).slice(0, 500))); });
     };
     table('Tags', w.tags);
+    table('Symbols', w.symbols);
     table('Sheets', w.sheets);
     const about = wb.addWorksheet('About');
     for (const r of w.about) about.addRow(r);
