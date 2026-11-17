@@ -81,7 +81,7 @@ function symbolParts(result, vt) {
     allSymbols: all.map(s => {
       const alts = asArr(s.oneOf).map(str).filter(Boolean);
       return { page: 1, symbol: str(s.name), oneOf: alts.length > 1 ? alts.join(', ') : '', tagId: str(s.tagId),
-        sizePct: isNum(s.sizePct) ? s.sizePct : null, score: isNum(s.score) ? s.score : null, tag: str(s.tag) };
+        sizePct: isNum(s.sizePct) ? s.sizePct : null, score: isNum(s.score) ? s.score : null, tag: str(s.tag), plain: s.plain === true };
     }),
   };
 }
@@ -100,6 +100,7 @@ function sheetFor(o) {
     status: isChecked ? 'checked' : 'not-checked', reason,
     resultText: isChecked ? 'Checked' : 'Not checked: ' + reason,
     counts, seconds: tenths(o.ms), pages,
+    tagsLine: o.precheck === 'printed' ? 'Tags not read yet: letters drawn as shapes.' : isChecked && rows.length === 0 ? 'No tags read.' : '',
     bubbleLine: isChecked ? bubbleSummary(result) : '',
     pageNote: isChecked && pages > 1 ? 'Page 1 of ' + pages + ' only.' : '',
     timedOutLine: isChecked && tagsTimedOut(result) ? TIMED_OUT : '',
@@ -159,7 +160,7 @@ export function workbookRows(model) {
   const run = obj(m.run), lib = obj(m.library);
   const tags = { columns: ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail'], rows: [] };
-  const symbols = { columns: ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag'], rows: [] };
+  const symbols = { columns: ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note'], rows: [] };
   const sh = { columns: ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
     'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles'], rows: [] };
   for (const s of sheets) {
@@ -170,7 +171,7 @@ export function workbookRows(model) {
     }
     for (const y of asArr(s.allSymbols).filter(x => x && typeof x === 'object')) {
       symbols.rows.push([s.drawing, s.rev, count(y.page) || 1, str(y.symbol), str(y.oneOf), str(y.tagId), isNum(y.sizePct) ? y.sizePct : '',
-        pct(y.score), str(y.tag)].map(cell));
+        pct(y.score), str(y.tag), y.plain === true ? 'Plain shape: check by eye' : ''].map(cell));
     }
     const c = obj(s.counts);
     sh.rows.push([s.drawing, s.rev, s.family, s.precheckLabel, checked ? 'Checked' : 'Not checked', s.reason,

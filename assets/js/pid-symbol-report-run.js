@@ -16,9 +16,9 @@ import { STATUS_LABELS } from './pid-precheck.js';
 export const REASONS = {
   noPdf: 'PDF not available in this session: connect the folder or re-import it.',
   precheckFailed: 'This sheet could not be pre-checked.',
-  noTags: 'No confirmed tags to check.',
   failed: 'The symbol check could not run on this sheet.',
   stopped: 'Stopped before this sheet was checked.',
+  scanned: 'Scanned image: not checked yet.',
 };
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -31,7 +31,7 @@ const fn = f => (typeof f === 'function' ? f : null);
 /** Why a sheet whose pre-check is neither Readable nor Readable from comments was left out. */
 export function notReadable(status) {
   const label = has(STATUS_LABELS, status) ? STATUS_LABELS[status] : 'unknown';
-  return 'Pre-check status is ' + label + ': printed and scanned sheets cannot be checked yet.';
+  return 'Pre-check status is ' + label + ': this sheet cannot be checked.';
 }
 
 const isTransform = t => Array.isArray(t) && t.length === 6 && t.every(isNum);
@@ -82,7 +82,8 @@ export async function runReport(opts) {
     const status = pre && typeof pre === 'object' && has(STATUS_LABELS, pre.status) ? pre.status : '';
     if (!status) { finish(REASONS.precheckFailed); continue; }
     out.precheck = status;
-    if (status !== 'readable' && status !== 'comments') { finish(notReadable(status)); continue; }
+    if (status === 'scanned') { finish(REASONS.scanned); continue; }
+    if (status !== 'readable' && status !== 'comments' && status !== 'printed') { finish(notReadable(status)); continue; }
     const tags = (Array.isArray(pre.tags) ? pre.tags : []).filter(t => t && typeof t === 'object')
       .map(t => ({ tag: str(t.tag), fc: str(t.fc) })).filter(t => t.tag);
 
@@ -103,7 +104,7 @@ export async function runReport(opts) {
       finish('');
       continue;
     }
-    finish(res && typeof res === 'object' && res.why === 'no-tags' ? REASONS.noTags : REASONS.failed);
+    finish(REASONS.failed);
   }
   return { outcomes, stopped, ms: Math.max(0, now() - started) };
 }

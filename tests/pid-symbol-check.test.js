@@ -542,7 +542,7 @@ test('checkSheet: each OK tag has exactly one symbol carrying its tag and name; 
 });
 test('checkSheet: a symbol has its name, identifier, box, size, score, one-of, bubble and tag', () => {
   const s = run().symbols.find(x => x.tag === '21-W-1003');
-  assert.deepEqual(Object.keys(s).sort(), ['box', 'bubble', 'name', 'oneOf', 'score', 'sizePct', 'tag', 'tagId']);
+  assert.deepEqual(Object.keys(s).sort(), ['box', 'bubble', 'name', 'oneOf', 'plain', 'score', 'sizePct', 'tag', 'tagId']);
   assert.deepEqual([s.name, s.tagId, s.bubble], ['WIDGET', 'W', false]);
   assert.ok(near(s.sizePct, 120, 2) && s.score >= 0.9 && near(s.box[0], 300, 0.5));
   const p = run().symbols.find(x => x.tag === '21-P-6001');
@@ -555,7 +555,10 @@ test('checkSheet: a sheet with no tags is still swept, and says what it skipped'
   assert.equal(r.ok, true); assert.deepEqual(r.verdicts, []);
   assert.deepEqual([r.checked, r.recognised], [0, 0]);
   assert.ok(Object.values(r.counts).every(n => n === 0));
-  assert.deepEqual(r.symbols.map(s => s.name), ['GADGET', 'RING', 'SIGNAL', 'WIDGET', 'WIDGET']);
+  // the empty ring has no writing in it: it is no tag bubble (Task 9)
+  assert.deepEqual(r.symbols.map(s => s.name), ['GADGET', 'SIGNAL', 'WIDGET', 'WIDGET']);
+  const withWord = C.checkSheet({ ...SWEEP_SHEET, textItems: label('AB', 72, 216), library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
+  assert.deepEqual(withWord.symbols.map(s => s.name), ['GADGET', 'RING', 'SIGNAL', 'WIDGET', 'WIDGET']);
   assert.ok(r.symbols.every(s => s.tag === null));
   assert.ok(nearBox(r.skipped, [500, 0, 600, 400], 0.5));
   // ordered by name, then top, then left
@@ -623,4 +626,205 @@ test('checkSheet: says which part ran out of time, the tags or the sweep', () =>
   assert.deepEqual([r.timedOut, r.sweepTimedOut, r.tagsTimedOut], [true, true, false]);
   const ok = C.checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
   assert.deepEqual([ok.timedOut, ok.sweepTimedOut, ok.tagsTimedOut], [false, false, false]);
+});
+
+// ── Plain shapes, and the sweep's edges ───────────────────────────────────
+import { PLATE, STUB, PLAIN_LIBRARY } from './fixtures/symbol-check-sheet.js';
+
+const PLAIN_PREP = C.prepareSymbols(PLAIN_LIBRARY);
+const prepOf = n => PLAIN_PREP.find(p => p.symbol.name === n);
+const sweepOn = (extra, options, pageSize = [600, 400]) => C.sweepSymbols({ paths: sweepFrameWith(extra), library: PLAIN_LIBRARY, pageSize, options });
+const found = (r, n) => r.spots.filter(s => s.matches[0].p.symbol.name === n);
+const RELAXED = { simpleSegs: 2, simpleLength: 20 };   // lets the two-line STUB be checked at all
+const ln = (...s) => fixtureLine(s);
+const WIDGET_SYM = LIBRARY.symbols.find(s => s.name === 'WIDGET');
+const symbolsOf = paths => C.checkSheet({ paths: sweepFrameWith(paths), library: PLAIN_LIBRARY, pageSize: [600, 400], tags: [], textItems: [], viewportTransform: VT }).symbols;
+
+test('plainShape: boxes, arrows and tees are plain; bowties, diagonals, bubbles and simple symbols are not', () => {
+  const relaxed = C.prepareSymbols(PLAIN_LIBRARY, RELAXED).find(p => p.symbol.name === 'STUB');
+  assert.equal(C.plainShape(prepOf('PLATE')), true);
+  assert.equal(C.plainShape(relaxed), true);
+  for (const n of ['WIDGET', 'GADGET', 'SIGNAL', 'RING', 'HEXAGON']) assert.equal(C.plainShape(prepOf(n)), false, n);
+  assert.equal(prepOf('STUB').checkable, false);          // "simple" comes first
+  assert.equal(C.plainShape(prepOf('STUB')), false);
+  assert.equal(C.plainShape(prepOf('DASH')), false);
+  for (const bad of [null, undefined, 'x', 3, {}, [], { checkable: true, plain: 'yes' }]) assert.equal(C.plainShape(bad), false);
+});
+test('plainShape: three joined straight pieces are plain even when slanted', () => {
+  const slanted = { id: 'z', name: 'ZIG', legendName: 'ZIG', group: 'ZIGS', tagId: 'Z', sheet: '1', w: 40, h: 20, letters: [], aliases: [], notes: [],
+    flags: { simple: false }, paths: [{ segs: [0, 0, 10, 5, 10, 5, 20, 10, 20, 10, 40, 20, 40, 20, 40, 0, 40, 0, 20, 0], width: 1, stroked: true, filled: false, grey: 0 }] };
+  assert.equal(C.plainShape(C.prepareSymbols({ symbols: [slanted] })[0]), true);   // 5 segments, 3 pieces
+});
+
+test('sweep: a lone PLATE is found once, and marked plain', () => {
+  assert.equal(found(sweepOn(place(PLATE, { x: 100, y: 100 })), 'PLATE').length, 1);
+  const s = symbolsOf(place(PLATE, { x: 100, y: 100 }));
+  assert.deepEqual(s.filter(x => x.name === 'PLATE').map(x => x.plain), [true]);
+  assert.ok(s.filter(x => x.name !== 'PLATE').every(x => x.plain === false));
+});
+test('sweep: a PLATE with a pipe meeting the middle of its left side is found', () => {
+  assert.equal(found(sweepOn([...place(PLATE, { x: 100, y: 100 }), ln(40, 107.5, 100, 107.5)]), 'PLATE').length, 1);
+});
+test('sweep: two PLATE outlines stacked, sharing an edge, their sides running on: neither is found', () => {
+  const r = sweepOn([...place(PLATE, { x: 100, y: 100 }), ...place(PLATE, { x: 100, y: 115 })]);
+  assert.equal(found(r, 'PLATE').length, 0);
+});
+test('sweep: a PLATE whose top edge runs on 20 pt past its right corner is not found', () => {
+  assert.equal(found(sweepOn([...place(PLATE, { x: 100, y: 100 }), ln(130, 100, 150, 100)]), 'PLATE').length, 0);
+});
+test('sweep: a STUB at a pipe\'s end, the pipe running on from its stem, is found', () => {
+  assert.equal(found(sweepOn([...place(STUB, { x: 100, y: 100 }), ln(110, 106, 170, 106)], RELAXED), 'STUB').length, 1);
+});
+test('sweep: a PLATE with a stray 6 pt stroke in its box (backward about 0.95) is not found; the stricter test is what drops it', () => {
+  const paths = [...place(PLATE, { x: 100, y: 100 }), ln(105, 104, 111, 104)];
+  assert.equal(found(sweepOn(paths), 'PLATE').length, 0);
+  assert.equal(found(sweepOn(paths, { plainBack: 0.5 }), 'PLATE').length, 1);
+});
+test('sweep: a WIDGET with pipes on both sides is found, not held to the plain test', () => {
+  const r = sweepOn([...place(WIDGET_SYM, { x: 100, y: 100 }), ln(70, 106, 100, 106), ln(124, 106, 154, 106)]);
+  assert.equal(found(r, 'WIDGET').length, 1);
+  assert.equal(symbolsOf(place(WIDGET_SYM, { x: 100, y: 100 })).find(x => x.name === 'WIDGET').plain, false);
+});
+
+test('runsOnPastCorner: corners only; a middle line meeting a side is not a corner; rubbish gives false', () => {
+  const p = prepOf('PLATE'), pl = { o: 0, k: 1, tx: 100, ty: 100 };
+  const inkOf = paths => C.drawingWindow(paths, [115, 107], {}).ink;
+  assert.equal(C.runsOnPastCorner({ p, placement: pl }, inkOf(place(PLATE, { x: 100, y: 100 })), {}), false);
+  assert.equal(C.runsOnPastCorner({ p, placement: pl }, inkOf([...place(PLATE, { x: 100, y: 100 }), ln(130, 100, 150, 100)]), {}), true);
+  assert.equal(C.runsOnPastCorner({ p, placement: pl }, inkOf([...place(PLATE, { x: 100, y: 100 }), ln(100, 115, 100, 130)]), {}), true);
+  for (const bad of [[null, null], [{}, {}], [{ p, placement: pl }, null], [{ p, placement: { o: 9 } }, inkOf([])], ['x', 'y']]) {
+    assert.equal(C.runsOnPastCorner(bad[0], bad[1], null), false);
+  }
+});
+
+test('goal 5: a tag-led PLATE standing in a panel reads exactly as with the sweep off', () => {
+  const panel = [fixtureLine([80, 80, 260, 80, 260, 80, 260, 200, 260, 200, 80, 200, 80, 200, 80, 80])];
+  const input = { pageSize: [600, 400], viewportTransform: VT, paths: sweepFrameWith([...panel, ...place(PLATE, { x: 100, y: 80 })]),
+    textItems: label('21-L-1001', 100, 66), tags: [{ tag: '21-L-1001', fc: 'L' }], library: PLAIN_LIBRARY, lookups: LOOKUPS };
+  const on = C.checkSheet(input), off = C.checkSheet({ ...input, options: { sweep: false } });
+  assert.equal(on.verdicts[0].verdict, 'ok');
+  assert.deepEqual(on.verdicts, off.verdicts);
+  assert.deepEqual(on.symbols.filter(s => s.name === 'PLATE').map(s => s.tag), ['21-L-1001']);
+});
+
+// A long plain box (as LONG above, but a box with a middle line: a plain shape),
+// too long for the window round its tag, so today's tag-led look reads "look"
+// with the sweep off. Its top edge runs on past the corner (it sits in a panel),
+// so plain care rejects it in the sweep. Phase 1 had no plain care and the
+// leftover pass paired it: OK. The comparison is the same sheet without the
+// panel, where plain care passes the box (no run-on), i.e. what phase 1 read.
+const PLONG = { ...LONG, id: 's21', name: 'PLAIN LONG', legendName: 'PLAIN LONG',
+  paths: [fixtureLine([0, 0, 118, 0, 118, 0, 118, 20, 118, 20, 0, 20, 0, 20, 0, 0]), fixtureLine([0, 10, 118, 10])] };
+const PLONG_LIB = { ...LIBRARY, exceptions: [], symbols: [...LIBRARY.symbols, PLONG] };
+const plongInput = extra => ({ ...LONG_SHEET, paths: [...place(PLONG, { x: 200 - 1.3 * 59, y: 187, k: 1.3 }), ...extra],
+  library: PLONG_LIB, lookups: LOOKUPS });
+const plongRunOn = [fixtureLine([200 + 1.3 * 59, 187, 200 + 1.3 * 59 + 40, 187])];
+test('goal 5: a tag whose plain symbol sits in a panel beyond its own reach reads as in phase 1; the rejected box is not listed', () => {
+  assert.equal(C.checkSheet({ ...plongInput([]), options: { sweep: false } }).verdicts[0].verdict, 'look');
+  const phase1 = C.checkSheet(plongInput([]));
+  assert.equal(phase1.verdicts[0].verdict, 'off-size');
+  const r = C.checkSheet(plongInput(plongRunOn));
+  assert.deepEqual([r.verdicts[0].verdict, r.verdicts[0].symbol], ['off-size', 'PLAIN LONG']);
+  assert.deepEqual(r.symbols.filter(s => s.name === 'PLAIN LONG').map(s => [s.tag, s.plain]), [['21-W-1009', true]]);
+  // another family: the rejected box is never listed as an untagged symbol
+  const other = C.checkSheet({ ...plongInput(plongRunOn), tags: [{ tag: '21-W-1009', fc: 'G' }] });
+  assert.equal(other.verdicts[0].verdict, 'look');
+  assert.deepEqual(other.symbols.filter(s => s.name === 'PLAIN LONG'), []);
+});
+
+test('grid edge: a WIDGET with its centre 12 pt from the right edge is found', () => {
+  for (const [W, H] of [[620, 400], [675, 400]]) {
+    assert.equal(found(sweepOn(place(WIDGET_SYM, { x: W - 24, y: 100 }), undefined, [W, H]), 'WIDGET').length, 1, `${W} x ${H}`);
+  }
+  // and at the bottom edge, turned on its end
+  assert.equal(found(sweepOn(place(WIDGET_SYM, { x: 100, y: 675 - 24, o: 1 }), undefined, [400, 675]), 'WIDGET').length, 1);
+});
+test('grid edge: the last centre is within sweepStep / 2 of each far edge', () => {
+  const rows = [];
+  C.sweepSymbols({ paths: sweepFrameWith(place(PLATE, { x: 100, y: 100 })), library: PLAIN_LIBRARY, pageSize: [675, 675], onProgress: (d, t) => rows.push(t) });
+  assert.equal(rows[0], 9);   // 40, 120 ... 600, and 635
+});
+test('grid cap: a page side beyond 14400 pt is not swept, at once', () => {
+  const t = performance.now();
+  const r = C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: PLAIN_LIBRARY, pageSize: [1e7, 1e7] });
+  assert.ok(performance.now() - t < 50);
+  assert.equal(r.rows, 0); assert.deepEqual(r.spots, []); assert.equal(r.skipped, null); assert.equal(r.timedOut, false);
+  assert.equal(C.sweepSymbols({ paths: SWEEP_SHEET.paths, library: PLAIN_LIBRARY, pageSize: [14401, 400] }).rows, 0);
+  assert.equal(C.checkSheet({ ...SWEEP_SHEET, pageSize: [1e7, 1e7], library: PLAIN_LIBRARY, lookups: LOOKUPS_B }).symbols.length, 0);
+});
+test('the new default: plain-shape backward score 0.96 (tuned from the spec example 0.97 at the phase 2 gate)', () => {
+  assert.equal(C.CHECK_DEFAULTS.plainBack, 0.96);
+});
+
+// ── Written symbols need writing; every line of a symbol must be on the drawing ──
+import { MOTORISED, STRIP, WRITTEN_LIBRARY } from './fixtures/symbol-check-sheet.js';
+const RING_SYM = BUBBLES.find(s => s.name === 'RING');
+const WIDGET_S = LIBRARY.symbols.find(s => s.name === 'WIDGET');
+const listed = (paths, extra = {}) => C.checkSheet({ pageSize: [600, 400], viewportTransform: VT, paths: sweepFrameWith(paths),
+  textItems: [], tags: [], library: WRITTEN_LIBRARY, lookups: LOOKUPS_B, ...extra }).symbols.map(s => s.name);
+const word = (s, x, y) => label(s, x, y);
+
+test('writing: an empty ring is not listed; with a text item inside, it is', () => {
+  assert.deepEqual(listed(place(RING_SYM, { x: 100, y: 100 })), []);
+  assert.deepEqual(listed(place(RING_SYM, { x: 100, y: 100 }), { textItems: word('AB', 112, 112) }), ['RING']);
+});
+test('writing: letter-like boxes (printed letters) inside the ring list it; boxes outside do not', () => {
+  assert.deepEqual(listed(place(RING_SYM, { x: 100, y: 100 }), { writing: [[115, 115, 120, 123]] }), ['RING']);
+  assert.deepEqual(listed(place(RING_SYM, { x: 100, y: 100 }), { writing: [[200, 115, 205, 123]] }), []);
+});
+test('writing: a lettered symbol is rejected with nothing inside and listed with a word inside', () => {
+  assert.deepEqual(listed(place(MOTORISED, { x: 100, y: 100 })), []);
+  assert.deepEqual(listed(place(MOTORISED, { x: 100, y: 100 }), { textItems: word('M', 106, 106) }), ['MOTORISED']);
+  assert.deepEqual(listed(place(MOTORISED, { x: 100, y: 100 }), { writing: [[108, 104, 112, 111]] }), ['MOTORISED']);
+});
+test('writing: a symbol with no letters needs none', () => {
+  assert.deepEqual(listed(place(WIDGET_S, { x: 100, y: 100 })), ['WIDGET']);
+});
+test('writing: a rejected written symbol still serves the leftover-tag pass', () => {
+  const r = C.checkSheet({ pageSize: [600, 400], viewportTransform: VT, paths: sweepFrameWith(place(MOTORISED, { x: 100, y: 100 })),
+    textItems: label('21-M-1001', 100, 84), tags: [{ tag: '21-M-1001', fc: 'M' }], library: WRITTEN_LIBRARY, lookups: LOOKUPS });
+  assert.equal(r.verdicts[0].verdict, 'ok');
+});
+test('line rule: the strip drawn whole is listed; with one cross-line missing it is not', () => {
+  assert.deepEqual(listed(place(STRIP, { x: 100, y: 100 })), ['STRIP']);
+  const paths = place(STRIP, { x: 100, y: 100 });
+  const missing = paths.filter((_, i) => i !== 2);   // the first square's second diagonal
+  assert.equal(missing.length, paths.length - 1);
+  assert.deepEqual(listed(missing), []);
+});
+test('line rule: a strip whose cross-lines are all missing (squares only) is not listed', () => {
+  assert.deepEqual(listed(place(STRIP, { x: 100, y: 100 }).filter((_, i) => i % 3 === 0)), []);
+});
+test('line rule: a WIDGET with one line drawn 40% short (30% is still within the 0.5 pt ink tolerance, 0.88) is not listed; drawn whole it is', () => {
+  const whole = place(WIDGET_S, { x: 100, y: 100 });
+  const short = [fixtureLine([100, 100, 100, 107.2]), fixtureLine([100, 112, 112, 106]), fixtureLine([100, 100, 112, 106]), whole[1]];
+  assert.deepEqual(listed(whole), ['WIDGET']);
+  assert.deepEqual(listed(short), []);
+});
+test('line rule: LINE_MIN is 0.85, and a line shorter than 3 pt is not held to it', () => {
+  assert.equal(C.LINE_MIN, 0.85);
+  const tiny = { ...WIDGET_S, id: 'tiny', name: 'TINY', paths: [...WIDGET_S.paths, fixtureLine([6, 5, 6, 7])] };
+  const lib = { ...WRITTEN_LIBRARY, symbols: [...WRITTEN_LIBRARY.symbols.filter(x => x.name !== 'WIDGET'), tiny] };
+  assert.ok(listed(place(WIDGET_S, { x: 100, y: 100 }), { library: lib }).includes('TINY'));
+});
+test('line rule: a tag-led symbol with a short line is still answered (tag-led passes untouched)', () => {
+  const short = [fixtureLine([100, 100, 100, 107.2]), fixtureLine([100, 112, 112, 106]), fixtureLine([100, 100, 112, 106]), place(WIDGET_S, { x: 100, y: 100 })[1]];
+  const r = C.checkSheet({ pageSize: [600, 400], viewportTransform: VT, paths: sweepFrameWith(short), textItems: label('21-W-1001', 100, 84),
+    tags: [{ tag: '21-W-1001', fc: 'W' }], library: WRITTEN_LIBRARY, lookups: LOOKUPS });
+  assert.equal(r.verdicts[0].verdict, 'ok');
+});
+test('line rule: two widgets back to back are both listed', () => {
+  const r = listed([...place(WIDGET_S, { x: 100, y: 100 }), ...place(WIDGET_S, { x: 124, y: 100 })]);
+  assert.deepEqual(r, ['WIDGET', 'WIDGET']);
+});
+test('writing: hostile writing never throws and counts as none', () => {
+  for (const w of [null, 'x', 5, [null, undefined, 'a', [NaN, 1, 2, 3], [1, 2], { x: 1 }, [Infinity, 0, 1, 1]]]) {
+    assert.doesNotThrow(() => listed(place(RING_SYM, { x: 100, y: 100 }), { writing: w }));
+    assert.deepEqual(listed(place(RING_SYM, { x: 100, y: 100 }), { writing: w }), []);
+  }
+});
+test('weakestLine: rubbish gives 0, never a throw', () => {
+  for (const bad of [[null, null], [{}, {}], ['x', 5], [{ p: { segs: [[NaN, 0, 1, 1]] }, placement: { o: 0, k: 1, tx: 0, ty: 0 } }, { near: {} }]]) {
+    assert.equal(C.weakestLine(bad[0], bad[1], null), 0);
+  }
 });

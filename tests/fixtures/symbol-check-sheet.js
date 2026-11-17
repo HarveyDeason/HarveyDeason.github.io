@@ -168,4 +168,73 @@ export const SWEEP_SHEET = {
 };
 // The same frame with the title block cut off along the bottom instead.
 export const sweepFrameWith = extra => [...SWEEP_FRAME(), ...extra];
+
+// ── Plain shapes (invented) ───────────────────────────────────────────────
+// A plate: a box with a line across its middle, axis-aligned and plain. A stub:
+// a T, a bar with a stem out to its right (it needs a relaxed `simple` rule to be checked).
+export const PLATE = sym('s11', 'PLATE', 'PLATES', 'L', 30, 15, [loop([[0, 0], [30, 0], [30, 15], [0, 15]]), line([0, 7.5, 30, 7.5])]);
+export const STUB = sym('s12', 'STUB', 'STUBS', 'U', 10, 12, [line([0, 0, 0, 12]), line([0, 6, 10, 6])]);
+export const PLAIN_LIBRARY = { ...SWEEP_LIBRARY, symbols: [...SWEEP_LIBRARY.symbols, PLATE, STUB] };
+
+// ── Printed letters (invented) ────────────────────────────────────────────
+// Rows of invented glyphs: no font, no real letter shape. A filled glyph is a
+// notched rectangle 0.6 h wide and h tall; a stroked glyph is 2 or 3 short open
+// strokes that touch each other. A vertical row is the same with x and y swapped.
+// Glyph widths cycle through three sizes, so a row varies in width as text does.
+const WIDTHS = [1, 0.75, 1.15];
+const flip = (pts, vertical) => (vertical ? pts.map(([a, b]) => [b, a]) : pts);
+export function glyphRow(x, y, n, { h = 7, gap = 1.5, vertical = false, filled = true } = {}) {
+  const out = [];
+  let ox = 0;
+  for (let i = 0; i < n; i++) {
+    const w = 0.6 * h * WIDTHS[i % 3];
+    const pts = [[0, 0], [w, 0], [w, h], [0.6 * w, h], [0.6 * w, 0.6 * h], [0.4 * w, 0.6 * h], [0.4 * w, h], [0, h]]
+      .map(([a, b]) => [a + ox, b]);
+    const q = flip(pts, vertical).map(([a, b]) => [x + a, y + b]);
+    out.push({ ...loop(q), filled });
+    ox += w + gap;
+  }
+  return out;
+}
+export function strokeGlyphRow(x, y, n, { h = 7, gap = 1.5, vertical = false, strokes = 3 } = {}) {
+  const out = [];
+  let ox = 0;
+  for (let i = 0; i < n; i++) {
+    const w = 0.6 * h * WIDTHS[i % 3];
+    const parts = [[[0, 0], [0, h]], [[0, h], [w, h]]];
+    if (strokes >= 3) parts.push([[w, h], [w, h / 2]]);
+    for (const part of parts) {
+      const q = flip(part.map(([a, b]) => [a + ox, b]), vertical).map(([a, b]) => [x + a, y + b]);
+      out.push(line([q[0][0], q[0][1], q[1][0], q[1][1]]));
+    }
+    ox += w + gap;
+  }
+  return out;
+}
 export { line as fixtureLine };
+
+// ── A printed sheet (invented) ────────────────────────────────────────────
+// SWEEP_SHEET's symbols with its letters drawn as shapes and no text: a row
+// beside a WIDGET, a row inside the RING bubble, a vertical row, and four
+// long rows of filler lettering below the symbols (a printed sheet has
+// thousands of paths; the pre-check wants at least 200).
+export const PRINTED_SHEET = {
+  ...SWEEP_SHEET,
+  paths: [...SWEEP_SHEET.paths,
+    ...glyphRow(100, 62, 4),
+    ...glyphRow(70, 216, 3),
+    ...glyphRow(300, 150, 5, { vertical: true }),
+    ...[0, 1, 2, 3].flatMap(i => glyphRow(20, 290 + i * 20, 50))],
+  textItems: [],
+};
+
+// ── Written symbols and runs of a pattern (invented) ──────────────────────
+// MOTORISED: a diamond with a bar across it, which carries a letter (M) when
+// drawn. STRIP: a row of six 8 pt squares, each crossed, the invented stand-in
+// for a drive symbol that lagged pipework also draws.
+export const MOTORISED = sym('s13', 'MOTORISED', 'MOTORS', 'M', 20, 20,
+  [loop([[0, 10], [10, 0], [20, 10], [10, 20]]), line([0, 10, 20, 10])]);
+MOTORISED.letters = [{ text: 'M' }];
+export const STRIP = sym('s14', 'STRIP', 'STRIPS', 'R', 48, 8,
+  Array.from({ length: 6 }, (_, i) => [loop([[i * 8, 0], [i * 8 + 8, 0], [i * 8 + 8, 8], [i * 8, 8]]), line([i * 8, 0, i * 8 + 8, 8]), line([i * 8, 8, i * 8 + 8, 0])]).flat());
+export const WRITTEN_LIBRARY = { ...SWEEP_LIBRARY, symbols: [...SWEEP_LIBRARY.symbols, MOTORISED, STRIP] };

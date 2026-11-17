@@ -54,12 +54,11 @@ test('runReport: each reason a sheet is not checked, and the run goes on to the 
     [{ precheck: async () => null }, R.REASONS.precheckFailed, ''],
     [{ precheck: async () => { throw new Error('bad'); } }, R.REASONS.precheckFailed, ''],
     [{ precheck: async () => ({ status: 'none', tags: [] }) }, R.notReadable('none'), 'none'],
-    [{ check: async () => ({ result: { ok: false, why: 'no-tags' } }) }, R.REASONS.noTags, 'readable'],
     [{ check: async () => ({ result: { ok: false, why: 'failed' } }) }, R.REASONS.failed, 'readable'],
     [{ check: async () => ({ result: null }) }, R.REASONS.failed, 'readable'],
     [{ check: async () => { throw new Error('worker'); } }, R.REASONS.failed, 'readable'],
   ];
-  assert.equal(R.notReadable('none'), 'Pre-check status is No readable text: printed and scanned sheets cannot be checked yet.');
+  assert.equal(R.notReadable('none'), 'Pre-check status is No readable text: this sheet cannot be checked.');
   for (const [over, reason, precheck] of cases) {
     // only the first sheet misbehaves; the second must still be checked
     let n = 0;
@@ -210,5 +209,20 @@ test('runReport: progress carries the stage; a printed sheet says it cannot be c
   assert.equal(R.progressText({ sheet: 2, of: 3, drawing: 'INV-2', done: 3, total: 9, stage: 'tags' }), 'Checking sheet 2 of 3: INV-2, tag 3 of 9…');
   const printed = fakeDeps({ precheck: async () => ({ status: 'none', tags: [] }) });
   const out = await R.runReport({ sheets: SHEETS.slice(0, 1), deps: printed.deps, signal: { stopped: false } });
-  assert.equal(out.outcomes[0].reason, 'Pre-check status is No readable text: printed and scanned sheets cannot be checked yet.');
+  assert.equal(out.outcomes[0].reason, 'Pre-check status is No readable text: this sheet cannot be checked.');
+});
+test('runReport: a printed sheet is checked with its status; scanned is not checked yet; none cannot be checked', async () => {
+  const seen = [];
+  const printed = fakeDeps({ precheck: async () => ({ status: 'printed', tags: [] }),
+    check: async (b, t, o, status) => { seen.push(status); return { result: { ok: true, verdicts: [], symbols: [] }, viewportTransform: VT, pages: 1, pageSize: [500, 400] }; } });
+  const out = await R.runReport({ sheets: SHEETS.slice(0, 1), deps: printed.deps, signal: { stopped: false } });
+  assert.deepEqual(seen, ['printed']);
+  assert.equal(out.outcomes[0].status, 'checked'); assert.equal(out.outcomes[0].precheck, 'printed');
+  assert.deepEqual(out.outcomes[0].result.verdicts, []);
+  const scanned = fakeDeps({ precheck: async () => ({ status: 'scanned', tags: [] }) });
+  const o2 = await R.runReport({ sheets: SHEETS.slice(0, 1), deps: scanned.deps, signal: { stopped: false } });
+  assert.equal(o2.outcomes[0].status, 'not-checked'); assert.equal(o2.outcomes[0].reason, 'Scanned image: not checked yet.');
+  assert.equal(o2.outcomes[0].precheck, 'scanned'); assert.equal(scanned.calls.check, 0);
+  assert.equal(R.notReadable('none'), 'Pre-check status is No readable text: this sheet cannot be checked.');
+  assert.equal(R.REASONS.noTags, undefined);
 });

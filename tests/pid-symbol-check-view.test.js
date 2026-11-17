@@ -17,8 +17,10 @@ test('blockerText: why the check cannot run, or nothing when it can', () => {
   assert.equal(V.blockerText({ ...ok, hasLibrary: false }), 'Load the symbol library first, on the Symbols tab.');
   assert.equal(V.blockerText({ ...ok, status: '' }), 'This sheet has not been pre-checked yet.');
   assert.equal(V.blockerText({ ...ok, status: 'comments' }), '');
-  assert.equal(V.blockerText({ ...ok, status: 'none' }), 'This sheet has no readable text: printed and scanned sheets cannot be checked yet.');
-  assert.equal(V.blockerText({ ...ok, status: 'constructor' }), 'Only a sheet that is Readable, or Readable from comments, can be checked.');
+  assert.equal(V.blockerText({ ...ok, status: 'printed' }), '');
+  assert.equal(V.blockerText({ ...ok, status: 'scanned' }), 'This is a scanned image: scanned sheets cannot be checked yet.');
+  assert.equal(V.blockerText({ ...ok, status: 'none' }), 'This sheet has no readable text and no linework to check.');
+  assert.equal(V.blockerText({ ...ok, status: 'constructor' }), 'Only a Readable, Readable from comments or Printed sheet can be checked.');
   assert.equal(V.blockerText(null), 'Open a sheet first.');
 });
 
@@ -61,7 +63,6 @@ test('resultsHtml: a check that did not run says so', () => {
     assert.ok(html.includes('The symbol check could not run on this sheet.'), String(bad));
     assert.ok(!html.includes('<img'));
   }
-  assert.ok(V.resultsHtml({ ok: false, why: 'no-tags' }).includes('This sheet has no confirmed tags to check.'));
 });
 
 test('boxRects: one rectangle per tag, around the symbol when there is one', () => {
@@ -161,8 +162,8 @@ test('resultsHtml: shows the tag bubble line, escaped', () => {
 });
 
 // ── Symbols found by the sweep ────────────────────────────────────────────
-import { SWEEP_SHEET, SWEEP_LIBRARY, LOOKUPS_B } from './fixtures/symbol-check-sheet.js';
-const NO_TAGS = checkSheet({ ...SWEEP_SHEET, library: SWEEP_LIBRARY, lookups: LOOKUPS_B });
+import { SWEEP_SHEET, SWEEP_LIBRARY, LOOKUPS_B, label } from './fixtures/symbol-check-sheet.js';
+const NO_TAGS = checkSheet({ ...SWEEP_SHEET, textItems: label('AB', 72, 216), library: SWEEP_LIBRARY, lookups: LOOKUPS_B });   // a word in the ring: a bubble needs writing
 const sy = (name, tag = null, more = {}) => ({ name, tagId: '', box: [10, 10, 20, 20], sizePct: 100, score: 1, oneOf: [], bubble: false, tag, ...more });
 
 test('progressHtml: the sweep says which row it is on, with the same Cancel', () => {
@@ -225,4 +226,31 @@ test('a sweep cut short says its symbol list is incomplete, and does not blame t
   assert.ok(V.resultsHtml({ ...r, tagsTimedOut: true }).includes('Tags it did not reach are marked Not checked.'));
   // a result from before these flags existed still says what it always said
   assert.ok(V.resultsHtml({ ok: true, verdicts: [], timedOut: true }).includes('Tags it did not reach are marked Not checked.'));
+});
+
+test('resultsHtml: a printed sheet says its tags are not read and how many letters were left out', () => {
+  const html = V.resultsHtml({ ...NO_TAGS, words: 'printed', letters: { removed: 120, rows: 9 } });
+  assert.ok(html.includes('Tags not read yet: on a printed sheet the letters are drawn as shapes.'), html.slice(0, 300));
+  assert.ok(html.includes('120 letters spotted in 9 rows and left out of the linework.'));
+  assert.ok(!html.includes('No tags read.'));
+  assert.ok(V.resultsHtml({ ...NO_TAGS, words: 'text' }).includes('No tags read.'));
+  const bad = V.resultsHtml({ ...NO_TAGS, words: 'printed', letters: { removed: HOSTILE, rows: null } });
+  assert.ok(!bad.includes('<img'));
+  assert.ok(bad.includes('No letters spotted.'));
+  assert.ok(V.resultsHtml({ ...NO_TAGS, words: 'printed', letters: { removed: 1, rows: 1 } }).includes('1 letter spotted in 1 row and left out of the linework.'));
+  assert.ok(V.resultsHtml({ ...NO_TAGS, words: 'printed', letters: { removed: 1, rows: 3 } }).includes('1 letter spotted in 3 rows and left out'));
+});
+test('resultsHtml: a plain untagged symbol is marked to check by eye, and escaped', () => {
+  const r = { ok: true, verdicts: [], words: 'printed', symbols: [sy('BOXY', null, { plain: true }), sy('ROUND', null, { plain: false }), sy(HOSTILE, null, { plain: true })] };
+  const html = V.resultsHtml(r);
+  const rs = rows(html);
+  assert.ok(rs.find(x => x.includes('BOXY')).includes('<span class="sc-detail">(plain shape: check by eye)</span>'));
+  assert.ok(!rs.find(x => x.includes('ROUND')).includes('plain shape'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(html.includes('&lt;img'));
+});
+test('boxRects: a plain symbol carries the plain note in its title', () => {
+  const rects = V.boxRects({ ok: true, verdicts: [], symbols: [sy('BOXY', null, { plain: true }), sy('ROUND')] }, 1);
+  assert.ok(rects.find(r => r.title.startsWith('BOXY')).title.endsWith(' Plain shape: check by eye.'));
+  assert.ok(!rects.find(r => r.title.startsWith('ROUND')).title.includes('Plain shape'));
 });

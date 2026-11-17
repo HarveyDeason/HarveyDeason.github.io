@@ -3,11 +3,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SHX_COMMENT_AUTHOR, plainCommentText, sheetComments, countTextItems, paperSize, producedBy,
   STATUS_LABELS, sheetStatus, assessSheet, tagsToRegister, compareWithRegister, readSheetFacts,
-  checkChipHtml, checkCellHtml, checkHtml, importSummary } from '../assets/js/pid-precheck.js';
+  checkChipHtml, checkCellHtml, checkHtml, importSummary, PRINTED_MIN_PATHS, SCAN_COVER } from '../assets/js/pid-precheck.js';
 import { readFileSync } from 'node:fs';
 import { extractTags } from '../assets/js/pid-core.js';
 import { FIXTURE_LOOKUPS, CORPUS } from './fixtures/pid-tag-corpus.js';
-import { openPdf } from '../scripts/pdfjs-node.mjs';
+import { openPdf, loadVendoredPdfjs } from '../scripts/pdfjs-node.mjs';
 import { sheetPdf, SHEETS } from './fixtures/sheet-pdf.js';
 
 test('plainCommentText: strips AutoCAD formatting codes and reads a line break as a space', () => {
@@ -83,7 +83,7 @@ test('sheetStatus: one status per sheet, from where its text can be read', () =>
   assert.equal(sheetStatus({ textItemCount: 12, textTagCount: 0, commentCount: 0 }), 'readable');
   assert.equal(sheetStatus({ textItemCount: 0, textTagCount: 0, commentCount: 0 }), 'none');
   for (const bad of [undefined, null, 5, {}, { textTagCount: 'x', commentCount: NaN }]) assert.equal(sheetStatus(bad), 'none');
-  assert.deepEqual(STATUS_LABELS, { readable: 'Readable', comments: 'Readable from comments', none: 'No readable text' });
+  assert.deepEqual(STATUS_LABELS, { readable: 'Readable', comments: 'Readable from comments', printed: 'Printed: letters drawn as shapes', scanned: 'Scanned image', none: 'No readable text' });
 });
 
 test('golden: a drawing whose text layer gives any tag registers exactly what it does today, whatever its comments hold', () => {
@@ -138,7 +138,7 @@ test('assessSheet: labels in comments with no tags is still Readable from commen
 test('assessSheet: a printed PDF has no readable text, and says what made it', () => {
   const check = assessSheet({ text: '\n', facts: facts([page()], { Creator: '', Producer: 'Invented Printer' }), extractOptions: OPTS });
   assert.deepEqual([check.status, check.source, check.textItemCount, check.commentCount], ['none', 'none', 0, 0]);
-  assert.deepEqual(check.findings, ['No readable text: this PDF was printed, not plotted. Tags cannot be read.', 'No DS310 tags found.',
+  assert.deepEqual(check.findings, ['No readable text, and too little linework to check.', 'No DS310 tags found.',
     'Made with: Invented Printer.', 'Sheet size: A1 landscape (841 × 594 mm).']);
   const bare = assessSheet({ text: '\n', facts: facts([page({ width: 0 })], {}), extractOptions: OPTS });
   assert.deepEqual(bare.findings.slice(2), ['Made with: not recorded in the PDF.', 'Sheet size: not known.']);
@@ -266,7 +266,7 @@ const check = async name => { const f = await read(SHEETS[name]); return assessS
 
 test('checkChipHtml and checkCellHtml: the status, with the findings on hover', async () => {
   const printed = await check('printed');
-  assert.equal(checkChipHtml(printed), '<span class="pc-chip pc-none" title="No readable text: this PDF was printed, not plotted. Tags cannot be read. '
+  assert.equal(checkChipHtml(printed), '<span class="pc-chip pc-none" title="No readable text, and too little linework to check. '
     + 'No DS310 tags found. Made with: Invented Printer. Sheet size: A1 landscape (841 × 594 mm).">No readable text</span>');
   assert.equal(checkCellHtml(printed), checkChipHtml(printed) + ' <span class="pc-note">No DS310 tags found.</span>');
   const plotted = await check('plotted');
@@ -320,4 +320,74 @@ test('importSummary: says how many PDFs will be registered with no tags, and not
   assert.equal(importSummary([printed, printed, null]), '2 of 3 PDFs have no readable text. 1 of 3 could not be checked. Importing registers them with no tags.');
   assert.equal(importSummary([null, undefined]), '2 of 2 could not be checked.');
   for (const bad of [undefined, null, 5, {}, []]) assert.equal(importSummary(bad), '');
+});
+
+// ── Printed and scanned ──
+const { OPS: PDF_OPS } = loadVendoredPdfjs();
+const readInk = async spec => readSheetFacts(await openPdf(sheetPdf(spec)), { OPS: PDF_OPS });
+const checkInk = async spec => { const f = await readInk(spec); return assessSheet({ text: f.text, facts: f, extractOptions: OPTS }); };
+const PRINTED = { info: { Producer: 'Invented Printer' }, pages: [{ size: [600, 400], strokes: 250 }] };
+const SCANNED = { info: { Producer: 'Invented Scanner' }, pages: [{ size: [600, 400], image: true }] };
+
+test('sheetStatus: printed and scanned, from path count and image cover, only when there is no text or comment', () => {
+  assert.deepEqual([PRINTED_MIN_PATHS, SCAN_COVER], [200, 0.9]);
+  assert.equal(sheetStatus({ textItemCount: 0, commentCount: 0, pathCount: 13000, imageCover: 0 }), 'printed');
+  assert.equal(sheetStatus({ textItemCount: 0, commentCount: 0, pathCount: 0, imageCover: 1 }), 'scanned');
+  assert.equal(sheetStatus({ pathCount: 0, imageCover: 1 }), 'scanned');
+  assert.equal(sheetStatus({ pathCount: 5, imageCover: 0.2 }), 'none');
+  assert.equal(sheetStatus({ pathCount: 199, imageCover: 0.95 }), 'scanned');
+  assert.equal(sheetStatus({ pathCount: 200, imageCover: 1 }), 'printed');
+  assert.equal(sheetStatus({ pathCount: 100, imageCover: 0.5 }), 'none');
+  assert.equal(sheetStatus({}), 'none');
+  assert.equal(sheetStatus({ pathCount: 'x', imageCover: NaN }), 'none');
+  assert.equal(sheetStatus({ textItemCount: 3, pathCount: 13000, imageCover: 1 }), 'readable');
+  assert.equal(sheetStatus({ commentCount: 2, pathCount: 13000, imageCover: 1 }), 'comments');
+  assert.equal(sheetStatus({ textTagCount: 1, pathCount: 13000, imageCover: 1 }), 'readable');
+});
+
+test('readSheetFacts with OPS: a textless page gets ink facts; a page with text or comments never fetches the operator list', async () => {
+  const stroked = await readInk(PRINTED);
+  assert.ok(stroked.pages[0].ink.pathCount >= 250);
+  assert.equal(stroked.pages[0].ink.imageCover, 0);
+  const pic = await readInk(SCANNED);
+  assert.ok(pic.pages[0].ink.imageCover >= 0.99);
+  const plotted = await readInk(SHEETS.plotted);
+  assert.deepEqual(plotted, await read(SHEETS.plotted));
+  assert.ok(plotted.pages.every(p => !('ink' in p)));
+  // Without OPS: today's output for the printed page.
+  assert.ok(!('ink' in (await read(PRINTED)).pages[0]));
+  let fetched = 0;
+  const doc = { numPages: 1, getPage: async () => ({ getViewport: () => ({ width: 200, height: 100, transform: [1, 0, 0, -1, 0, 100] }),
+    getTextContent: async () => ({ items: [{ str: 'A' }] }), getAnnotations: async () => [], getOperatorList: async () => { fetched++; return { fnArray: [], argsArray: [] }; } }),
+    getMetadata: async () => ({ info: {} }) };
+  await readSheetFacts(doc, { OPS: PDF_OPS });
+  assert.equal(fetched, 0);
+});
+
+test('readSheetFacts with OPS: a failed operator list leaves ink out', async () => {
+  const doc = { numPages: 1, getPage: async () => ({ getViewport: () => ({ width: 200, height: 100 }), getTextContent: async () => ({ items: [] }),
+    getAnnotations: async () => [], getOperatorList: async () => { throw new Error('no'); } }), getMetadata: async () => ({ info: {} }) };
+  const f = await readSheetFacts(doc, { OPS: PDF_OPS });
+  assert.deepEqual(f.pages, [{ width: 200, height: 100, textItemCount: 0, comments: [], otherAnnotations: 0 }]);
+});
+
+test('assessSheet: printed and scanned, with their chip, findings and summary; no ink means none', async () => {
+  const printed = await checkInk(PRINTED), scanned = await checkInk(SCANNED);
+  assert.equal(printed.status, 'printed');
+  assert.equal(scanned.status, 'scanned');
+  assert.ok(printed.findings.includes('Printed: letters are drawn as shapes, so tags cannot be read yet. Symbols can still be checked.'));
+  assert.ok(scanned.findings.includes('Scanned image: tags and symbols cannot be read yet.'));
+  assert.ok(!printed.findings.some(f => f.startsWith('No readable text')));
+  assert.ok(checkChipHtml(printed).startsWith('<span class="pc-chip pc-printed" title="'));
+  assert.ok(checkChipHtml(printed).endsWith('>Printed: letters drawn as shapes</span>'));
+  assert.ok(checkChipHtml(scanned).endsWith('>Scanned image</span>'));
+  assert.deepEqual([STATUS_LABELS.printed, STATUS_LABELS.scanned, STATUS_LABELS.none],
+    ['Printed: letters drawn as shapes', 'Scanned image', 'No readable text']);
+  assert.equal(importSummary([printed, scanned, await check('plotted')]), '2 of 3 PDFs have no readable text. Importing registers them with no tags.');
+  // Several pages: paths add up, and every page must be covered to be scanned.
+  assert.equal((await checkInk({ pages: [{ size: [600, 400], image: true }, { size: [600, 400] }] })).status, 'none');
+  assert.equal((await checkInk({ pages: [{ size: [600, 400], image: true }, { size: [600, 400], image: true }] })).status, 'scanned');
+  assert.equal((await checkInk({ pages: [{ size: [600, 400], strokes: 120 }, { size: [600, 400], strokes: 120 }] })).status, 'printed');
+  // No ink facts at all: none, never a guess.
+  assert.equal((await check('printed')).status, 'none');
 });

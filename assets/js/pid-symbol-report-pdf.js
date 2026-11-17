@@ -148,7 +148,7 @@ function swatchAt(page, PDFLib, kind, x, y, wd, ht) {
 
 const countsLine = counts => {
   const c = obj(counts);
-  return SUMMARY_ORDER.map(k => [k, count(c[k])]).filter(x => x[1]).map(x => x[1] + ' ' + VERDICT_LABELS[x[0]]).join(' · ') || 'No tags.';
+  return SUMMARY_ORDER.map(k => [k, count(c[k])]).filter(x => x[1]).map(x => x[1] + ' ' + VERDICT_LABELS[x[0]]).join(' · ')
 };
 
 // In the page's user space, which way is right and which is up for someone viewing it, by its /Rotate.
@@ -263,7 +263,7 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.text(str(s.drawing), { size: 16, bold: true, gap: 0.2 });
     w.text('Revision ' + str(s.rev) + (str(s.family) ? '. Family: ' + str(s.family) + '.' : ''), { size: 10, gap: 0.1 });
     w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
-    w.text(countsLine(s.counts), { size: 10, gap: 0.1 });
+    w.text(countsLine(s.counts) || str(s.tagsLine) || 'No tags read.', { size: 10, gap: 0.1 });
     if (str(s.bubbleLine)) w.text(str(s.bubbleLine), { size: 10, gap: 0.1 });
     if (str(s.symbolLine)) w.text(str(s.symbolLine), { size: 10, gap: 0.1 });
     if (str(s.skippedLine)) w.text(str(s.skippedLine), { size: 10, gap: 0.1 });

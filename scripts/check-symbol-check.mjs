@@ -10,8 +10,11 @@
 //        [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]
 //        [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--verbose]
 //        [--instrument "<CODE,CODE,...>"]   function codes the tool's lookup classes as instruments
-//        [--words text|comments]           where the words are: the text layer (default), or the comments
-//                                          ("Readable from comments": letters drawn as strokes, text kept in comments)
+//        [--symbols-out <file>]            write the symbols found (names and boxes) as JSON; refused inside the repository
+//        [--compare <file>]                compare the symbols found with such a file (--verbose lists the differences)
+//        [--words text|comments|printed]   where the words are: the text layer (default), or the comments
+//                                          ("Readable from comments": letters drawn as strokes, text kept in comments),
+//                                          or none ("printed": letters are shapes; spotted ones are left out, no tags)
 //   node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]
 //
 // It runs the same module code, through the same vendored pdf.js, as the
@@ -28,14 +31,14 @@ import { extractTags } from '../assets/js/pid-core.js';
 import { checkSheet, VERDICTS, prepareSymbols } from '../assets/js/pid-symbol-check.js';
 import { bubbleSummary, symbolSummary } from '../assets/js/pid-symbol-check-view.js';
 import { sheetComments } from '../assets/js/pid-precheck.js';
-import { commentWords, letterBoxes, removeLetterInk } from '../assets/js/pid-sheet-read.js';
+import { commentWords, letterBoxes, removeLetterInk, removeSpottedLetters, glyphsOf } from '../assets/js/pid-sheet-read.js';
 
 const USAGE = [
   'Usage:',
   '  node scripts/check-symbol-check.mjs "<drawing pdf>" (--legend "<legend pdf>" | --library "<symbol-library.json>")',
   '       [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]',
   '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--instrument "<CODE,...>"]',
-  '       [--words text|comments] [--verbose]',
+  '       [--words text|comments|printed] [--symbols-out <file>] [--compare <file>] [--verbose]',
   '  node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]',
 ].join('\n');
 const LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-family': 'Wrong family', exception: 'Approved exception', look: 'Needs a look', 'not-checked': 'Not checked' };
@@ -48,15 +51,18 @@ const LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-family': 'Wrong fa
  */
 export async function readSheet(data, options) {
   try {
-    const words = options && options.words === 'comments' ? 'comments' : 'text';
+    const words = options && (options.words === 'comments' || options.words === 'printed') ? options.words : 'text';
     const pdfjsLib = loadVendoredPdfjs();
     const doc = await openPdf(data);
     const page = await doc.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
     const ol = await page.getOperatorList();
     let textItems = (await page.getTextContent()).items;
+    const textCount = textItems.length;
     let paths = pagePaths(ol.fnArray, ol.argsArray, pdfjsLib.OPS, viewport.transform);
-    let text = textItems.map(i => i.str).join(' ') + '\n', removed = 0, comments = [];
+    const pathCount = paths.length;   // before any letter removal
+    let writing = [];
+    let text = textItems.map(i => i.str).join(' ') + '\n', removed = 0, comments = [], letters = { removed: 0, rows: 0 };
     if (words === 'comments') {
       comments = sheetComments(await page.getAnnotations()).comments;
       const kept = removeLetterInk(paths, letterBoxes(comments, viewport.transform));
@@ -65,10 +71,17 @@ export async function readSheet(data, options) {
       // The same joining as assessSheet for one page: a space between comments, a newline after the page.
       text = comments.map(c => c.text).join(' ') + '\n';
     }
+    if (words === 'printed') {
+      // As the worker does: spotted letters out of the linework, no words, no tags.
+      writing = glyphsOf(paths).map(g => g.box);   // before the letters are taken out
+      const s = removeSpottedLetters(paths);
+      paths = s.paths; removed = s.removed; letters = { removed: s.removed, rows: s.rows };
+      textItems = []; text = '\n';
+    }
     // Tag reading does not depend on the DS310 lookup tables, which stay in the tool.
     const found = extractTags(text, { drawingName: 'CHECK', revision: '', lookups: {} });
     return { ok: true, paths, textItems, viewportTransform: viewport.transform, width: viewport.width, height: viewport.height,
-      pageSize: [viewport.width, viewport.height], words, comments: comments.length, removed,
+      pageSize: [viewport.width, viewport.height], writing, textCount, pathCount, words, comments: comments.length, removed, letters,
       tags: found.confirmed.map(t => ({ tag: t.tag, fc: t.fc })) };
   } catch {
     return { ok: false };
@@ -144,6 +157,56 @@ export function bubbleSelfTest(library, options) {
   }
 }
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/** True when the path resolves to somewhere inside the repository (or cannot be told, which is refused too). */
+export function insideRepo(file) {
+  try {
+    if (typeof file !== 'string' || !file) return true;
+    const rel = path.relative(REPO_ROOT, path.resolve(file));
+    return rel === '' || !(rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel));
+  } catch { return true; }
+}
+
+const EMPTY_MATCH = () => ({ matched: 0, missing: [], extra: [], offset: [0, 0] });
+const goodSym = s => s && typeof s === 'object' && typeof s.name === 'string' && Array.isArray(s.box) && s.box.length === 4 && s.box.every(v => Number.isFinite(v));
+const centre = s => [(s.box[0] + s.box[2]) / 2, (s.box[1] + s.box[3]) / 2];
+const sameSym = (a, b) => a.name === b.name || (Array.isArray(b.oneOf) && b.oneOf.includes(a.name)) || (Array.isArray(a.oneOf) && a.oneOf.includes(b.name));
+const median = list => { const v = [...list].sort((x, y) => x - y), n = v.length; return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2; };
+
+/**
+ * Compare two lists of symbols ({ name, oneOf, box }). Same = one's name is the other's name or in its oneOf,
+ * and the centres lie within `tol` pt once the sheet-wide offset is taken off. The offset is the median shift of
+ * each truth symbol to its nearest same-named found symbol within `search` pt, or [0, 0] with fewer than 3 pairs.
+ * Pairing is greedy, nearest first, each symbol used once. Never throws.
+ */
+export function matchSymbolLists(truth, found, { tol = 3, search = 20 } = {}) {
+  try {
+    const T = (Array.isArray(truth) ? truth : []).filter(goodSym), F = (Array.isArray(found) ? found : []).filter(goodSym);
+    const tc = T.map(centre), fc = F.map(centre);
+    const dxs = [], dys = [];
+    T.forEach((t, i) => {
+      let best = null, bd = Infinity;
+      F.forEach((f, j) => {
+        if (!sameSym(t, f)) return;
+        const d = Math.hypot(fc[j][0] - tc[i][0], fc[j][1] - tc[i][1]);
+        if (d <= search && d < bd) { bd = d; best = j; }
+      });
+      if (best != null) { dxs.push(fc[best][0] - tc[i][0]); dys.push(fc[best][1] - tc[i][1]); }
+    });
+    const offset = dxs.length >= 3 ? [median(dxs), median(dys)] : [0, 0];
+    const pairs = [];
+    T.forEach((t, i) => F.forEach((f, j) => {
+      if (!sameSym(t, f)) return;
+      const d = Math.hypot(fc[j][0] - offset[0] - tc[i][0], fc[j][1] - offset[1] - tc[i][1]);
+      if (d <= tol) pairs.push([d, i, j]);
+    }));
+    pairs.sort((a, b) => a[0] - b[0]);
+    const usedT = new Set(), usedF = new Set();
+    for (const [, i, j] of pairs) { if (usedT.has(i) || usedF.has(j)) continue; usedT.add(i); usedF.add(j); }
+    return { matched: usedT.size, missing: T.filter((_, i) => !usedT.has(i)), extra: F.filter((_, j) => !usedF.has(j)), offset };
+  } catch { return EMPTY_MATCH(); }
+}
+
 function fail(message) { console.error(message); process.exitCode = 1; }
 // --instrument "LE,PE": these function codes are instruments, as the tool's own lookup says.
 const instrumentCodes = list => Object.fromEntries(String(list || '').split(/[\s,]+/).map(c => c.trim().toUpperCase()).filter(Boolean).map(c => [c, 'instrument']));
@@ -193,6 +256,13 @@ async function main() {
     return;
   }
   if (!opts.file || (!opts.legend && !opts.library)) return fail(USAGE);
+  // The symbol list holds legend names, so it may only go in the private folder: refuse before doing anything.
+  if ('symbols-out' in opts && (!opts['symbols-out'] || insideRepo(opts['symbols-out']))) return fail('--symbols-out must name a file outside the repository (the list holds legend names).');
+  let compareWith = null;
+  if (opts.compare) {
+    try { compareWith = JSON.parse(await fs.readFile(opts.compare, 'utf8')); } catch { return fail(`Could not read ${opts.compare} as a symbol list.`); }
+    if (!compareWith || !Array.isArray(compareWith.symbols)) return fail(`${opts.compare} is not a symbol list.`);
+  }
   const buf = await readOr(opts.file);
   if (!buf) return fail(`Could not read ${opts.file}.`);
   let library = await loadLibrary(opts);
@@ -203,13 +273,14 @@ async function main() {
     console.log(`Tag identifier set on ${set.changed} symbols.`);
     if (!set.changed) return fail('No symbol has that table heading. Check --set-tag-id.');
   }
-  const words = opts.words === 'comments' ? 'comments' : 'text';
-  if (opts.words && opts.words !== 'comments' && opts.words !== 'text') return fail('--words is text or comments.');
+  const words = opts.words === 'comments' || opts.words === 'printed' ? opts.words : 'text';
+  if (opts.words && opts.words !== 'comments' && opts.words !== 'text' && opts.words !== 'printed') return fail('--words is text, comments or printed.');
   const sheet = await readSheet(new Uint8Array(buf), { words });
   if (!sheet.ok) return fail(`${opts.file} could not be read as a PDF.`);
   if (words === 'comments') console.log(`Words from ${sheet.comments} comments; ${sheet.removed} letter paths left out of the linework.`);
+  if (words === 'printed') console.log(`  letters spotted: ${sheet.letters.removed} paths in ${sheet.letters.rows} rows`);
 
-  let input = { paths: sheet.paths, textItems: sheet.textItems, viewportTransform: sheet.viewportTransform, tags: sheet.tags, pageSize: sheet.pageSize,
+  let input = { paths: sheet.paths, writing: sheet.writing, textItems: sheet.textItems, viewportTransform: sheet.viewportTransform, tags: sheet.tags, pageSize: sheet.pageSize,
     library, lookups: { fc: instrumentCodes(opts.instrument) }, options: opts.noTwin ? { twin: false } : {} };
   const grid = opts.grid ? String(opts.grid).split(':') : null;
   if (grid) {
@@ -228,6 +299,7 @@ async function main() {
   const result = checkSheet(input);
   if (!result.ok) return fail(`The check did not run (${result.why}).`);
   console.log(`\n${path.basename(opts.file)}`);
+  console.log(`  format: text items ${sheet.textCount}, comments ${sheet.comments}, paths ${sheet.pathCount}`);
   console.log(`  tags ${input.tags.length}, located ${result.verdicts.filter(v => v.tagBox).length}`);
 
   if (grid) {
@@ -259,6 +331,20 @@ async function main() {
   const symbols = Array.isArray(result.symbols) ? result.symbols : [];
   const withTags = symbols.filter(s => s.tag).length;
   console.log(`  symbols found ${symbols.length}, with tags ${withTags}, without tags ${symbols.length - withTags}`);
+  const plain = symbols.map(s => ({ name: s.name, oneOf: Array.isArray(s.oneOf) ? s.oneOf : [], box: s.box }));
+  if (opts['symbols-out']) {
+    try { await fs.writeFile(opts['symbols-out'], JSON.stringify({ sheet: path.basename(opts.file), symbols: plain })); }
+    catch { return fail(`Could not write ${opts['symbols-out']}.`); }
+  }
+  if (compareWith) {
+    const m = matchSymbolLists(compareWith.symbols, plain);
+    console.log(`  compared with ${path.basename(opts.compare)}: matched ${m.matched} of ${m.matched + m.missing.length}, missing ${m.missing.length}, extra ${m.extra.length}, offset ${Math.round(m.offset[0] * 100) / 100}, ${Math.round(m.offset[1] * 100) / 100}`);
+    if (opts.verbose) {
+      const fmt = s => `${s.name}  [${s.box.map(v => Math.round(v * 10) / 10).join(', ')}]`;
+      for (const s of m.missing) console.log(`    missing  ${fmt(s)}`);
+      for (const s of m.extra) console.log(`    extra  ${fmt(s)}`);
+    }
+  }
   console.log(`  Title block skipped: ${result.skipped ? 'yes, ' + Math.round(result.skipped[2] - result.skipped[0]) + ' x ' + Math.round(result.skipped[3] - result.skipped[1]) + ' pt' : 'no'}`);
   if (opts.verbose) {
     console.log(`  ${symbolSummary(result)}`);
@@ -266,7 +352,7 @@ async function main() {
     for (const s of symbols) { const k = s.name + (s.tag ? '' : ' (no tag)'); byName.set(k, (byName.get(k) || 0) + 1); }
     for (const [k, n] of [...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) console.log(`    ${n}  ${k}`);
     for (const s of symbols.filter(x => !x.tag)) {
-      console.log(`    untagged  ${s.name}  ${s.sizePct}%  ${s.score}  [${s.box.map(v => Math.round(v * 10) / 10).join(', ')}]${s.oneOf.length ? '  one of ' + s.oneOf.join(' | ') : ''}`);
+      console.log(`    untagged  ${s.name}  ${s.sizePct}%  ${s.score}  [${s.box.map(v => Math.round(v * 10) / 10).join(', ')}]${s.plain ? '  plain' : ''}${s.oneOf.length ? '  one of ' + s.oneOf.join(' | ') : ''}`);
     }
   }
   console.log(`  Proposals per tag: ${input.tags.length ? Math.round(result.proposals / input.tags.length) : 0}`);

@@ -57,3 +57,13 @@ test('the command line: passes only when every PDF has the status expected of it
     assert.doesNotMatch(missing.stderr, /\n\s+at /);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('checkPdf: a printed sheet and a scanned one get their own statuses; a plotted one is unchanged', async () => {
+  const printed = await checkPdf(sheetPdf({ pages: [{ size: [600, 400], strokes: 250 }] }));
+  assert.deepEqual([printed.check.status, printed.unchanged], ['printed', true]);
+  assert.deepEqual([printed.ink.pathCount >= 250, printed.ink.imageCover], [true, 0]);
+  const scanned = await checkPdf(sheetPdf({ pages: [{ size: [600, 400], image: true }] }));
+  assert.equal(scanned.check.status, 'scanned');
+  assert.ok(scanned.ink.imageCover >= 0.99);
+  assert.equal((await checkPdf(sheetPdf(SHEETS.plotted))).ink, null);
+});

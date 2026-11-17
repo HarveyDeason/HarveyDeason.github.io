@@ -13,6 +13,7 @@ import { esc } from './pid-symbols-view.js';
 const isNum = x => typeof x === 'number' && Number.isFinite(x);
 const asArr = x => (Array.isArray(x) ? x : []);
 const str = x => (typeof x === 'string' ? x : '');
+const letterLine = lt => { const n = count(lt.removed), r = count(lt.rows); return n === 0 ? 'No letters spotted.' : n + (n === 1 ? ' letter' : ' letters') + ' spotted in ' + r + (r === 1 ? ' row' : ' rows') + ' and left out of the linework.'; };
 const count = x => (isNum(x) && x > 0 ? Math.floor(x) : 0);
 
 // The limit of what the check can say. Shown above every set of results.
@@ -36,8 +37,9 @@ export function blockerText(state) {
   if (s.running) return 'A check is running.';
   if (!s.hasLibrary) return 'Load the symbol library first, on the Symbols tab.';
   if (!str(s.status)) return 'This sheet has not been pre-checked yet.';
-  if (s.status === 'none') return 'This sheet has no readable text: printed and scanned sheets cannot be checked yet.';
-  if (s.status !== 'readable' && s.status !== 'comments') return 'Only a sheet that is Readable, or Readable from comments, can be checked.';
+  if (s.status === 'scanned') return 'This is a scanned image: scanned sheets cannot be checked yet.';
+  if (s.status === 'none') return 'This sheet has no readable text and no linework to check.';
+  if (s.status !== 'readable' && s.status !== 'comments' && s.status !== 'printed') return 'Only a Readable, Readable from comments or Printed sheet can be checked.';
   return '';
 }
 
@@ -127,8 +129,7 @@ export function verdictSentence(v) {
 /** The results under the sheet toolbar: what the check can say, the counts, and a row per tag that jumps to it. */
 export function resultsHtml(result) {
   if (!usable(result)) {
-    const why = result && typeof result === 'object' && result.why === 'no-tags' ? 'This sheet has no confirmed tags to check.' : COULD_NOT_RUN;
-    return '<div class="sc-line">' + why + '</div>';
+    return '<div class="sc-line">' + COULD_NOT_RUN + '</div>';
   }
   const list = verdictsOf(result).map(x => ({ ...x, kind: kindOf(x.v) }));
   const counts = SUMMARY_ORDER.map(k => [k, list.filter(x => x.kind === k).length]).filter(c => c[1])
@@ -138,12 +139,16 @@ export function resultsHtml(result) {
   // A <details>, so the list folds away to its one summary line and the
   // drawing can be seen. The summary keeps the counts and, in short, the limit
   // of what the check can say; the full note is the first thing in the body.
-  let out = '<details class="sc-results" open><summary>' + esc(counts ? counts + '.' : 'No tags read.') + took
+  const printed = result.words === 'printed';
+  const lt = result.letters && typeof result.letters === 'object' ? result.letters : null;
+  let out = '<details class="sc-results" open><summary>'
+    + esc(counts ? counts + '.' : printed ? 'Tags not read yet: on a printed sheet the letters are drawn as shapes.' : 'No tags read.') + took
     + ' <span class="sc-hint">It checks the family of symbol, not which member of it.</span></summary>'
     + '<div class="sc-note">' + esc(FAMILY_NOTE) + '</div>'
     + '<div class="sc-summary">'
     + (tagsTimedOut(result) ? 'The check stopped at its time limit. Tags it did not reach are marked Not checked. ' : '')
     + 'Results are shown here and are not saved.</div>'
+    + (printed && lt ? '<div class="sc-summary">' + esc(letterLine(lt)) + '</div>' : '')
     + (bubbleSummary(result) ? '<div class="sc-summary">' + esc(bubbleSummary(result)) + '</div>' : '')
     + (symbolSummary(result) ? '<div class="sc-summary">' + esc(symbolSummary(result)) + '</div>' : '')
     + (isBox(result.skipped) ? '<div class="sc-summary">' + SKIPPED_NOTE + '</div>' : '')
@@ -168,6 +173,7 @@ export function resultsHtml(result) {
       out += '<li><button type="button" class="sc-row sc-symbol" data-act="sym-jump-s" data-s="' + n + '">'
         + '<strong>' + esc(str(s.name)) + '</strong>'
         + (alts.length > 1 ? ' <span class="sc-detail">(one of: ' + esc(alts.join(', ')) + ')</span>' : '')
+        + (s.plain === true ? ' <span class="sc-detail">(plain shape: check by eye)</span>' : '')
         + '</button></li>';
     }
     out += '</ul>';
@@ -198,7 +204,7 @@ export function boxRects(result, scale) {
     width: (b[2] - b[0]) * scale + 2 * MARGIN, height: (b[3] - b[1]) * scale + 2 * MARGIN });
   asArr(symbolsOf(result)).forEach((s, n) => {
     if (!untagged(s) || !isBox(s.box)) return;
-    out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' });
+    out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' + (s.plain === true ? ' Plain shape: check by eye.' : '') });
   });
   if (isBox(result.skipped)) out.push({ kind: 'skipped', ...rect(result.skipped), title: SKIPPED_NOTE });
   return out;

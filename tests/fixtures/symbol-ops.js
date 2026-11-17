@@ -2,7 +2,9 @@
 const NAMES = ['save', 'restore', 'transform', 'constructPath', 'stroke', 'closeStroke', 'fill', 'eoFill',
   'fillStroke', 'eoFillStroke', 'closeFillStroke', 'closeEOFillStroke', 'endPath', 'clip', 'setLineWidth',
   'setStrokeRGBColor', 'setFillRGBColor', 'paintFormXObjectBegin', 'paintFormXObjectEnd',
-  'moveTo', 'lineTo', 'curveTo', 'curveTo2', 'curveTo3', 'closePath', 'rectangle', 'showText'];
+  'moveTo', 'lineTo', 'curveTo', 'curveTo2', 'curveTo3', 'closePath', 'rectangle', 'showText',
+  'paintImageXObject', 'paintInlineImageXObject', 'paintImageMaskXObject', 'paintImageXObjectRepeat',
+  'paintInlineImageXObjectGroup', 'paintImageMaskXObjectGroup'];
 export const FAKE_OPS = Object.fromEntries(NAMES.map((n, i) => [n, 901 + i]));
 const LETTER = { M: 'moveTo', L: 'lineTo', C: 'curveTo', V: 'curveTo2', Y: 'curveTo3', Z: 'closePath', R: 'rectangle' };
 

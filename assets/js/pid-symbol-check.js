@@ -35,7 +35,10 @@ export const CHECK_DEFAULTS = Object.freeze({
   timeLimitMs: 120000,                // a check still running after this stops and says so
   shareInk: 0.5,                      // two hits sharing this much ink are one physical symbol
   sweepStep: 80,                      // points between the sweep's centres: every point is within 57 pt of one
+  plainBack: 0.96,                    // a plain symbol found by the sweep must explain this much of the ink in its box
 });
+
+const MAX_SWEEP_SIDE = 14400;         // points: the largest PDF page. A larger side is not swept.
 
 export const VERDICTS = ['ok', 'off-size', 'wrong-family', 'exception', 'look', 'not-checked'];
 
@@ -240,8 +243,10 @@ const MAX_SYMBOL_SEGS = 4000;   // the largest symbol on a real legend has a few
 const tagCodes = tagId => str(tagId).toUpperCase().split(/[\s,/;]+/).filter(Boolean);
 
 function prepareOne(symbol, cfg) {
-  const out = { symbol, checkable: false, why: '', segs: [], keys: [], loops: [], points: [] };
+  const out = { symbol, checkable: false, why: '', segs: [], keys: [], loops: [], points: [], plain: false };
   const s = asObj(symbol), flags = asObj(s.flags);
+  let pieces = 0;   // straight pieces, consecutive collinear segments of one path joined
+  let prev = null;
   let total = 0, x1 = -Infinity, y1 = -Infinity, x0 = Infinity, y0 = Infinity;
   // The library comes from a shared folder. A coordinate far off any sheet,
   // or a symbol of thousands of segments, is not walked: the symbol is set
@@ -251,12 +256,18 @@ function prepareOne(symbol, cfg) {
     if (wild) break;
     if (!p || typeof p !== 'object' || !Array.isArray(p.segs)) continue;
     let n = 0;
+    prev = null;
     for (let i = 0; i + 3 < p.segs.length; i += 4) {
       const q = p.segs.slice(i, i + 4);
       if (!q.every(isNum)) continue;
       if (out.segs.length >= MAX_SYMBOL_SEGS || q.some(v => Math.abs(v) > MAX_SYMBOL_COORD)) { wild = true; break; }
       const len = Math.hypot(q[2] - q[0], q[3] - q[1]);
       if (len <= 0.05) continue;
+      const joins = prev && Math.hypot(q[0] - prev[2], q[1] - prev[3]) < 0.05
+        && Math.abs((prev[2] - prev[0]) * (q[3] - q[1]) - (prev[3] - prev[1]) * (q[2] - q[0])) <= 0.02 * prev[4] * len
+        && (prev[2] - prev[0]) * (q[2] - q[0]) + (prev[3] - prev[1]) * (q[3] - q[1]) > 0;
+      if (!joins) pieces++;
+      prev = [q[0], q[1], q[2], q[3], len];
       out.segs.push([q[0], q[1], q[2], q[3], len]);
       total += len; n++;
       x0 = Math.min(x0, q[0], q[2]); x1 = Math.max(x1, q[0], q[2]); y0 = Math.min(y0, q[1], q[3]); y1 = Math.max(y1, q[1], q[3]);
@@ -280,6 +291,10 @@ function prepareOne(symbol, cfg) {
   else if (!out.bubble && (flags.simple === true || out.segs.length < cfg.simpleSegs || total < cfg.simpleLength || !out.keys.length)) out.why = 'simple';
   else if (wild || Math.max(out.w, out.h) > cfg.maxSize || Math.min(out.w, out.h) < cfg.minSize) out.why = 'size';
   out.checkable = !out.why;
+  // A plain symbol (a box, an arrow) matches plain drawing linework, so a sweep
+  // hit of one is held to a stricter test. Checkable ones only: "simple" comes first.
+  out.plain = out.checkable && !out.bubble
+    && (pieces <= 3 || out.segs.every(g => Math.min(Math.abs(g[2] - g[0]), Math.abs(g[3] - g[1])) <= 0.02 * g[4]));
   // Points about a point apart, for the quick look. Only for a symbol that
   // will be matched, whose segments are by now known to be few and short.
   if (out.checkable) {
@@ -302,7 +317,7 @@ export function prepareSymbols(library, options) {
   try {
     const cfg = settings(options);
     return asArr(asObj(library).symbols).map(s => {
-      try { return prepareOne(s, cfg); } catch { return { symbol: s, checkable: false, why: 'no-linework', segs: [], keys: [], loops: [], points: [], w: 0, h: 0, codes: [], bubble: false, ring: [0, 0, 0, 0] }; }
+      try { return prepareOne(s, cfg); } catch { return { symbol: s, checkable: false, why: 'no-linework', segs: [], keys: [], loops: [], points: [], w: 0, h: 0, codes: [], bubble: false, plain: false, ring: [0, 0, 0, 0] }; }
     });
   } catch {
     return [];
@@ -802,6 +817,111 @@ export function titleBlockBox(paths, pageSize) {
 
 const inBox = (b, x, y) => !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
 
+/** A checkable, non-bubble symbol drawn only with axis-aligned lines, or with at most 3 straight pieces. Never throws. */
+export function plainShape(prepared) {
+  try { const p = asObj(prepared); return p.checkable === true && p.bubble !== true && p.plain === true; } catch { return false; }
+}
+
+// The boxes of writing on a sheet: its text words and any letter-like ink the
+// caller found. A box that is not four finite numbers is ignored. Never throws.
+function writingBoxes(words, extra) {
+  const out = [];
+  try {
+    for (const w of asArr(words)) { const o = asObj(w); if ([o.x, o.y, o.w, o.h].every(isNum)) out.push([o.x, o.y, o.x + o.w, o.y + o.h]); }
+    for (const b of asArr(extra)) if (Array.isArray(b) && b.length === 4 && b.every(isNum)) out.push(b);
+  } catch { /* what was read stands */ }
+  return out;
+}
+const hasWriting = (writing, box) => asArr(writing).some(b => inBox(box, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2));
+
+export const LINE_MIN = 0.85;        // every line of a symbol must have this share of its points on the drawing
+const LINE_LONG = 3;                 // points: a placed line shorter than this is not held to it
+const LINE_DENSITY = 2;              // sample points per point of line
+
+/**
+ * The lowest share, over every line of the placed symbol at least 3 pt long, of
+ * its sample points (about two per point) that lie on the window's dilated ink.
+ * A symbol with a line missing or short on the drawing (hatching, lagged pipe)
+ * scores low however well the rest matches. 1 when no line is long enough.
+ * hit = { p, placement }. Never throws (a hostile hit gives 0).
+ */
+export function weakestLine(hit, window, options) {
+  try {
+    settings(options);
+    const h = asObj(hit), p = asObj(h.p), N = asObj(asObj(window).near);
+    if (!isPlacement(h.placement) || !(N.data instanceof Uint8Array) || !isNum(N.pxPerPt) || !(N.pxPerPt > 0)) return 0;
+    const S = N.pxPerPt;
+    let worst = 1;
+    for (const g of asArr(p.segs).slice(0, MAX_SYMBOL_SEGS)) {
+      if (!Array.isArray(g) || !g.slice(0, 4).every(isNum)) continue;
+      const a = placePoint(h.placement, g[0], g[1]), b = placePoint(h.placement, g[2], g[3]);
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (!(len >= LINE_LONG)) continue;
+      const n = Math.max(2, Math.ceil(len * LINE_DENSITY));
+      let on = 0;
+      for (let i = 0; i <= n; i++) {
+        const X = Math.floor((a[0] + (b[0] - a[0]) * i / n - N.x0) * S), Y = Math.floor((a[1] + (b[1] - a[1]) * i / n - N.y0) * S);
+        if (X >= 0 && Y >= 0 && X < N.w && Y < N.h && N.data[Y * N.w + X] !== 0) on++;
+      }
+      worst = Math.min(worst, on / (n + 1));
+    }
+    return worst;
+  } catch {
+    return 0;
+  }
+}
+
+const CORNER_JOIN = 0.5;             // points: two segment ends this close are one corner
+const CORNER_ANGLE = 0.5;            // sin 30 degrees: segments meeting at more than this make a corner
+const RUN_PROBES = [1.5, 2.5, 3.5];  // points past a corner, along the edge
+const RUN_NEEDED = 2;                // of the probes that must be ink
+
+/**
+ * Whether a placed symbol's edge runs on past one of its corners on the drawing:
+ * the mark of a box that is really a panel or table cell. A corner is where one
+ * segment's end meets another segment's end at more than 30 degrees to it. The
+ * ink is the window's undilated bitmap. hit = { p, placement }. Never throws.
+ */
+export function runsOnPastCorner(hit, ink, options) {
+  try {
+    settings(options);
+    const h = asObj(hit), p = asObj(h.p), D = asObj(ink);
+    if (!(D.data instanceof Uint8Array) || !isNum(D.pxPerPt) || !(D.pxPerPt > 0) || !isPlacement(h.placement)) return false;
+    const segs = asArr(p.segs);
+    if (!segs.length || segs.length > 400) return false;
+    const g = [];
+    for (const s of segs) {
+      if (!Array.isArray(s) || !s.slice(0, 4).every(isNum)) continue;
+      const a = placePoint(h.placement, s[0], s[1]), b = placePoint(h.placement, s[2], s[3]);
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len > 0.05) g.push({ a, b, len });
+    }
+    const S = D.pxPerPt, W = D.w, H = D.h;
+    const isInk = (x, y) => {
+      const X = Math.floor((x - D.x0) * S), Y = Math.floor((y - D.y0) * S);
+      return X >= 0 && Y >= 0 && X < W && Y < H && D.data[Y * W + X] !== 0;
+    };
+    for (let i = 0; i < g.length; i++) {
+      for (let j = 0; j < g.length; j++) {
+        if (i === j) continue;
+        const A = g[i], B = g[j];
+        const ux = (A.b[0] - A.a[0]) / A.len, uy = (A.b[1] - A.a[1]) / A.len, vx = (B.b[0] - B.a[0]) / B.len, vy = (B.b[1] - B.a[1]) / B.len;
+        if (Math.abs(ux * vy - uy * vx) <= CORNER_ANGLE) continue;
+        // Each end of A that meets an end of B is a corner, and A runs on from it.
+        for (const [e, dir] of [[A.b, 1], [A.a, -1]]) {
+          if (Math.hypot(e[0] - B.a[0], e[1] - B.a[1]) > CORNER_JOIN && Math.hypot(e[0] - B.b[0], e[1] - B.b[1]) > CORNER_JOIN) continue;
+          let on = 0;
+          for (const t of RUN_PROBES) if (isInk(e[0] + dir * ux * t, e[1] + dir * uy * t)) on++;
+          if (on >= RUN_NEEDED) return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // The sweep proper, sharing the caller's prepared symbols, boxed paths and
 // segments: { cfg, prepared, paths, boxed, segments, pageSize, onProgress, deadline }.
 function sweep(ctx) {
@@ -814,16 +934,23 @@ function sweep(ctx) {
     W = 0; H = 0;
     for (const q of boxed) { W = Math.max(W, q.b[2]); H = Math.max(H, q.b[3]); }
   }
+  // No page is larger than this; a bigger side is hostile input and is not swept.
+  if (W > MAX_SWEEP_SIDE || H > MAX_SWEEP_SIDE) return { spots: [], skipped: null, timedOut: false, rows: 0, hits: 0 };
   const skipped = W > 0 && H > 0 ? titleBlockBox(ctx.paths, [W, H]) : null;
   const step = cfg.sweepStep, xs = [], ys = [];
   for (let x = step / 2; x < W; x += step) xs.push(x);
   for (let y = step / 2; y < H; y += step) ys.push(y);
+  // The last centre may leave a strip at the far edge beyond the search radius.
+  if (xs.length && W - xs[xs.length - 1] > step / 2) xs.push(W - step / 2);
+  if (ys.length && H - ys[ys.length - 1] > step / 2) ys.push(H - step / 2);
   const out = { spots: [], skipped, timedOut: false, rows: ys.length, hits: 0 };
   const checkable = prepared.filter(p => p.checkable && !p.bubble);
   const bubbles = prepared.filter(p => p.checkable && p.bubble);
   if (!checkable.length && !bubbles.length) return out;
   const hits = [];
   const late = () => clock() > deadline;
+  // Writing on the sheet, when the caller supplied it: written symbols need some.
+  const writing = Array.isArray(ctx.writing) ? ctx.writing : null;
 
   // Tag bubbles, from every closed outline the size of a bubble's ring.
   if (bubbles.length) {
@@ -843,9 +970,16 @@ function sweep(ctx) {
       const id = b.map(v => Math.round(v * 4)).join(':');
       if (seen.has(id)) continue;
       seen.add(id);
+      // A bubble is a place to write a tag: an outline with no writing in it is no bubble.
+      const bare = writing !== null && !hasWriting(writing, b);
+      if (bare && !ctx.raw) continue;
       const m = matchBubble(bubbles, b, windowFrom(boxed, c, cfg), cfg);
-      if (m.best) hits.push({ p: m.best.p, placement: m.best.placement, score: m.best.score, k: m.best.k, box: m.best.box,
-        filled: false, bubble: true, ring: b.slice(), tag: null });
+      if (m.best) {
+        const hit = { p: m.best.p, placement: m.best.placement, score: m.best.score, k: m.best.k, box: m.best.box,
+          filled: false, bubble: true, ring: b.slice(), tag: null };
+        if (bare) hit.plainRejected = true;   // as a plain shape in a panel: only the leftover-tag pass may use it
+        hits.push(hit);
+      }
     }
   }
 
@@ -869,14 +1003,26 @@ function sweep(ctx) {
           if (!s) continue;
           done.add(id);
           if (s.score < cfg.recognise || inBox(skipped, pl.cx, pl.cy)) continue;
-          hits.push({ p, placement: pl, score: s.score, k: pl.k, box: s.box, filled: s.filled, bubble: false, ring: null, tag: null });
+          const hit = { p, placement: pl, score: s.score, k: pl.k, box: s.box, filled: s.filled, bubble: false, ring: null, tag: null };
+          // A plain shape matches panel boxes and table cells: it must explain
+          // nearly all the ink in its box, and no edge may run on past a corner.
+          // checkSheet's leftover-tag pass may still use such a hit (as phase 1
+          // did) so a tag's verdict cannot get worse; it is never listed alone.
+          // A symbol that holds letters needs writing in its box; every line of a symbol
+          // must be on the drawing (a hatched run is not a symbol).
+          const unwritten = writing !== null && asArr(asObj(p.symbol).letters).length > 0 && !hasWriting(writing, s.box);
+          if ((plainShape(p) && (s.backward < cfg.plainBack || runsOnPastCorner(hit, win.ink, cfg))) || unwritten || weakestLine(hit, win, cfg) < LINE_MIN) {
+            if (ctx.raw) { hit.plainRejected = true; hits.push(hit); }
+            continue;
+          }
+          hits.push(hit);
         }
       }
       if (out.timedOut) break;
     }
     if (!out.timedOut && progress) { try { progress(r + 1, ys.length, 'sweep'); } catch { /* the caller's problem */ } }
   }
-  out.hits = hits.length;
+  out.hits = hits.filter(h => !h.plainRejected).length;
   // checkSheet merges the raw hits with the tag-led pairings itself.
   if (ctx.raw) out.list = hits; else out.spots = mergeHits(hits, cfg);
   return out;
@@ -893,7 +1039,8 @@ export function sweepSymbols(input) {
   try {
     const inp = asObj(input), cfg = settings(inp.options);
     return sweep({ cfg, prepared: prepareSymbols(inp.library, cfg), paths: inp.paths, boxed: boxesOf(inp.paths),
-      segments: drawingSegments(inp.paths, cfg), pageSize: inp.pageSize, onProgress: inp.onProgress, deadline: inp.deadline });
+      segments: drawingSegments(inp.paths, cfg), pageSize: inp.pageSize, onProgress: inp.onProgress, deadline: inp.deadline,
+      writing: Array.isArray(inp.writing) || Array.isArray(inp.textItems) ? writingBoxes(textWords(asArr(inp.textItems), isMatrix(inp.viewportTransform) ? inp.viewportTransform : IDENTITY), inp.writing) : null });
   } catch {
     return { spots: [], skipped: null, timedOut: false, rows: 0, hits: 0 };
   }
@@ -1099,7 +1246,7 @@ export function checkSheet(input) {
     let symbols = [], skipped = null, sweptLate = false;
     if (asObj(inp.options).sweep !== false) {
       const sw = sweep({ cfg, prepared, paths: inp.paths, boxed, segments, pageSize: inp.pageSize,
-        onProgress: progress, deadline: started + cfg.timeLimitMs, raw: true });
+        onProgress: progress, deadline: started + cfg.timeLimitMs, raw: true, writing: writingBoxes(words, inp.writing) });
       skipped = sw.skipped; sweptLate = sw.timedOut;
       const taggedHits = [];
       for (const spot of spots) {
@@ -1108,7 +1255,13 @@ export function checkSheet(input) {
         taggedHits.push({ p: by.m.p, placement: by.m.placement, score: by.m.score, k: by.m.k, box: by.m.box,
           filled: by.m.filled === true, bubble: by.bubble === true, ring: by.ring || null, tag: tags[by.ti].tag });
       }
-      const merged = mergeHits([...asArr(sw.list), ...taggedHits], cfg);
+      const swept = asArr(sw.list);
+      const merged = mergeHits([...swept.filter(h => !h.plainRejected), ...taggedHits], cfg);
+      // Plain-rejected hits (a box in a panel): only the leftover pass below may
+      // use them, and only those standing apart from every listed symbol.
+      const rejected = mergeHits(swept.filter(h => h.plainRejected), cfg)
+        .filter(r => !merged.some(m => r.box[0] < m.box[2] && m.box[0] < r.box[2] && r.box[1] < m.box[3] && m.box[1] < r.box[3]));
+      const candidates = [...merged, ...rejected];
 
       // Leftover tags: one still without a symbol takes the nearest untagged
       // swept symbol of its OWN family within reach. Only this pass runs for
@@ -1119,7 +1272,7 @@ export function checkSheet(input) {
         const code = t.fc.toUpperCase();
         for (const place of asArr(asObj(placed[ti]).places)) {
           const c = centreOf(place.box);
-          for (const spot of merged) {
+          for (const spot of candidates) {
             if (spot.tag !== null || !spot.matches.some(m => m.p.codes.includes(code))) continue;
             const dist = Math.hypot(spot.cx - c[0], spot.cy - c[1]);
             if (dist <= cfg.radius) lefts.push({ ti, place, spot, dist });
@@ -1141,10 +1294,11 @@ export function checkSheet(input) {
         done[lf.ti] = true;
       }
 
-      symbols = merged.map(spot => {
+      symbols = candidates.filter(spot => spot.tag !== null || merged.includes(spot)).map(spot => {
         const w = spot.matches[0];
         return { name: nameOf(w.p), tagId: str(asObj(w.p.symbol).tagId), box: spot.box.map(round3), sizePct: Math.round(w.k * 100),
-          score: round3(w.score), oneOf: spot.matches.length > 1 ? spot.matches.map(m => nameOf(m.p)) : [], bubble: spot.bubble, tag: spot.tag };
+          score: round3(w.score), oneOf: spot.matches.length > 1 ? spot.matches.map(m => nameOf(m.p)) : [], bubble: spot.bubble, tag: spot.tag,
+          plain: plainShape(w.p) };
       }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : (a.box[1] - b.box[1]) || (a.box[0] - b.box[0])));
     }
 

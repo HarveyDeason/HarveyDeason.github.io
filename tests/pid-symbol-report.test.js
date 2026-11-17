@@ -184,7 +184,7 @@ test('buildReportModel: each checked sheet gets its symbol line, untagged symbol
   assert.deepEqual(s.symbolRows.map(r => r.name), ['GADGET', 'WIDGET']);
   assert.deepEqual(s.symbolRows[0].userRect, M.toUserRect([100, 100, 120, 120], VT, 3));
   assert.equal(s.allSymbols.length, 3);
-  assert.deepEqual(s.allSymbols[0], { page: 1, symbol: 'GADGET', oneOf: 'GADGET, WIDGET', tagId: 'G', sizePct: 100, score: 0.987, tag: '' });
+  assert.deepEqual(s.allSymbols[0], { page: 1, symbol: 'GADGET', oneOf: 'GADGET, WIDGET', tagId: 'G', sizePct: 100, score: 0.987, tag: '', plain: false });
   assert.equal(s.allSymbols[1].tag, '21-W-1001');
   assert.deepEqual([n.symbolLine, n.skippedLine, n.symbolRows, n.allSymbols], ['', '', [], []]);
   assert.equal(model().sheets[0].skippedLine, '');
@@ -192,11 +192,11 @@ test('buildReportModel: each checked sheet gets its symbol line, untagged symbol
 test('workbookRows: a Symbols sheet, one row per physical symbol', async () => {
   const m = model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 });
   const w = M.workbookRows(m);
-  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag']);
+  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note']);
   assert.deepEqual(w.symbols.rows, [
-    ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, ''],
-    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001'],
-    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '']]);
+    ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, '', ''],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001', ''],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '', '']]);
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await M.writeWorkbook(m, ExcelJS));
@@ -220,4 +220,19 @@ test('report: a sweep cut short says the symbol list is incomplete and does not 
   assert.equal(s.timedOutLine, '');
   const t = model({ outcomes: [{ ...checked, result: { ...res, tagsTimedOut: true } }], stopped: false, ms: 1 }).sheets[0];
   assert.equal(t.timedOutLine, M.TIMED_OUT);
+});
+test('sheetFor: tagsLine for printed, checked with no verdicts, and checked with verdicts', () => {
+  const none = { ...checked, result: { ok: true, verdicts: [], symbols: [] } };
+  assert.equal(model({ outcomes: [{ ...none, precheck: 'printed' }], stopped: false, ms: 1 }).sheets[0].tagsLine, 'Tags not read yet: letters drawn as shapes.');
+  assert.equal(model({ outcomes: [none], stopped: false, ms: 1 }).sheets[0].tagsLine, 'No tags read.');
+  assert.equal(model().sheets[0].tagsLine, '');
+  assert.equal(model().sheets[1].tagsLine, '');
+});
+test('plain symbols: allSymbols carries plain and the Symbols sheet says check by eye', () => {
+  const res = { ok: true, verdicts: [], symbols: [sy('BOX', null, [1, 1, 5, 5], { plain: true }), sy('WIDGET', null, [9, 9, 20, 20])] };
+  const m = model({ outcomes: [{ ...checked, precheck: 'printed', result: res }], stopped: false, ms: 1 });
+  assert.deepEqual(m.sheets[0].allSymbols.map(s => s.plain), [true, false]);
+  const w = M.workbookRows(m);
+  assert.equal(w.symbols.columns[w.symbols.columns.length - 1], 'Note');
+  assert.deepEqual(w.symbols.rows.map(r => r[r.length - 1]), ['Plain shape: check by eye', '']);
 });

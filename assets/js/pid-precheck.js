@@ -13,6 +13,7 @@
 
 import { extractTags } from './pid-core.js';
 import { esc } from './pid-symbols-view.js';
+import { pageInkFacts } from './pid-sheet-read.js';
 
 function asObj(x) { return x && typeof x === 'object' ? x : {}; }
 function asArr(x) { return Array.isArray(x) ? x : []; }
@@ -120,7 +121,14 @@ export function producedBy(info) {
 
 // ── The status, and which tags the import registers ───────────────────────
 
-export const STATUS_LABELS = { readable: 'Readable', comments: 'Readable from comments', none: 'No readable text' };
+export const STATUS_LABELS = { readable: 'Readable', comments: 'Readable from comments',
+  printed: 'Printed: letters drawn as shapes', scanned: 'Scanned image', none: 'No readable text' };
+
+// A page with no text and no comments is a printed sheet when it holds this
+// many paths (a real one holds thousands), and a scanned one when images cover
+// this share of every page and there are fewer paths than that.
+export const PRINTED_MIN_PATHS = 200;
+export const SCAN_COVER = 0.9;
 
 // "Tags" always means confirmed plus review: a drawing that yields only
 // review candidates has still had its text read.
@@ -140,7 +148,13 @@ export function sheetStatus(counts) {
   const c = asObj(counts);
   if (count(c.textTagCount) > 0) return 'readable';
   if (count(c.commentCount) > 0) return 'comments';
-  return count(c.textItemCount) > 0 ? 'readable' : 'none';
+  if (count(c.textItemCount) > 0) return 'readable';
+  // Only real numbers count: missing ink facts must never read as printed.
+  const paths = typeof c.pathCount === 'number' && Number.isFinite(c.pathCount) ? c.pathCount : 0;
+  const cover = typeof c.imageCover === 'number' && Number.isFinite(c.imageCover) ? c.imageCover : 0;
+  if (cover >= SCAN_COVER && paths < PRINTED_MIN_PATHS) return 'scanned';
+  if (paths >= PRINTED_MIN_PATHS) return 'printed';
+  return 'none';
 }
 
 function tagsSentence(check) {
@@ -151,7 +165,9 @@ function tagsSentence(check) {
 
 function sheetFindings(check) {
   const out = [];
-  if (check.status === 'none') out.push('No readable text: this PDF was printed, not plotted. Tags cannot be read.');
+  if (check.status === 'none') out.push('No readable text, and too little linework to check.');
+  if (check.status === 'printed') out.push('Printed: letters are drawn as shapes, so tags cannot be read yet. Symbols can still be checked.');
+  if (check.status === 'scanned') out.push('Scanned image: tags and symbols cannot be read yet.');
   if (check.status === 'comments') out.push('Text read from drawing comments.');
   out.push(tagsSentence(check));
   const only = count(check.commentOnlyTagCount);
@@ -198,9 +214,14 @@ export function assessSheet(input) {
 
     const textItemCount = pages.reduce((n, p) => n + count(p.textItemCount), 0);
     const commentCount = commentsByPage.reduce((n, list) => n + list.length, 0);
+    // Ink facts exist only for pages read with OPS that had no text or comments.
+    const inks = pages.map(p => (p.ink && typeof p.ink === 'object' ? p.ink : null)).filter(Boolean);
+    const pathCount = inks.reduce((n, k) => n + count(k.pathCount), 0);
+    const imageCover = inks.length === pages.length && inks.length
+      ? Math.min(...inks.map(k => Math.min(1, Math.max(0, num(k.imageCover))))) : 0;
     const first = pages[0] || {};
     const check = {
-      status: sheetStatus({ textItemCount, textTagCount: tagTotal(textResult), commentCount }),
+      status: sheetStatus({ textItemCount, textTagCount: tagTotal(textResult), commentCount, pathCount, imageCover }),
       source,
       result,
       tagCount: result.confirmed.length,
@@ -266,7 +287,7 @@ const NO_FACTS = () => ({ ok: false, text: '', pages: [], info: { Creator: '', P
  * drawing must not be given a status. Comments and metadata are extras, so a
  * failure there only leaves them out.
  */
-export async function readSheetFacts(doc) {
+export async function readSheetFacts(doc, options) {
   try {
     if (!doc || !Number.isInteger(doc.numPages) || doc.numPages < 1) return NO_FACTS();
     const pages = [];
@@ -279,8 +300,20 @@ export async function readSheetFacts(doc) {
       let annotations = [];
       try { annotations = await page.getAnnotations(); } catch { annotations = []; }
       const read = sheetComments(annotations);
-      pages.push({ width: viewport.width, height: viewport.height, textItemCount: countTextItems(items),
-        comments: read.comments, otherAnnotations: read.other });
+      const facts = { width: viewport.width, height: viewport.height, textItemCount: countTextItems(items),
+        comments: read.comments, otherAnnotations: read.other };
+      // A page with no text and no comments is printed or scanned: count its paths and images.
+      // The operator list is fetched only then, and only when the caller gave OPS.
+      const OPS = asObj(options).OPS;
+      if (OPS && typeof OPS === 'object' && !facts.textItemCount && !facts.comments.length) {
+        try {
+          const ops = await page.getOperatorList();
+          const ink = pageInkFacts(ops.fnArray, ops.argsArray, OPS, viewport.transform, [viewport.width, viewport.height]);
+          // A page with neither paths nor images (a blank page) is left without ink: it says nothing a missing one does not.
+          if (ink.pathCount || ink.imageCover) facts.ink = ink;
+        } catch { /* ink is left out */ }
+      }
+      pages.push(facts);
     }
     const info = { Creator: '', Producer: '' };
     try {
@@ -355,8 +388,9 @@ export function checkHtml(check, compare) {
  */
 export function importSummary(checks) {
   const list = asArr(checks), n = list.length;
-  const noText = list.filter(c => usable(c) && c.status === 'none').length;
-  const noTags = list.filter(c => usable(c) && c.status !== 'none' && count(c.tagCount) + count(c.reviewCount) === 0).length;
+  const NO_TEXT = ['none', 'printed', 'scanned'];
+  const noText = list.filter(c => usable(c) && NO_TEXT.includes(c.status)).length;
+  const noTags = list.filter(c => usable(c) && !NO_TEXT.includes(c.status) && count(c.tagCount) + count(c.reviewCount) === 0).length;
   const unchecked = list.filter(c => !usable(c)).length;
   const out = [];
   if (noText) out.push(noText + ' of ' + plural(n, 'PDF') + ' ' + (noText === 1 ? 'has' : 'have') + ' no readable text.');

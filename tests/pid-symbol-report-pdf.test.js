@@ -177,3 +177,14 @@ test('buildReportPdf: the symbol line under the counts; a box per untagged symbo
   assert.equal(a.filled, b.filled);   // no number tab
   assert.equal(drawing.text, drawingBefore.text);   // no number
 });
+
+test('buildReportPdf: a printed sheet says its tags are not read yet; no page says "No tags."', async () => {
+  const out0 = await checkedOutcome(BYTES);
+  const printed = { ...out0, precheck: 'printed', result: { ok: true, verdicts: [], symbols: [] } };
+  const ps = await pages(await buildReportPdf(modelOf([printed]), new Map(), PDFLib));
+  assert.ok(ps.some(p => p.text.includes('Tags not read yet')));
+  const bare = { ...out0, result: { ok: true, verdicts: [], symbols: [] } };
+  const ps2 = await pages(await buildReportPdf(modelOf([bare]), new Map(), PDFLib));
+  assert.ok(ps2.some(p => p.text.includes('No tags read.')));
+  for (const p of [...ps, ...ps2]) assert.ok(!p.text.includes('No tags.'), p.text.slice(0, 200));
+});

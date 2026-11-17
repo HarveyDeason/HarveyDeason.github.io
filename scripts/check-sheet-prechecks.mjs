@@ -5,7 +5,7 @@
 // NOT part of `npm test`, on purpose. It reads client drawings, which cannot
 // live in this repo. Run it by hand over drawings kept elsewhere.
 //
-//   node scripts/check-sheet-prechecks.mjs <pdf> [<pdf> ...] [--expect readable,none,comments]
+//   node scripts/check-sheet-prechecks.mjs <pdf> [<pdf> ...] [--expect readable,none,comments,printed,scanned]
 //
 // It runs the same module code, through the same vendored pdf.js, as the
 // import and the Sheets tab in the tool. It prints counts, never the tags.
@@ -13,11 +13,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openPdf } from './pdfjs-node.mjs';
+import { openPdf, loadVendoredPdfjs } from './pdfjs-node.mjs';
 import { extractTags } from '../assets/js/pid-core.js';
 import { readSheetFacts, assessSheet, tagsToRegister, STATUS_LABELS } from '../assets/js/pid-precheck.js';
 
-const USAGE = 'Usage:\n  node scripts/check-sheet-prechecks.mjs <pdf> [<pdf> ...] [--expect readable,none,comments]';
+const USAGE = 'Usage:\n  node scripts/check-sheet-prechecks.mjs <pdf> [<pdf> ...] [--expect readable,none,comments,printed,scanned]';
 const isStatus = word => Object.prototype.hasOwnProperty.call(STATUS_LABELS, word);
 
 /** 'readable, None,comments' -> ['readable', 'none', 'comments']; null if any word is not a status. */
@@ -37,6 +37,13 @@ export function mismatches(statuses, expect) {
   return out;
 }
 
+/** Paths summed and the least image cover over the pages that were read for ink; null when none were. */
+function inkOf(facts) {
+  const inks = facts.pages.map(p => p.ink).filter(Boolean);
+  if (!inks.length) return null;
+  return { pathCount: inks.reduce((n, k) => n + k.pathCount, 0), imageCover: Math.min(...inks.map(k => k.imageCover)) };
+}
+
 /**
  * Check one PDF. `textResult` is what today's import registers; `registers`
  * is what it registers with the pre-check; `unchanged` says they are the very
@@ -45,14 +52,14 @@ export function mismatches(statuses, expect) {
  */
 export async function checkPdf(data, extractOptions) {
   try {
-    const facts = await readSheetFacts(await openPdf(data));
+    const facts = await readSheetFacts(await openPdf(data), { OPS: loadVendoredPdfjs().OPS });
     if (!facts.ok) return { ok: false };
     const options = extractOptions || { drawingName: 'CHECK', revision: '', lookups: {} };
     const textResult = extractTags(facts.text, options);
     const check = assessSheet({ text: facts.text, facts, extractOptions: options });
     if (!check) return { ok: false };
     const registers = tagsToRegister(textResult, check);
-    return { ok: true, check, textResult, registers, unchanged: registers === textResult };
+    return { ok: true, check, textResult, registers, unchanged: registers === textResult, ink: inkOf(facts) };
   } catch {
     return { ok: false };
   }
@@ -71,7 +78,7 @@ async function main() {
   if (!files.length) return fail(USAGE);
   const expect = expectArg === null ? null : parseExpect(expectArg);
   if (expectArg !== null && (!expect || expect.length !== files.length)) {
-    return fail(`--expect needs one of readable, comments or none for each of the ${files.length} PDFs, separated by commas.`);
+    return fail(`--expect needs one of readable, comments, printed, scanned or none for each of the ${files.length} PDFs, separated by commas.`);
   }
 
   const statuses = [];
@@ -86,6 +93,10 @@ async function main() {
     console.log(`\n${path.basename(file)}`);
     console.log(`  ${STATUS_LABELS[c.status]}`);
     console.log(`  text items ${c.textItemCount}, drawing comments ${c.commentCount}, other mark-up ${c.otherAnnotationCount}`);
+    if (['none', 'printed', 'scanned'].includes(c.status)) {
+      const k = r.ink || { pathCount: 0, imageCover: 0 };
+      console.log(`  paths ${k.pathCount}, image cover ${Math.round(k.imageCover * 100)}%`);
+    }
     console.log(`  today's import registers: ${counts(r.textResult)}`);
     console.log(`  with the pre-check it registers: ${counts(r.registers)} (${r.unchanged ? 'the same as today' : 'CHANGED: read from drawing comments'})`);
     for (const finding of c.findings) console.log(`  ${finding}`);

@@ -5,7 +5,9 @@
 export const SHX_AUTHOR = 'AutoCAD SHX Text';
 const pdfStr = s => '(' + String(s).replace(/[\\()]/g, c => '\\' + c) + ')';
 
-// pages: [{ size: [w, h], text: [string], comments: [{ text, author, rect, subtype }] }]
+// pages: [{ size: [w, h], text: [string], comments: [{ text, author, rect, subtype }],
+//           strokes: n (n short 3 pt lines on a grid, each its own `m l S`),
+//           image: true (a 1 x 1 grey image drawn over the whole page) }]
 // info:  { Creator, Producer, ... }, or null for a PDF with no information dictionary
 export function sheetPdf({ pages = [{}], info = null } = {}) {
   const objs = [];                                   // objs[n - 1] is object n
@@ -15,13 +17,21 @@ export function sheetPdf({ pages = [{}], info = null } = {}) {
   const kids = [];
   for (const p of pages) {
     const [w, h] = p.size || [200, 100];
-    const content = (p.text || []).map((t, i) => `BT /F1 8 Tf 10 ${h - 12 - i * 10} Td ${pdfStr(t)} Tj ET`).join('\n');
+    let content = (p.text || []).map((t, i) => `BT /F1 8 Tf 10 ${h - 12 - i * 10} Td ${pdfStr(t)} Tj ET`).join('\n');
+    const cols = Math.max(1, Math.floor((w - 20) / 8)), lines = [];
+    for (let i = 0; i < (p.strokes || 0); i++) {
+      const x = 10 + (i % cols) * 8, y = 10 + Math.floor(i / cols) * 8;
+      lines.push(`${x} ${y} m ${x + 3} ${y} l S`);
+    }
+    if (lines.length) content += (content ? '\n' : '') + lines.join('\n');
+    if (p.image) content += (content ? '\n' : '') + `q ${w} 0 0 ${h} 0 0 cm /Im1 Do Q`;
     const stream = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    const img = p.image ? add('<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\nA\nendstream') : 0;
     const annots = (p.comments || []).map(c => add(
       `<< /Type /Annot /Subtype /${c.subtype || 'Square'} /Rect [${(c.rect || [10, 10, 60, 20]).join(' ')}] ` +
       `/Contents ${pdfStr(c.text)} /T ${pdfStr(c.author == null ? SHX_AUTHOR : c.author)} /F 64 /BS << /W 0 >> >>`));
     kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 ${w} ${h}] /Contents ${stream} 0 R ` +
-      `/Resources << /Font << /F1 ${font} 0 R >> >> /Annots [${annots.map(n => n + ' 0 R').join(' ')}] >>`));
+      `/Resources << /Font << /F1 ${font} 0 R >>${img ? ` /XObject << /Im1 ${img} 0 R >>` : ''} >> /Annots [${annots.map(n => n + ' 0 R').join(' ')}] >>`));
   }
   objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R >>`;
   objs[tree - 1] = `<< /Type /Pages /Kids [${kids.map(n => n + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
