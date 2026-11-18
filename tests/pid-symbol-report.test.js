@@ -109,7 +109,7 @@ test('workbookRows and writeWorkbook: Tags, Sheets and About', async () => {
   assert.deepEqual(w.tags.columns, ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail']);
   assert.deepEqual(w.sheets.columns, ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard']);
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard', 'Not identified']);
   assert.equal(w.tags.rows.length, 11);
   assert.ok(w.tags.rows.every(r => r[0] === 'INV-0001' && r.length === 15));
   assert.equal(w.sheets.rows.length, 3);
@@ -166,7 +166,7 @@ test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kin
   const m = model({ outcomes: [{ ...checked, result }, noPdf], stopped: false, ms: 1 });
   assert.deepEqual(m.sheets.map(s => s.bubbleLine), ['Tag bubbles: 2 RING, 1 HEXAGON', '']);
   const w = M.workbookRows(m);
-  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 2]), ['2 RING, 1 HEXAGON', '']);   // the last column is Not to standard
+  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 3]), ['2 RING, 1 HEXAGON', '']);   // the last two columns are Not to standard, Not identified
   assert.equal(model().sheets[0].bubbleLine, '');
 });
 
@@ -263,8 +263,8 @@ test('workbookRows: the Symbols sheet is one row per shape, not to standard firs
     ['WIDGET + HANDLE', 'Yes', '', '', ''],
     ['', 'Not judged', 'not judged: time limit', '', ''],
     ['WIDGET', '', '', '', '']]);   // a listed symbol in no shape keeps its row
-  assert.equal(w.sheets.columns[w.sheets.columns.length - 1], 'Not to standard');
-  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 1], 2);
+  assert.equal(w.sheets.columns[w.sheets.columns.length - 2], 'Not to standard');
+  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 2], 2);
 });
 
 test('workbookRows: an old result with no shapes gives the rows of before with the new columns blank', () => {
@@ -307,4 +307,67 @@ test('buildReportModel, symbols first: counts and a line of reasons for the head
   const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
   assert.deepEqual([s.standardCount, s.notStandardCount, s.notJudgedCount], [1, 2, 1]);
   assert.equal(s.reasonLine, 'Why: 1 ink left over, 1 no standard symbol fits');
+});
+
+// ── Task 7 (shape-check redesign): verdicts amber and red in the report ───
+const VERDICT_RESULT = { ...PRE_SHAPES, operatorsMarked: true, readFrom: 'paths', printScale: 0.5,
+  drawingArea: { box: [10, 10, 490, 390], cuts: [], found: false },
+  symbols: [sy('WIDGET', null, [100, 100, 124, 112]), sy('GADGET', null, [200, 100, 220, 120], { tagId: 'G' })],
+  shapes: [
+    { id: 0, box: [100, 98, 124, 112], verdict: 'standard', standard: true, reason: null, symbols: [0], operator: null, closest: null },
+    { id: 1, box: [200, 100, 228, 120], verdict: 'not-standard', standard: false, reason: { kind: 'differs', name: 'GADGET', pct: 92 }, symbols: [1], operator: null, closest: { name: 'GADGET', score: 0.92 } },
+    { id: 2, box: [300, 100, 320, 120], verdict: 'not-standard', standard: false, reason: { kind: 'size', name: 'WIDGET', pct: 70 }, symbols: [], operator: null, closest: null },
+    { id: 3, box: [400, 100, 420, 120], verdict: 'not-identified', standard: false, reason: null, symbols: [], operator: null, closest: null },
+    { id: 4, box: [400, 200, 420, 220], verdict: 'not-identified', standard: false, reason: null, symbols: [], operator: null, closest: null },
+  ] };
+const verdictSheet = { ...checked, result: VERDICT_RESULT };
+
+test('buildReportModel, verdicts: amber rows only, red as boxes with no label, the heading is markLine', async () => {
+  const { markLine, reasonText } = await import('../assets/js/pid-symbol-check-view.js');
+  const s = model({ outcomes: [verdictSheet], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(s.shapeLine, markLine(VERDICT_RESULT));
+  assert.ok(s.shapeLine.includes('2 not identified'));
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 2]);
+  assert.deepEqual(s.shapeRows.map(r => r.kind), ['not-standard', 'not-standard']);
+  assert.deepEqual(s.shapeRows.map(r => r.detail), [reasonText(VERDICT_RESULT.shapes[1]), reasonText(VERDICT_RESULT.shapes[2])]);
+  assert.equal(s.shapeRows[0].detail, 'drawn differently from GADGET (92% alike)');
+  assert.equal(s.redRows.length, 2);
+  assert.deepEqual(Object.keys(s.redRows[0]), ['userRect']);
+  assert.deepEqual(s.redRows[0].userRect, M.toUserRect([400, 100, 420, 120], VT, 3));
+  assert.equal(s.notIdentifiedCount, 2);
+  assert.equal(s.notStandardCount, 2);
+  assert.equal(s.areaRect, null);   // frame not found: the page edge is not drawn, as on screen
+  const found = model({ outcomes: [{ ...verdictSheet, result: { ...VERDICT_RESULT, drawingArea: { box: [10, 10, 490, 390], cuts: [], found: true } } }], stopped: false, ms: 1 }).sheets[0];
+  assert.deepEqual(found.areaRect, M.toUserRect([10, 10, 490, 390], VT, 0));
+  assert.equal(M.PRINT_COLOURS['not-identified'], '#C62828');
+});
+
+test('buildReportModel: a result with no verdicts keeps the shape model of before, with no red and no area', () => {
+  const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
+  assert.deepEqual(s.redRows, []);
+  assert.equal(s.areaRect, null);
+  assert.equal(s.notIdentifiedCount, 0);
+  assert.equal(s.shapeLine, '1 standard symbol · 2 not to standard · 1 not judged (time limit)');
+});
+
+test('workbookRows, verdicts: Sheets gains Not identified after Not to standard; red shapes with no symbol have no Symbols row', () => {
+  const w = M.workbookRows(model({ outcomes: [verdictSheet], stopped: false, ms: 1 }));
+  const n = w.sheets.columns.length;
+  assert.deepEqual(w.sheets.columns.slice(-2), ['Not to standard', 'Not identified']);
+  assert.deepEqual(w.sheets.rows[0].slice(-2), [2, 2]);
+  assert.equal(w.symbols.rows.length, 3);   // two amber and one standard, no red
+  assert.ok(w.symbols.rows.every(r => r[10] !== 'Not identified'));
+  const old = M.workbookRows(model({ outcomes: [shapedSheet], stopped: false, ms: 1 }));
+  assert.equal(old.sheets.rows[0][n - 1], '');
+});
+
+test('buildReportModel, verdicts: the heading keeps the not judged count and the operators note', async () => {
+  const { markLine, OPERATORS_NOTE } = await import('../assets/js/pid-symbol-check-view.js');
+  const late = { id: 5, box: [50, 300, 70, 320], verdict: 'not-judged', standard: null, reason: null, symbols: [], operator: null, closest: null };
+  const r = { ...VERDICT_RESULT, operatorsMarked: false, shapes: [...VERDICT_RESULT.shapes, late] };
+  const s = model({ outcomes: [{ ...checked, result: r }], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(s.shapeLine, markLine(r) + ' · 1 not judged (time limit). ' + OPERATORS_NOTE);
+  const t = model({ outcomes: [{ ...checked, result: { ...VERDICT_RESULT, operatorsMarked: false } }], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(t.shapeLine, markLine({ ...VERDICT_RESULT }) + '. ' + OPERATORS_NOTE);
+  assert.equal(model({ outcomes: [verdictSheet], stopped: false, ms: 1 }).sheets[0].shapeLine, markLine(VERDICT_RESULT));
 });

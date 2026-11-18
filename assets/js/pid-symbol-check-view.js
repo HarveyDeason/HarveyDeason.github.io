@@ -64,6 +64,37 @@ export const tagsTimedOut = result => !!result && typeof result === 'object'
 export const TRIAL_NOTE = 'The shape check is new and on trial: review each "not to standard" flag by eye before acting on it.';
 export const OPERATORS_NOTE = 'Operators not marked in the library: valves with an operator will be flagged.';
 export const NOT_STANDARD_COLOUR = '#E08E00';
+export const NOT_IDENTIFIED_COLOUR = '#C62828';
+export const KEY_NOT_STANDARD = 'Not to standard: the reason names the standard symbol it departs from';
+export const KEY_NOT_IDENTIFIED = 'Not identified: looked at, not matched to any standard symbol; check by eye';
+export const VERDICTS = ['standard', 'not-standard', 'not-identified', 'not-judged'];
+// A shape's verdict. Results from before the redesign carry none: fall back on `standard`.
+export const verdictOf = s => (VERDICTS.includes(s.verdict) ? s.verdict : s.standard === true ? 'standard' : s.standard === false ? 'not-standard' : s.standard === null ? 'not-judged' : '');
+const hasVerdicts = list => !!list && list.some(s => VERDICTS.includes(s.verdict));
+/** The reason a shape is not to standard, in words: plain text. '' when it has none. */
+export function reasonText(shape) {
+  const r = shape && typeof shape === 'object' && shape.reason && typeof shape.reason === 'object' ? shape.reason : null;
+  if (!r) return '';
+  if (r.kind === 'differs') return 'drawn differently from ' + str(r.name) + ' (' + count(r.pct) + '% alike)';
+  if (r.kind === 'size') return str(r.name) + ' drawn at ' + count(r.pct) + '% of standard size';
+  if (r.kind === 'extra') return str(r.name) + ' with extra linework';
+  if (r.kind === 'tag') return 'tag ' + str(r.tag) + ' has no standard symbol';
+  return '';
+}
+// The words for an amber shape: the new reason, or (no reason given) the old why and closest symbol.
+const amberText = s => reasonText(s) || (shapeWhy(s) + '; ' + closestText(s));
+/** 'N standard · M not to standard · K not identified · Read from: … · Printed at N% of full size'; '' when no shapes. */
+export function markLine(result) {
+  const list = shapesOf(result);
+  if (!list || !list.length) return '';
+  const n = v => list.filter(s => verdictOf(s) === v).length;
+  const parts = [n('standard') + ' standard', n('not-standard') + ' not to standard', n('not-identified') + ' not identified'];
+  if (result.readFrom === 'paths') parts.push('Read from: drawn paths');
+  else if (result.readFrom === 'line-pieces') parts.push('Read from: line pieces' + (isNum(result.lineCapped) && result.lineCapped > 0 ? ' · Line-piece reading incomplete' : ''));
+  if (isNum(result.printScale)) { const p = Math.round(result.printScale * 100); if (p < 95 || p > 105) parts.push('Printed at ' + p + '% of full size'); }
+  if (result.drawingArea && typeof result.drawingArea === 'object' && result.drawingArea.found === false) parts.push('Drawing area: frame not found, page edge used');
+  return parts.join(' · ');
+}
 const shapesOf = result => (result && typeof result === 'object' && Array.isArray(result.shapes) ? result.shapes.filter(s => s && typeof s === 'object' && isBox(s.box)) : null);
 const pct = x => Math.round(Math.max(0, Math.min(1, x)) * 100) + '%';
 /** Why a shape is not to standard, in words: plain text. */
@@ -90,6 +121,11 @@ function shapeLine(result) {
   const list = shapesOf(result);
   if (!list) return '';
   const bad = list.filter(s => s.standard === false).length, late = list.filter(s => s.standard === null).length;
+  if (hasVerdicts(list)) {
+    const n = v => list.filter(s => verdictOf(s) === v).length;
+    return ' ' + plural(n('standard'), 'standard shape', 'standard shapes') + ', ' + n('not-standard') + ' not to standard, ' + n('not-identified') + ' not identified.'
+      + (late ? ' ' + plural(late, 'shape', 'shapes') + ' not judged: time limit.' : '') + (result.operatorsMarked === false ? ' ' + OPERATORS_NOTE : '');
+  }
   return ' ' + plural(bad, 'shape', 'shapes') + ' not to standard.' + (late ? ' ' + plural(late, 'shape', 'shapes') + ' not judged: time limit.' : '')
     + (result.operatorsMarked === false ? ' ' + OPERATORS_NOTE : '');
 }
@@ -189,15 +225,22 @@ export function resultsHtml(result) {
     + (isBox(result.skipped) ? '<div class="sc-summary">' + SKIPPED_NOTE + '</div>' : '');
   // What the tool is for, first: each shape not to standard, why, and the closest standard symbol.
   if (shapesOf(result)) out += '<div class="sc-summary"><strong>' + esc(TRIAL_NOTE) + '</strong></div>';
-  const flagged = (shapesOf(result) || []).map((s, n) => ({ s, n })).filter(x => x.s.standard === false);
+  const newStyle = hasVerdicts(shapesOf(result));
+  if (newStyle && markLine(result)) {
+    out += '<div class="sc-summary">' + esc(markLine(result)) + '</div>'
+      + '<div class="sc-summary">' + esc(KEY_NOT_STANDARD) + '</div><div class="sc-summary">' + esc(KEY_NOT_IDENTIFIED) + '</div>';
+  }
+  const flagged = (shapesOf(result) || []).map((s, n) => ({ s, n })).filter(x => verdictOf(x.s) === 'not-standard');
   if (flagged.length) {
     out += '<div class="sc-summary"><strong>Not to standard</strong>: ' + plural(flagged.length, 'shape', 'shapes') + '</div><ul class="sc-list">';
     for (const { s, n } of flagged) {
       out += '<li><button type="button" class="sc-row sc-not-standard" data-act="sym-jump-shape" data-sh="' + n + '">'
-        + '<strong>Not to standard</strong> <span class="sc-detail">' + esc(shapeWhy(s)) + '; ' + esc(closestText(s)) + '</span></button></li>';
+        + '<strong>Not to standard</strong> <span class="sc-detail">' + esc(newStyle ? amberText(s) : shapeWhy(s) + '; ' + closestText(s)) + '</span></button></li>';
     }
     out += '</ul>';
   }
+  const unknown = newStyle ? shapesOf(result).filter(s => verdictOf(s) === 'not-identified').length : 0;
+  if (unknown) out += '<div class="sc-summary">' + unknown + ' not identified (boxed in red on the drawing)</div>';
   out += '<ul class="sc-list">';
   for (const { v, i, kind } of list) {
     out += '<li><button type="button" class="sc-row sc-' + kind + '" data-act="sym-jump" data-i="' + i + '">'
@@ -209,7 +252,7 @@ export function resultsHtml(result) {
   // whether or not a tag sits beside it.
   const judged = shapesOf(result);
   if (judged) {
-    const good = judged.map((s, n) => ({ s, n, name: shapeName(result, s) })).filter(x => x.s.standard === true);
+    const good = judged.map((s, n) => ({ s, n, name: shapeName(result, s) })).filter(x => verdictOf(x.s) === 'standard');
     if (good.length) {
       const byName = new Map();
       for (const { name } of good) byName.set(name, (byName.get(name) || 0) + 1);
@@ -267,11 +310,17 @@ export function boxRects(result, scale) {
     if (judged || !untagged(s) || !isBox(s.box)) return;   // once shapes were judged, the shapes are boxed instead
     out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' + (s.plain === true ? ' Plain shape: check by eye.' : '') });
   });
-  (shapesOf(result) || []).forEach((s, n) => {
-    if (s.standard === true) out.push({ sh: n, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' });
-    else if (s.standard === false) out.push({ sh: n, kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + shapeWhy(s) + '. ' + closestText(s) + '.' });
-    else if (s.standard === null) out.push({ sh: n, kind: 'not-judged', ...rect(s.box), title: 'Not judged: time limit.' });
+  const newStyle = hasVerdicts(judged);
+  let amber = 0;
+  (judged || []).forEach((s, n) => {
+    const v = verdictOf(s);
+    if (v === 'standard') out.push({ sh: n, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' });
+    else if (v === 'not-standard') out.push({ sh: n, ...(newStyle ? { num: ++amber } : {}), kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + (newStyle ? amberText(s) : shapeWhy(s) + '. ' + closestText(s)) + '.' });
+    else if (v === 'not-identified') out.push({ sh: n, kind: 'not-identified', ...rect(s.box), title: 'Not identified: check by eye.' });
+    else if (v === 'not-judged') out.push({ sh: n, kind: 'not-judged', ...rect(s.box), title: 'Not judged: time limit.' });
   });
+  const area = result.drawingArea && typeof result.drawingArea === 'object' ? result.drawingArea : null;
+  if (newStyle && area && area.found !== false && isBox(area.box)) out.push({ kind: 'area', ...rect(area.box), title: 'Drawing area checked.' });
   if (isBox(result.skipped)) out.push({ kind: 'skipped', ...rect(result.skipped), title: SKIPPED_NOTE });
   return out;
 }

@@ -9,7 +9,7 @@
 // cannot encode would otherwise make pdf-lib throw.
 // Nothing here throws: a drawing that cannot be copied gets a line saying so.
 
-import { FAMILY_NOTE, VERDICT_LABELS, SUMMARY_ORDER, TRIAL_NOTE } from './pid-symbol-check-view.js';
+import { FAMILY_NOTE, VERDICT_LABELS, SUMMARY_ORDER, TRIAL_NOTE, KEY_NOT_STANDARD, KEY_NOT_IDENTIFIED } from './pid-symbol-check-view.js';
 import { PRINT_COLOURS, FALLBACK, SHORT_NOTE } from './pid-symbol-report.js';
 
 const A4 = [595.28, 841.89];
@@ -49,6 +49,9 @@ export const SYMBOLS_NOTE = 'Every drawn shape on each sheet is compared with th
 const STANDARD_KEY = 'Standard symbol (green, named on the drawing): standard symbols explain all of the drawn shape.';
 const NOT_STANDARD_KEY = 'Not to standard (dashed): a drawn shape the standard symbols do not wholly explain. Numbered after the tags in the table.';
 const SYMBOL_LINE = 0.5;
+const RED_LINE = 0.5, AREA_LINE = 0.3;
+const RED_NOTE = 'Red is a solid, thin red line, unnumbered, on the drawing. The drawing area is drawn faintly in grey.';
+const AMBER_ONLY_NOTE = 'Pictures and table rows are for amber only. Red is a count per sheet and boxes on the drawing.';
 
 function duration(seconds) {
   const s = Math.round(isNum(seconds) && seconds > 0 ? seconds : 0);
@@ -197,6 +200,22 @@ function drawBoxes(page, PDFLib, fonts, rows) {
   }
 }
 
+// A thin solid red box round each shape looked at and not identified: no number, no name, it has no row.
+function drawRedBoxes(page, PDFLib, rows) {
+  const colour = colourOf(PDFLib, PRINT_COLOURS['not-identified']);
+  for (const r of rows) {
+    const rect = obj(r).userRect;
+    if (!isRect(rect)) continue;
+    page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: colour, borderWidth: RED_LINE });
+  }
+}
+
+// The drawing area the check looked in, faint and light grey, drawn first so everything else sits on it.
+function drawArea(page, PDFLib, rect) {
+  if (!isRect(rect)) return;
+  page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: PDFLib.rgb(0.8, 0.8, 0.8), borderWidth: AREA_LINE });
+}
+
 // A thin green box round each standard symbol, its name above it, upright for the viewer.
 function drawStandardBoxes(page, PDFLib, fonts, rows) {
   let angle = 0;
@@ -278,6 +297,7 @@ async function render(model, sources, PDFLib, withDrawings) {
   if (str(m.checkedBy)) w.text('Checked by: ' + str(m.checkedBy), { size: 10 });
   w.gap(6);
   const symbolsMode = sheets.some(s => s.layout === 'symbols');
+  const verdicts = symbolsMode && sheets.some(s => s.markVerdicts === true);   // results from the redesign: red and the new key
   w.text(symbolsMode ? 'What this check does' : 'What this check can say', { size: 10, bold: true, gap: 0.1 });
   w.text(symbolsMode ? SYMBOLS_NOTE : (str(m.familyNote) || FAMILY_NOTE), { size: 10 });
   if (symbolsMode) w.text(TRIAL_NOTE, { size: 10, bold: true });
@@ -296,17 +316,19 @@ async function render(model, sources, PDFLib, withDrawings) {
   const kinds = SUMMARY_ORDER;
   if (symbolsMode) {
     w.table([{ title: 'Drawing', width: 110 }, { title: 'Rev.', width: 35 }, { title: 'Pre-check', width: 80 }, { title: 'Result', width: 120 },
-      { title: 'Standard symbols', width: 55 }, { title: 'Not to standard', width: 55 }, { title: 'Not judged', width: 50 }],
+      { title: 'Standard symbols', width: 55 }, { title: 'Not to standard', width: 55 }, ...(verdicts ? [{ title: 'Not identified', width: 55 }] : []), { title: 'Not judged', width: 50 }],
     sheets.map(s => [str(s.drawing), str(s.rev), str(s.precheckLabel), str(s.resultText),
-      ...(s.status === 'checked' && s.layout === 'symbols' ? [String(count(s.standardCount)), String(count(s.notStandardCount)), String(count(s.notJudgedCount))] : ['', '', ''])]), { size: 8, headSize: 7 });
+      ...(s.status === 'checked' && s.layout === 'symbols' ? [String(count(s.standardCount)), String(count(s.notStandardCount)), ...(verdicts ? [String(count(s.notIdentifiedCount))] : []), String(count(s.notJudgedCount))] : ['', '', ...(verdicts ? [''] : [])])]), { size: 8, headSize: 7 });
     w.gap(4);
     w.text('Key', { size: 10, bold: true, gap: 0.2 });
-    for (const [kind, line, dashed, text] of [['standard', SYMBOL_LINE, false, STANDARD_KEY], ['not-standard', BOX_LINE, true, NOT_STANDARD_KEY]]) {
+    for (const [kind, line, dashed, text] of [['standard', SYMBOL_LINE, false, STANDARD_KEY], ['not-standard', BOX_LINE, true, verdicts ? KEY_NOT_STANDARD : NOT_STANDARD_KEY],
+      ...(verdicts ? [['not-identified', RED_LINE, false, KEY_NOT_IDENTIFIED]] : [])]) {
       w.room(12);
       w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS[kind]), borderWidth: line, ...(dashed ? { borderDashArray: [2, 1.5] } : {}) });
       w.page.drawText(pdfSafe(text), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
       w.y -= 12;
     }
+    if (verdicts) { w.text(RED_NOTE, { size: 8.5, gap: 0.2 }); w.text(AMBER_ONLY_NOTE, { size: 8.5, gap: 0.2 }); }
     w.gap(4);
     w.text('Tags (reference, at the back of each sheet)', { size: 9, bold: true, gap: 0.2 });
     w.text(str(m.familyNote) || FAMILY_NOTE, { size: 8 });
@@ -396,12 +418,14 @@ async function render(model, sources, PDFLib, withDrawings) {
     if (str(s.timedOutLine)) w.text(str(s.timedOutLine), { size: 9, gap: 0.1 });
     if (str(s.pageNote)) w.text(str(s.pageNote), { size: 9, gap: 0.1 });
     w.gap(6);
-    w.text(drawingPage ? 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard.' : FALLBACK, { size: 10 });
+    w.text(drawingPage ? (s.markVerdicts === true ? 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard; thin red boxes are not identified.' : 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard.') : FALLBACK, { size: 10 });
     const shapeRows = asArr(s.shapeRows).filter(r => r && typeof r === 'object');
     if (drawingPage) {
       try { await drawPictures(w, PDFLib, fonts, doc, bytes, shapeRows, 'Not to standard: pictures'); } catch { /* the list below still says what each is */ }
       const page = doc.addPage(drawingPage);
+      try { drawArea(page, PDFLib, s.areaRect); } catch { /* the drawing stays, with what was drawn */ }
       try { drawStandardBoxes(page, PDFLib, fonts, asArr(s.standardRows)); } catch { /* the drawing stays, with what was drawn */ }
+      try { drawRedBoxes(page, PDFLib, asArr(s.redRows)); } catch { /* the drawing stays, with what was drawn */ }
       try { drawBoxes(page, PDFLib, fonts, shapeRows); } catch { /* the drawing stays, with what was drawn */ }
     }
     if (shapeRows.length) {

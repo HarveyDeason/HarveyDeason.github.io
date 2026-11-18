@@ -7,7 +7,7 @@ import { LIBRARY, LOOKUPS, SHEET } from './fixtures/symbol-check-sheet.js';
 const RESULT = checkSheet({ ...SHEET, library: LIBRARY, lookups: LOOKUPS });
 const HOSTILE = '<img src=x onerror=alert(1)>';
 const rows = html => html.split('<li>').slice(1);
-const rowFor = (html, tag) => rows(html).find(r => r.includes(tag));
+const rowFor = (html, tag) => rows(html).find(r => r.includes('data-act="sym-jump"') && r.includes(tag));   // a tag's verdict row (a shape row may also name the tag in its reason)
 
 test('blockerText: why the check cannot run, or nothing when it can', () => {
   const ok = { sheetOpen: true, status: 'readable', hasLibrary: true, running: false };
@@ -333,4 +333,86 @@ test('the shape check is labelled a trial wherever its flags show', () => {
   assert.ok(V.resultsHtml(SHAPED).includes('The shape check is new and on trial'));
   const { shapes, operatorsMarked, ...old } = SHAPED;
   assert.ok(!V.resultsHtml(old).includes('on trial'));
+});
+
+// ── Redesign: three verdicts on screen ────────────────────────────────────
+const sv = (verdict, reason, box, extra = {}) => ({ id: 0, box, verdict, reason, standard: verdict === 'standard' ? true : verdict === 'not-judged' ? null : false,
+  why: null, explained: 1, share: null, symbols: [], operator: null, closest: null, ...extra });
+const NEW = { ok: true, verdicts: [], skipped: null, operatorsMarked: true, symbols: [], readFrom: 'line-pieces', printScale: 0.41, sizeScale: 1,
+  drawingArea: { box: [5, 5, 500, 400], cuts: [], found: true },
+  shapes: [
+    sv('standard', null, [10, 10, 34, 22], { symbols: [] , closest: { name: 'WIDGET', score: 1 } }),
+    sv('not-standard', { kind: 'differs', name: 'GADGET', pct: 91 }, [100, 10, 120, 30]),
+    sv('not-standard', { kind: 'size', name: HOSTILE, pct: 70 }, [200, 10, 220, 30]),
+    sv('not-identified', null, [300, 10, 320, 30]),
+    sv('not-identified', null, [400, 10, 420, 30]),
+    sv('not-judged', null, [500, 10, 520, 30]),
+  ] };
+
+test('reasonText: the four fixed copies', () => {
+  assert.equal(V.reasonText({ reason: { kind: 'differs', name: 'GADGET', pct: 91 } }), 'drawn differently from GADGET (91% alike)');
+  assert.equal(V.reasonText({ reason: { kind: 'size', name: 'WIDGET', pct: 70 } }), 'WIDGET drawn at 70% of standard size');
+  assert.equal(V.reasonText({ reason: { kind: 'extra', name: 'WIDGET' } }), 'WIDGET with extra linework');
+  assert.equal(V.reasonText({ reason: { kind: 'tag', tag: 'XV101' } }), 'tag XV101 has no standard symbol');
+  assert.equal(V.reasonText({ reason: null }), '');
+  assert.equal(V.reasonText(null), '');
+});
+
+test('markLine: counts, read-from, print scale outside 95-105, frame not found', () => {
+  const many = n => Array.from({ length: n }, () => sv('standard', null, [0, 0, 1, 1]));
+  const r = { ...NEW, shapes: [...many(23), ...Array.from({ length: 12 }, () => sv('not-standard', { kind: 'extra', name: 'A' }, [0, 0, 1, 1])), ...Array.from({ length: 140 }, () => sv('not-identified', null, [0, 0, 1, 1]))] };
+  assert.equal(V.markLine(r), '23 standard · 12 not to standard · 140 not identified · Read from: line pieces · Printed at 41% of full size');
+  assert.equal(V.markLine({ ...r, readFrom: 'paths', printScale: 1 }), '23 standard · 12 not to standard · 140 not identified · Read from: drawn paths');
+  assert.ok(!V.markLine({ ...r, printScale: 1.05 }).includes('Printed at'));
+  assert.ok(!V.markLine({ ...r, printScale: 0.95 }).includes('Printed at'));
+  assert.ok(V.markLine({ ...r, printScale: 1.06 }).includes('Printed at 106% of full size'));
+  assert.ok(V.markLine({ ...r, drawingArea: { box: null, cuts: [], found: false } }).endsWith(' · Drawing area: frame not found, page edge used'));
+  assert.equal(V.markLine({ ...NEW, shapes: [] }), '');
+  assert.equal(V.markLine(null), '');
+});
+
+test('markLine: says the line-piece reading is incomplete when a cap left pieces out', () => {
+  const r = { ...NEW, readFrom: 'line-pieces', printScale: 1, shapes: [sv('standard', null, [0, 0, 1, 1])] };
+  assert.equal(V.markLine({ ...r, lineCapped: 7 }), '1 standard · 0 not to standard · 0 not identified · Read from: line pieces · Line-piece reading incomplete');
+  assert.ok(!V.markLine({ ...r, lineCapped: 0 }).includes('incomplete'));
+  assert.ok(!V.markLine(r).includes('incomplete'));
+  assert.ok(!V.markLine({ ...r, readFrom: 'paths', lineCapped: 7 }).includes('incomplete'));
+});
+
+test('the key copy', () => {
+  assert.equal(V.KEY_NOT_STANDARD, 'Not to standard: the reason names the standard symbol it departs from');
+  assert.equal(V.KEY_NOT_IDENTIFIED, 'Not identified: looked at, not matched to any standard symbol; check by eye');
+  assert.equal(V.NOT_IDENTIFIED_COLOUR, '#C62828');
+});
+
+test('boxRects: amber numbered 1.., red unnumbered, one area rect (none when not found)', () => {
+  const rects = V.boxRects(NEW, 2);
+  const am = rects.filter(b => b.kind === 'not-standard'), red = rects.filter(b => b.kind === 'not-identified');
+  assert.deepEqual(am.map(b => b.num), [1, 2]);
+  assert.deepEqual(am.map(b => b.sh), [1, 2]);
+  assert.equal(am[0].title, 'Not to standard: drawn differently from GADGET (91% alike).');
+  assert.equal(red.length, 2);
+  assert.ok(red.every(b => b.num === undefined && b.title === 'Not identified: check by eye.'));
+  assert.equal(rects.filter(b => b.kind === 'not-judged').length, 1);
+  assert.equal(rects.filter(b => b.kind === 'standard').length, 1);
+  const area = rects.filter(b => b.kind === 'area');
+  assert.equal(area.length, 1);
+  assert.equal(area[0].left, 5 * 2 - 3);
+  assert.equal(V.boxRects({ ...NEW, drawingArea: { box: null, cuts: [], found: false } }, 2).filter(b => b.kind === 'area').length, 0);
+});
+
+test('resultsHtml: amber rows only, one red count line, mark line, escaped reasons', () => {
+  const html = V.resultsHtml(NEW);
+  const shapeRows = rows(html).filter(r => r.includes('sym-jump-shape') && r.includes('sc-not-standard'));
+  assert.equal(shapeRows.length, 2);
+  assert.ok(shapeRows[0].includes('drawn differently from GADGET (91% alike)') && /data-sh="1"/.test(shapeRows[0]));
+  assert.ok(!html.includes('<img'), 'hostile name escaped');
+  assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt; drawn at 70% of standard size'));
+  assert.ok(html.includes('2 not identified (boxed in red on the drawing)'));
+  assert.equal(rows(html).filter(r => r.includes('not-identified')).length, 0);
+  assert.ok(html.includes('1 standard · 2 not to standard · 2 not identified · Read from: line pieces · Printed at 41% of full size'));
+  assert.ok(html.includes(V.TRIAL_NOTE) || html.includes('The shape check is new and on trial'));
+  assert.ok(html.indexOf('on trial') < html.indexOf('Read from:'));
+  assert.ok(html.includes(V.KEY_NOT_STANDARD) && html.includes(V.KEY_NOT_IDENTIFIED));
+  assert.match(V.symbolSummary({ ...NEW, symbols: [] }), /1 standard shape, 2 not to standard, 2 not identified\./);
 });

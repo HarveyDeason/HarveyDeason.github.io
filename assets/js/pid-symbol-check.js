@@ -17,7 +17,7 @@
 // All geometry is in PDF points with a top-left origin.
 
 import { textWords, isClosedPath } from './pid-symbols.js';
-import { sheetShapes } from './pid-sheet-read.js';
+import { sheetShapes, readByLinePieces } from './pid-sheet-read.js';
 
 const isNum = x => typeof x === 'number' && Number.isFinite(x);
 const asArr = x => (Array.isArray(x) ? x : []);
@@ -823,6 +823,102 @@ export function titleBlockBox(paths, pageSize) {
   }
 }
 
+// ── The drawing area ──────────────────────────────────────────────────────
+// The sheet's frame, less its title strip or bottom-right block: where the
+// drawing itself is. Measured rules; a sheet that does not fit them gets
+// found: false and nothing is cropped.
+
+export const FRAME_LONG = 0.6;    // a frame side runs at least this share of the page's width (or height)
+export const FRAME_ZONE = 0.15;   // and lies in this outer share of the page
+export const STRIP_ZONE = 0.3;    // a title strip's divider lies in this share of the frame at its right (a block: at its bottom)
+export const STRIP_COVER = 0.5;   // and covers at least this share of the frame's height (a block: of its own height)
+export const STRIP_ROWS = 2;      // with at least this many row lines running from it to the frame's edge
+export const FRAME_TOUCH = 4;     // a shape closer than this to the frame is on it, not in it
+export const CUT_TOUCH = 2;       // and closer than this to a cut is on it
+
+// Share of [lo, hi] covered by the runs lying within `tol` of `at` (pieces up to `gap` apart count as one): points covered.
+function coverOf(runs, at, tol, lo, hi, gap) {
+  const iv = runs.filter(r => Math.abs(r.at - at) <= tol).map(r => [Math.max(r.a, lo), Math.min(r.b, hi)]).filter(v => v[1] > v[0]).sort((u, v) => u[0] - v[0]);
+  let total = 0, cur = null;
+  for (const [a, b] of iv) {
+    if (cur && a <= cur[1] + gap) cur[1] = Math.max(cur[1], b);
+    else { if (cur) total += cur[1] - cur[0]; cur = [a, b]; }
+  }
+  return cur ? total + cur[1] - cur[0] : total;
+}
+
+/**
+ * The drawing area of a sheet, in the page's own (viewport) points:
+ * { box, cuts, found }. box is the frame, cuts the title strip or block
+ * inside it. found is false (box the whole page, no cuts) when the four sides
+ * of a frame are not all there. Never throws.
+ */
+export function drawingArea(paths, pageSize) {
+  let W = null, H = null;
+  try {
+    const s = asArr(pageSize);
+    if (isNum(s[0]) && isNum(s[1]) && s[0] > 0 && s[1] > 0) { W = s[0]; H = s[1]; }
+    if (W === null) return { box: null, cuts: [], found: false };
+    const none = { box: [0, 0, W, H], cuts: [], found: false };
+    const cfg = settings();
+    const hr = axisRuns(paths, false, cfg), vr = axisRuns(paths, true, cfg);
+    const side = (runs, long, lo, hi) => runs.filter(r => r.b - r.a >= FRAME_LONG * long && r.at >= lo && r.at <= hi).map(r => r.at);
+    const top = side(hr, W, 0, FRAME_ZONE * H), bottom = side(hr, W, (1 - FRAME_ZONE) * H, H);
+    const left = side(vr, H, 0, FRAME_ZONE * W), right = side(vr, H, (1 - FRAME_ZONE) * W, W);
+    if (!top.length || !bottom.length || !left.length || !right.length) return none;
+    const [x0, y0, x1, y1] = [Math.max(...left), Math.max(...top), Math.min(...right), Math.min(...bottom)];
+    if (!(x1 > x0 && y1 > y0)) return none;
+    const fw = x1 - x0, fh = y1 - y0, box = [x0, y0, x1, y1];
+
+    // a strip: a divider in the frame's right part, most of its height, with row lines from it to the frame's edge
+    const xs = [...new Set(vr.filter(r => r.at > x0 + (1 - STRIP_ZONE) * fw && r.at < x1 - 5).map(r => r.at))].sort((p, q) => p - q);
+    for (const x of xs) {
+      if (coverOf(vr, x, 0.8, y0, y1, 0.5) < STRIP_COVER * fh) continue;
+      const rows = hr.filter(r => Math.abs(r.a - x) <= 2 && Math.abs(r.b - x1) <= 3 && r.at >= y0 && r.at <= y1);
+      if (rows.length >= STRIP_ROWS) return { box, cuts: [[x, y0, x1, y1]], found: true };
+    }
+
+    // a bottom-right block: its top line to the frame's right edge, its left line down to the frame's bottom
+    const corners = [];
+    for (const h of hr) {
+      if (!(h.at > y0 + (1 - STRIP_ZONE) * fh && h.at < y1 - 5) || Math.abs(h.b - x1) > 3 || !(h.a > x0 + 5)) continue;
+      const side2 = vr.filter(v => Math.abs(v.at - h.a) <= 2 && v.b >= y1 - 3 && v.a <= h.at + 3);
+      if (!side2.length || coverOf(vr, side2[0].at, 2, h.at, y1, 0.5) < STRIP_COVER * (y1 - h.at)) continue;
+      corners.push([h.a, h.at]);
+    }
+    if (corners.length) {
+      corners.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+      return { box, cuts: [[corners[0][0], corners[0][1], x1, y1]], found: true };
+    }
+    return { box, cuts: [], found: true };
+  } catch {
+    return { box: W !== null ? [0, 0, W, H] : null, cuts: [], found: false };
+  }
+}
+
+/**
+ * True when a box lies in the drawing area: inside the frame by more than
+ * FRAME_TOUCH on every side, and touching no cut grown by CUT_TOUCH. True for
+ * every box when no frame was found. Never throws.
+ */
+export function insideArea(area, box) {
+  try {
+    const a = asObj(area);
+    if (a.found !== true) return true;
+    const f = a.box, b = box;
+    const ok4 = v => Array.isArray(v) && v.length >= 4 && v.slice(0, 4).every(isNum);
+    if (!ok4(f) || !ok4(b)) return false;
+    if (b[0] <= f[0] + FRAME_TOUCH || b[1] <= f[1] + FRAME_TOUCH || b[2] >= f[2] - FRAME_TOUCH || b[3] >= f[3] - FRAME_TOUCH) return false;
+    for (const c of asArr(a.cuts)) {
+      if (!ok4(c)) continue;
+      if (b[2] > c[0] - CUT_TOUCH && b[0] < c[2] + CUT_TOUCH && b[3] > c[1] - CUT_TOUCH && b[1] < c[3] + CUT_TOUCH) return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 const inBox = (b, x, y) => !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
 
 /** A checkable, non-bubble symbol drawn only with axis-aligned lines, or with at most 3 straight pieces. Never throws. */
@@ -1171,7 +1267,8 @@ function boxFit(prepared, o, box) {
   const base = { o, k: 1, tx: 0, ty: 0 };
   const c = [[0, 0], [prep.w, 0], [0, prep.h], [prep.w, prep.h]].map(([x, y]) => placePoint(base, x, y));
   const tx = box[0] - Math.min(...c.map(q => q[0])), ty = box[1] - Math.min(...c.map(q => q[1]));
-  return { p: prep, placement: { o, k: 1, tx, ty, cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2 } };
+  // fitK: the larger of the two scales the symbol was stretched by, so hitSize judges a fit on its larger side.
+  return { p: prep, placement: { o, k: 1, tx, ty, cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2, fitK: Math.max(sx, sy) } };
 }
 
 // Distance from point pt to segment q ([x0, y0, x1, y1, ...]).
@@ -1240,11 +1337,208 @@ function pieceOn(g, T) {
   return on / (n + 1);
 }
 
+// ── The pipe off a found symbol ──────────────────────────────────────────
+// A valve found by the sweep is often joined in one shape with short stubs of
+// its own pipe (shorter than the splitter's long run). The cut treats straight
+// ink leaving the symbol's ends in line with its pipe connection as pipe.
+
+const PIPE_EDGE = 0.5;      // a segment end this near the symbol's box edge is on it
+const PIPE_SIN = 0.2;       // a connecting segment is not along the edge: sin of its angle to the edge above this
+const PIPE_LONG = 1.2;      // no connection points: the long axis when one side is this much the other
+const CUT_PARALLEL = 0.02;  // sin of the angle between a cut piece and the pipe line
+const CUT_OFF = 1;          // a cut piece lies within this of the pipe line, ends within this of the box edge and of the next piece
+const CUT_JOIN = 0.5;       // a piece not in line with the pipe within this of a piece's end makes a junction
+
+/**
+ * Where a symbol's pipe runs through it, in the symbol's own frame:
+ * { axis: 'h'|'v', at: [...] } (the y of each horizontal line, or the x of each
+ * vertical one), or null for a symbol with no pipe axis (a bubble, an operator,
+ * a squarish body with no connections). Never throws.
+ */
+export function pipeLines(prepared) {
+  try {
+    const p = asObj(prepared), w = p.w, h = p.h;
+    if (!isNum(w) || !isNum(h) || !(w > 0) || !(h > 0) || p.bubble === true || p.operator === true) return null;
+    const side = [], end = [];   // y of points on the left or right edges; x of points on the top or bottom edges
+    for (const g of asArr(p.segs)) {
+      if (!Array.isArray(g) || !g.slice(0, 4).every(isNum)) continue;
+      const dx = g[2] - g[0], dy = g[3] - g[1], len = Math.hypot(dx, dy);
+      if (!(len > 0)) continue;
+      for (const [x, y] of [[g[0], g[1]], [g[2], g[3]]]) {
+        const onSide = Math.abs(x) <= PIPE_EDGE || Math.abs(x - w) <= PIPE_EDGE, onEnd = Math.abs(y) <= PIPE_EDGE || Math.abs(y - h) <= PIPE_EDGE;
+        if (onSide && onEnd) continue;   // a corner
+        if (onSide && Math.abs(dx) / len > PIPE_SIN && y > PIPE_EDGE && y < h - PIPE_EDGE) side.push(y);
+        else if (onEnd && Math.abs(dy) / len > PIPE_SIN && x > PIPE_EDGE && x < w - PIPE_EDGE) end.push(x);
+      }
+    }
+    const uniq = v => [...new Set(v.map(round3))].sort((a, b) => a - b);
+    if (side.length && !end.length) return { axis: 'h', at: uniq(side) };
+    if (end.length && !side.length) return { axis: 'v', at: uniq(end) };
+    if (w >= PIPE_LONG * h) return { axis: 'h', at: [round3(h / 2)] };
+    if (h >= PIPE_LONG * w) return { axis: 'v', at: [round3(w / 2)] };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The pieces of a shape (indexes into the split's segments S) that are a found
+ * symbol's own pipe: straight pieces on one of its pipe lines, outside its box,
+ * starting at its box edge and running outward through collinear pieces to the
+ * first junction (the piece before a junction is cut, what meets there stays).
+ * Never throws: hostile input gives [].
+ */
+export function cutPipe(S, pieces, hit) {
+  try {
+    if (!Array.isArray(S) || !Array.isArray(pieces) || !isHit(hit)) return [];
+    const lines = pipeLines(hit.p);
+    if (!lines) return [];
+    const ok = i => Number.isInteger(i) && Array.isArray(S[i]) && S[i].slice(0, 4).every(isNum);
+    const mine = [...new Set(pieces.filter(ok))];
+    if (!mine.length) return [];
+    const bb = placedBox(hit);
+    if (!bb.every(isNum)) return [];
+    const inset = [bb[0] + CUT_OFF, bb[1] + CUT_OFF, bb[2] - CUT_OFF, bb[3] - CUT_OFF];
+    const insideInset = (x, y) => inset[0] < inset[2] && inset[1] < inset[3] && x > inset[0] && x < inset[2] && y > inset[1] && y < inset[3];
+    const nearBox = (x, y) => x >= bb[0] - CUT_OFF && x <= bb[2] + CUT_OFF && y >= bb[1] - CUT_OFF && y <= bb[3] + CUT_OFF && !insideInset(x, y);
+    const out = new Set();
+    for (const at of lines.at) {
+      const a = lines.axis === 'h' ? placePoint(hit.placement, 0, at) : placePoint(hit.placement, at, 0);
+      const b = lines.axis === 'h' ? placePoint(hit.placement, hit.p.w, at) : placePoint(hit.placement, at, hit.p.h);
+      const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+      if (!isNum(L) || !(L > 0)) continue;
+      const off = (x, y) => Math.abs((x - a[0]) * dy - (y - a[1]) * dx) / L;
+      const collinear = i => {
+        const q = S[i], len = Math.hypot(q[2] - q[0], q[3] - q[1]);
+        return len > 0 && Math.abs((q[2] - q[0]) * dy - (q[3] - q[1]) * dx) / (len * L) < CUT_PARALLEL
+          && off(q[0], q[1]) <= CUT_OFF && off(q[2], q[3]) <= CUT_OFF;
+      };
+      const line = new Set(mine.filter(collinear));
+      const isJunction = (x, y, self) => mine.some(j => j !== self && !line.has(j) && distToSeg([x, y], S[j]) <= CUT_JOIN);
+      const queue = [];
+      for (const i of line) {
+        const q = S[i];
+        if (insideInset(q[0], q[1]) || insideInset(q[2], q[3])) continue;
+        const e0 = nearBox(q[0], q[1]), e1 = nearBox(q[2], q[3]);
+        if (e0 === e1) continue;   // both ends on the box edge (along it) or neither
+        queue.push([i, e0 ? [q[2], q[3]] : [q[0], q[1]]]);
+      }
+      const seen = new Set();
+      while (queue.length) {
+        const [i, far] = queue.pop();
+        if (seen.has(i)) continue;
+        seen.add(i); out.add(i);
+        if (isJunction(far[0], far[1], i)) continue;
+        for (const j of line) {
+          if (seen.has(j)) continue;
+          const q = S[j];
+          const d0 = Math.hypot(q[0] - far[0], q[1] - far[1]), d1 = Math.hypot(q[2] - far[0], q[3] - far[1]);
+          if (Math.min(d0, d1) > CUT_OFF) continue;
+          const next = d0 <= d1 ? [q[2], q[3]] : [q[0], q[1]];
+          if (insideInset(next[0], next[1]) || insideInset(q[0], q[1])) continue;
+          queue.push([j, next]);
+        }
+      }
+    }
+    return [...out].sort((x, y) => x - y);
+  } catch {
+    return [];
+  }
+}
+
+// ── Sheet scale, size and the verdicts ────────────────────────────────────
+
+export const AMBER_ALIKE = 0.8;      // no body found: the closest symbol scoring this (and AMBER_EXPLAINED) makes "drawn differently"
+export const AMBER_EXPLAINED = 0.5;  // a body must explain this share of its shape (after the pipe cut) to be "extra linework"; a closest, to be "alike"
+export const SIZE_TOL = 0.15;        // a body drawn more than this off the sheet's own symbol size is off size
+export const JUDGE_BAND = Object.freeze([0.6, 1.6]);   // the judge looks for symbols at this share of the sheet's size, to this much of it
+export const SCALE_SYMBOLS_MIN = 5;  // fewer symbols than this and the sheet's size is taken as the legend's (1)
+export const GREEN_SWITCH = 0.5;   // fewer than this share of the shapes standard when read by drawn paths: read by line pieces too
+
+/** The sheet's own symbol size: the median of hit.k over the hits; 1 when fewer than SCALE_SYMBOLS_MIN have one. Never throws. */
+export function sizeScaleOf(hits) {
+  try {
+    const ks = asArr(hits).map(h => asObj(h).k).filter(k => isNum(k) && k > 0).sort((a, b) => a - b);
+    if (ks.length < SCALE_SYMBOLS_MIN) return 1;
+    const m = ks.length >> 1;
+    return ks.length % 2 ? ks[m] : (ks[m - 1] + ks[m]) / 2;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * How big a hit is drawn against its legend symbol: its placed box's longer side
+ * over the symbol's longer side (a box fit: the scale it was fitted at, recorded
+ * by boxFit as placement.fitK). 1 for anything that is not a hit. Never throws.
+ */
+export function hitSize(hit) {
+  try {
+    if (!isHit(hit)) return 1;
+    if (isNum(hit.placement.fitK) && hit.placement.fitK > 0) return hit.placement.fitK;
+    const b = placedBox(hit), side = Math.max(hit.p.w, hit.p.h), got = Math.max(b[2] - b[0], b[3] - b[1]) / side;
+    return isNum(got) && got > 0 ? got : 1;
+  } catch {
+    return 1;
+  }
+}
+
+// A symbol drawn as one straight line (a single segment, or every segment collinear and joined across the whole longer side).
+function isOneLine(prepared) {
+  try {
+    const p = asObj(prepared);
+    const segs = asArr(p.segs).filter(g => Array.isArray(g) && g.slice(0, 5).every(isNum) && g[4] > 0);
+    if (!segs.length) return false;
+    if (segs.length === 1) return true;
+    const a = segs[0];
+    const flat = segs.every(g => Math.abs((g[2] - g[0]) * (a[3] - a[1]) - (g[3] - g[1]) * (a[2] - a[0])) <= 0.02 * g[4] * a[4]
+      && Math.abs((g[0] - a[0]) * (a[3] - a[1]) - (g[1] - a[1]) * (a[2] - a[0])) <= 0.3 * a[4]);
+    return flat && longestJoined(segs) >= Math.max(asObj(p).w, asObj(p).h) - 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The verdict of one judged shape: { verdict, reason }. Input: { bodies: [{ name, size }] (the found
+ * symbols that are not operators, size as hitSize), explained (the share of the shape the found symbols explain),
+ * closest: { name, score, explained, oneLine? } | null, sizeScale (default 1), shapeExplained }.
+ *   - bodies, all ink explained: standard, or off size (the worst body, more than SIZE_TOL off).
+ *   - bodies explaining AMBER_EXPLAINED or more, ink left over: off size, else "extra" naming the first body.
+ *   - otherwise: the closest at AMBER_ALIKE and AMBER_EXPLAINED is "differs" (never a one-line symbol), else not identified.
+ * Never throws.
+ */
+export function shapeVerdict(input) {
+  try {
+    const o = asObj(input), scale = isNum(o.sizeScale) && o.sizeScale > 0 ? o.sizeScale : 1;
+    const bodies = asArr(o.bodies).filter(b => b && typeof b === 'object' && typeof b.name === 'string');
+    const explained = isNum(o.explained) ? o.explained : 0;
+    const need = isNum(o.shapeExplained) ? o.shapeExplained : CHECK_DEFAULTS.shapeExplained;
+    let off = null;
+    for (const b of bodies) {
+      const rel = isNum(b.size) ? b.size / scale : 1, dev = Math.abs(rel - 1);
+      if (dev > SIZE_TOL && (!off || dev > off.dev)) off = { dev, name: b.name, pct: Math.round(rel * 100) };
+    }
+    const sized = () => ({ verdict: 'not-standard', reason: { kind: 'size', name: off.name, pct: off.pct } });
+    if (bodies.length && explained >= need) return off ? sized() : { verdict: 'standard', reason: null };
+    if (bodies.length && explained >= AMBER_EXPLAINED) return off ? sized() : { verdict: 'not-standard', reason: { kind: 'extra', name: bodies[0].name } };
+    const c = asObj(o.closest);
+    if (o.closest && isNum(c.score) && isNum(c.explained) && c.score >= AMBER_ALIKE && c.explained >= AMBER_EXPLAINED && c.oneLine !== true && c.bubble !== true && typeof c.name === 'string') {
+      return { verdict: 'not-standard', reason: { kind: 'differs', name: c.name, pct: Math.round(c.score * 100) } };
+    }
+    return { verdict: 'not-identified', reason: null };
+  } catch {
+    return { verdict: 'not-identified', reason: null };
+  }
+}
+
 /**
  * Judge every shape of a split sheet. ctx = { cfg, prepared, boxed, paths,
  * split (sheetShapes' result), spots: [{ hit, symbol (index into the listed
- * symbols) }], near, rejected, writing, deadline }. Returns ShapeOut[]:
- * { id, box, standard: true|false|null, why, explained, share, symbols,
+ * symbols) }], near, rejected, writing, deadline, sizeScale (default 1) }. Returns ShapeOut[]:
+ * { id, box, standard: true|false|null, verdict ('standard'|'not-standard'|'not-identified'|'not-judged'),
+ * reason (null, or { kind: 'differs'|'size'|'extra', ... }), why, explained, share, symbols,
  * operator, closest }. Never throws: hostile input gives [].
  */
 export function judgeShapes(ctx) {
@@ -1256,6 +1550,9 @@ export function judgeShapes(ctx) {
     const cfg = c.cfg && typeof c.cfg === 'object' ? c.cfg : settings();
     const prepared = asArr(c.prepared), boxed = asArr(c.boxed), paths = asArr(c.paths), writing = asArr(c.writing);
     const deadline = isNum(c.deadline) ? c.deadline : Infinity;
+    const sizeScale = isNum(c.sizeScale) && c.sizeScale > 0 ? c.sizeScale : 1;
+    // The judge looks for symbols at the sheet's own size: every placement it proposes is inside this band.
+    const band = { ...cfg, minScale: JUDGE_BAND[0] * sizeScale, maxScale: JUDGE_BAND[1] * sizeScale };
     const PX = cfg.pxPerPt, tolPx = Math.round(cfg.inkTol * PX);
     const linePieces = [];
     for (const l of asArr(split.lines)) for (const i of asArr(asObj(l).pieces)) if (Array.isArray(S[i])) linePieces.push(i);
@@ -1307,13 +1604,14 @@ export function judgeShapes(ctx) {
 
     // Symbols the judge may place: operators, plain ones, bubbles; and the sweep's candidates.
     const operators = prepared.filter(p => p && p.operator === true && asArr(p.keys).length).map(placeable);
-    const opReach = operators.reduce((m, p) => Math.max(m, p.w, p.h), 0) * cfg.maxScale;
+    const opReach = operators.reduce((m, p) => Math.max(m, p.w, p.h), 0) * band.maxScale;
+    // A symbol drawn as one straight line matches any line: it is never a standalone fit (plain, box or loose).
     const plains = prepared.filter(p => p && !p.operator && !p.bubble && asArr(p.keys).length && asArr(p.segs).length <= 400
-      && (p.why === 'simple' || plainShape(p))).map(placeable);
+      && (p.why === 'simple' || plainShape(p)) && !isOneLine(p)).map(placeable);
     const bubbles = prepared.filter(p => p && p.checkable && p.bubble);
-    const looseable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator);
+    const looseable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator && !isOneLine(p));
     // Every symbol a shape may be fitted to at its own proportions (bubbles are matched by their outline).
-    const fittable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator && asArr(p.points).length);
+    const fittable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator && asArr(p.points).length && !isOneLine(p));
     const nearList = asArr(c.near).filter(isHit), rejected = asArr(c.rejected).filter(isHit);
     const minKey = 0.75 * cfg.minKeyLine;
     const frameAround = (box, g) => ({ x0: box[0] - g, y0: box[1] - g, w: Math.ceil((box[2] - box[0] + 2 * g) * PX), h: Math.ceil((box[3] - box[1] + 2 * g) * PX), pxPerPt: PX });
@@ -1333,7 +1631,7 @@ export function judgeShapes(ctx) {
       for (const h of bodyHits) {
         const bb = placedBox(h), centre = centreOf(bb), reach = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]) / 2 + opReach;
         for (const p of operators) {
-          for (const pl of proposePlacements(p, segs, centre, { ...cfg, radius: reach })) {
+          for (const pl of proposePlacements(p, segs, centre, { ...band, radius: reach })) {
             const sc = scorePlacement(p, pl, opWin, cfg);
             if (!sc || sc.score < cfg.recognise) continue;
             const hit = { p, placement: pl, score: sc.score };
@@ -1425,15 +1723,41 @@ export function judgeShapes(ctx) {
     }
     const judged = finals.filter((_, fi) => !merged2.has(fi));
 
+    // 2b. The pipe a found body carries is not part of its shape: straight ink leaving its ends in line
+    // with its pipe connection is cut off before the shape is judged, and the shape's box follows.
+    for (const f of judged) {
+      const cut = new Set();
+      for (const sp of f.spots) if (!sp.hit.p.operator && sp.hit.p.bubble !== true) for (const i of cutPipe(S, f.pieces, sp.hit)) cut.add(i);
+      if (!cut.size) continue;
+      const rest = f.pieces.filter(i => !cut.has(i));
+      if (!rest.length) continue;
+      f.pieces = rest;
+      f.box = boxOfPieces(S, rest);
+    }
+
     const out = [];
+    // A shape drawn exactly like one already judged (ctx.memo: a Map the caller keeps between readings) takes its judgement.
+    const memo = c.memo instanceof Map ? c.memo : null;
+    const r2 = v => Math.round(v * 100) / 100;
+    const memoKey = f => {
+      const segs = f.pieces.map(i => { const q = S[i], a = [r2(q[0]), r2(q[1])], b = [r2(q[2]), r2(q[3])]; return (a[0] - b[0] || a[1] - b[1]) <= 0 ? a.concat(b).join(',') : b.concat(a).join(','); }).sort();
+      return (f.closed ? 'c' : 'o') + f.box.map(r2).join(',') + '|' + segs.join(';');   // a closed outline is read differently from the same pieces left open
+    };
     judged.forEach((f, fi) => {
-      const base = { id: fi, box: f.box.map(round3), standard: null, why: 'time', explained: 0, share: null,
+      let key = null;
+      if (memo) { try { key = memoKey(f); } catch { key = null; } }
+      if (key !== null && memo.has(key)) {
+        const m = memo.get(key);
+        out.push({ ...m, id: fi, box: [...m.box], symbols: [...m.symbols], reason: m.reason ? { ...m.reason } : null, closest: m.closest ? { ...m.closest } : null });
+        return;
+      }
+      const base = { id: fi, box: f.box.map(round3), standard: null, verdict: 'not-judged', reason: null, why: 'time', explained: 0, share: null,
         symbols: [...new Set(f.spots.map(sp => sp.symbol).filter(Number.isInteger))].sort((a, b) => a - b), operator: null, closest: null };
       if (clock() > deadline) { out.push(base); return; }
       const body = f.spots.some(sp => !sp.hit.p.operator);
       const g = 2 + (body && operators.length ? opReach + 2 : 0);
       const fr = { x0: f.box[0] - g, y0: f.box[1] - g, w: Math.ceil((f.box[2] - f.box[0] + 2 * g) * PX), h: Math.ceil((f.box[3] - f.box[1] + 2 * g) * PX), pxPerPt: PX };
-      if (!(fr.w > 0 && fr.h > 0) || fr.w > MAX_SIDE || fr.h > MAX_SIDE) { out.push({ ...base, standard: false, why: 'no-fit' }); return; }
+      if (!(fr.w > 0 && fr.h > 0) || fr.w > MAX_SIDE || fr.h > MAX_SIDE) { out.push({ ...base, standard: false, verdict: 'not-identified', why: 'no-fit' }); return; }
       const own = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
       drawInto(own, piecePaths(split, f.pieces, paths), {}, cfg);
       const full = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
@@ -1462,7 +1786,14 @@ export function judgeShapes(ctx) {
 
       // A closed outline with writing in it and nothing found: a bubble matched to its outline.
       if (!kept.length && f.closed && hasWriting(writing, f.box)) {
-        const m = matchBubble(bubbles, f.box, { ink: full, near: nearFull }, cfg);
+        // On a printed sheet the letters are drawn as ink: a path lying wholly inside a writing box (grown 1 pt) is the tag, not the bubble.
+        const letters = writing.filter(b => Array.isArray(b) && b.length === 4 && b.every(isNum)).map(b => [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1]);
+        const bare = letters.length ? blank(fr.x0, fr.y0, fr.w, fr.h, PX) : full;
+        if (letters.length) {
+          drawInto(bare, boxed.filter(q => q.b[2] >= fr.x0 && q.b[0] <= fr.x0 + fr.w / PX && q.b[3] >= fr.y0 && q.b[1] <= fr.y0 + fr.h / PX
+            && !letters.some(w => q.b[0] >= w[0] && q.b[1] >= w[1] && q.b[2] <= w[2] && q.b[3] <= w[3])).map(q => q.p), {}, cfg);
+        }
+        const m = matchBubble(bubbles, f.box, { ink: bare, near: nearFull }, cfg);
         if (m.best) { const h = { p: m.best.p, placement: m.best.placement, score: m.best.score }; kept.push({ h, op: false }); addMask(h); }
       }
       // Nothing found: a plain symbol matched to the whole shape (both ways at plainBack, nothing running on).
@@ -1475,9 +1806,9 @@ export function judgeShapes(ctx) {
           if (weakestLine(hit, win, cfg) < LINE_MIN || runsOnPastCorner(hit, full, cfg)) return;
           if (!best || s.score > best.score) best = hit;
         };
-        for (const r of rejected) if (r.rejectedFor === 'plain' && inShape(r)) tryHit({ p: placeable(r.p), placement: r.placement });
+        for (const r of rejected) if (r.rejectedFor === 'plain' && inShape(r) && !isOneLine(r.p)) tryHit({ p: placeable(r.p), placement: r.placement });
         const segs = segsOf(S, f.pieces, minKey), centre = centreOf(f.box), reach = Math.hypot(f.box[2] - f.box[0], f.box[3] - f.box[1]) / 2 + 2;
-        for (const p of plains) for (const pl of proposePlacements(p, segs, centre, { ...cfg, radius: reach })) tryHit({ p, placement: pl });
+        for (const p of plains) for (const pl of proposePlacements(p, segs, centre, { ...band, radius: reach })) tryHit({ p, placement: pl });
         if (best) { kept.push({ h: best, op: false }); addMask(best); }
       }
       if (isBubbleShape()) skip = writing.filter(b => inBox(f.box, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2));
@@ -1499,7 +1830,7 @@ export function judgeShapes(ctx) {
         // A loose search, as for a tag with nothing near it: the symbols laid on this shape's lines, the quick look relaxed.
         const segs = segsOf(S, f.pieces, minKey), centre = centreOf(f.box), reach = Math.hypot(f.box[2] - f.box[0], f.box[3] - f.box[1]) / 2 + 2;
         const tries = [];
-        for (const p of looseable) for (const pl of proposePlacements(p, segs, centre, { ...cfg, radius: reach })) tries.push({ p, placement: pl });
+        for (const p of looseable) for (const pl of proposePlacements(p, segs, centre, { ...band, radius: reach })) tries.push({ p, placement: pl });
         for (const t of tries.slice(0, LOOSE_TRY * 10)) {
           if (cands.length >= LOOSE_TRY) break;
           const s = scorePlacement(t.p, t.placement, { ink: own, near: nearFull }, { ...cfg, quickLook: NEAR_MISS_LOOK });
@@ -1548,8 +1879,12 @@ export function judgeShapes(ctx) {
         else if (closest && isNum(closest.h.weak) && closest.h.weak < LINE_MIN && closest.h.score >= SHORT_SCORE) { why = 'short-line'; share = round3(closest.h.weak); }
         else why = 'no-fit';
       }
-      out.push({ ...base, standard, why, explained: round3(explained), share, operator,
-        closest: closest ? { name: nameOf(closest.h.p), tagId: str(asObj(closest.h.p.symbol).tagId), score: round3(closest.h.score), explained: round3(closest.e) } : null });
+      // The three verdicts. why and standard keep their old meaning for the old readers; verdict and reason say how far off.
+      const shown = closest ? { name: nameOf(closest.h.p), tagId: str(asObj(closest.h.p.symbol).tagId), score: round3(closest.h.score), explained: round3(closest.e) } : null;
+      const v = shapeVerdict({ bodies: kept.filter(k => !k.op).map(k => ({ name: nameOf(k.h.p), size: hitSize(k.h) })), explained, sizeScale, shapeExplained: cfg.shapeExplained,
+        closest: shown ? { ...shown, oneLine: isOneLine(closest.h.p), bubble: closest.h.p.bubble === true } : null });
+      out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown });
+      if (key !== null) memo.set(key, out[out.length - 1]);
     });
     return out;
   } catch {
@@ -1645,7 +1980,7 @@ export function checkSheet(input) {
     if (isNum(o.sheetScale) && o.sheetScale > 0) k = o.sheetScale;
     else if (o.autoScale !== false && asArr(asObj(inp.library).symbols).length) k = estimateSheetScale(inp);
   } catch { k = 1; }
-  if (!(k > 0) || k === 1) { const r = checkSheetAt(inp); if (r && r.ok) r.sheetScale = 1; return r; }
+  if (!(k > 0) || k === 1) { const r = checkSheetAt(inp); if (r && r.ok) { r.sheetScale = 1; if (isNum(r.sizeScale)) r.printScale = round3(r.sizeScale); } return r; }
   try {
     const f = 1 / k, vt = isMatrix(inp.viewportTransform) ? Array.from(inp.viewportTransform).slice(0, 6) : IDENTITY;
     const scaled = { ...inp,
@@ -1660,7 +1995,9 @@ export function checkSheet(input) {
     for (const sy of asArr(r.symbols)) sy.box = back(sy.box);
     for (const sh of asArr(r.shapes)) sh.box = back(sh.box);
     r.skipped = back(r.skipped);
+    if (r.drawingArea) r.drawingArea = { ...r.drawingArea, box: back(r.drawingArea.box), cuts: asArr(r.drawingArea.cuts).map(back) };
     r.sheetScale = round3(k);
+    if (isNum(r.sizeScale)) r.printScale = round3(k * r.sizeScale);
     return r;
   } catch {
     return { ok: false, why: 'failed' };
@@ -1832,7 +2169,7 @@ function checkSheetAt(input) {
 
     // The sweep: every standard symbol on the page. The tag-led pairings above
     // stand as they are; each claims the swept symbol that shares its ink.
-    let symbols = [], skipped = null, sweptLate = false, shapes, operatorsMarked;
+    let symbols = [], skipped = null, sweptLate = false, shapes, operatorsMarked, drawingAreaOut, sizeScaleOut, readFrom = 'paths', lineCapped, sizeScale = 1;
     if (asObj(inp.options).sweep !== false) {
       const sw = sweep({ cfg, prepared, paths: inp.paths, boxed, segments, pageSize: inp.pageSize,
         onProgress: progress, deadline: started + cfg.timeLimitMs, raw: true, writing: writingBoxes(words, inp.writing) });
@@ -1896,9 +2233,31 @@ function checkSheetAt(input) {
         const band = shapeBand(prepared, cfg);
         const writing = writingBoxes(words, inp.writing);
         const pg = asArr(inp.pageSize);
-        const split = band ? sheetShapes(inp.paths, { ...band, skip: skipped, writing, page: isNum(pg[0]) && isNum(pg[1]) ? [pg[0], pg[1]] : null }) : { shapes: [], lines: [], segments: [] };
-        shapes = judgeShapes({ cfg, prepared, boxed, paths: inp.paths, split, writing, deadline: started + cfg.timeLimitMs,
-          spots: listed.map((l, i) => ({ hit: l.hit, symbol: i })), near: sw.near, rejected: swept.filter(h => h.plainRejected) });
+        // The drawing area: shapes standing in the title strip, on the frame or off it are not judged.
+        const area = drawingArea(inp.paths, inp.pageSize);
+        // The sheet's own symbol size, from the symbols found on it. options.sizeScale overrides it (for tests).
+        const given = asObj(inp.options).sizeScale;
+        sizeScale = isNum(given) && given > 0 ? given : sizeScaleOf(listed.map(l => l.hit));
+        const spotsIn = listed.map((l, i) => ({ hit: l.hit, symbol: i }));
+        const memo = new Map();
+        const readWith = (pathsIn, boxedIn) => {
+          const split = band ? sheetShapes(pathsIn, { ...band, skip: skipped, writing, page: isNum(pg[0]) && isNum(pg[1]) ? [pg[0], pg[1]] : null }) : { shapes: [], lines: [], segments: [] };
+          const centreIn = sh => { const b = asArr(sh && sh.box); if (b.length !== 4 || !b.every(isNum)) return true; const [x, y] = centreOf(b); return insideArea(area, [x, y, x, y]); };
+          const cropped = { ...split, shapes: asArr(split.shapes).filter(centreIn) };
+          const judged = judgeShapes({ cfg, prepared, boxed: boxedIn, sizeScale, paths: pathsIn, split: cropped, writing, deadline: started + cfg.timeLimitMs, memo,
+            spots: spotsIn, near: sw.near, rejected: swept.filter(h => h.plainRejected) });
+          return judged.filter(sh => insideArea(area, sh.box)).map((sh, i) => ({ ...sh, id: i }));
+        };
+        const greens = list => list.filter(sh => sh.verdict === 'standard').length;
+        shapes = readWith(inp.paths, boxed);
+        drawingAreaOut = area; sizeScaleOut = sizeScale;
+        // Too few green by drawn paths: read the sheet by its line pieces too, and keep the reading with more green.
+        if (greens(shapes) < GREEN_SWITCH * shapes.length && clock() - started < cfg.timeLimitMs) {
+          const lp = readByLinePieces(inp.paths);
+          lineCapped = lp.capped;
+          const second = readWith(lp.paths, boxesOf(lp.paths));
+          if (greens(second) > greens(shapes)) { shapes = second; readFrom = 'line-pieces'; }
+        }
         operatorsMarked = prepared.some(p => p.operator === true);
         for (const sym of symbols) { sym.shape = null; sym.standard = null; }
         for (const sh of shapes) for (const i of sh.symbols) if (symbols[i]) { symbols[i].shape = sh.id; symbols[i].standard = sh.standard; }
@@ -1923,12 +2282,41 @@ function checkSheetAt(input) {
       v.closest = closestPre[ti];
     });
 
+    // Tag promotion (the tag verdicts are final): a red shape holding a listed symbol that carries a tag is that symbol with
+    // extra linework; then a tag with no standard symbol (look or exception) names the nearest red shape within its radius.
+    if (shapes) {
+      for (const sh of shapes) {
+        if (sh.verdict !== 'not-identified') continue;
+        const held = asArr(sh.symbols).map(i => symbols[i]).find(sy => sy && sy.tag);
+        if (held) { sh.verdict = 'not-standard'; sh.reason = { kind: 'extra', name: held.name }; sh.standard = false; }
+      }
+      const asks = [];
+      tags.forEach((t, ti) => {
+        const v = verdicts[ti];
+        if ((v.verdict !== 'look' && v.verdict !== 'exception') || !Array.isArray(v.tagBox)) return;
+        const c = centreOf(v.tagBox);
+        for (const sh of shapes) {
+          if (sh.verdict !== 'not-identified') continue;
+          const d = Math.hypot(centreOf(sh.box)[0] - c[0], centreOf(sh.box)[1] - c[1]);
+          if (d <= cfg.radius) asks.push({ ti, sh, d });
+        }
+      });
+      asks.sort((a, b) => a.d - b.d);
+      const usedTag = new Set();
+      for (const a of asks) {
+        if (usedTag.has(a.ti) || a.sh.verdict !== 'not-identified') continue;
+        a.sh.verdict = 'not-standard'; a.sh.reason = { kind: 'tag', tag: tags[a.ti].tag }; a.sh.standard = false;
+        usedTag.add(a.ti);
+      }
+      for (const sym of symbols) if (Number.isInteger(sym.shape) && shapes[sym.shape]) sym.standard = shapes[sym.shape].standard;
+    }
+
     const counts = Object.fromEntries(VERDICTS.map(k => [k, 0]));
     for (const v of verdicts) counts[v.verdict]++;
     const checked = verdicts.filter(v => v.verdict !== 'not-checked').length;
     return { ok: true, verdicts, counts, checked, recognised: counts.ok + counts['off-size'], proposals,
       timedOut: late.some(Boolean) || sweptLate, tagsTimedOut: late.some(Boolean), sweepTimedOut: sweptLate,
-      ms: Math.round(clock() - started), symbols, skipped, ...(shapes ? { shapes, operatorsMarked } : {}) };
+      ms: Math.round(clock() - started), symbols, skipped, ...(shapes ? { shapes, operatorsMarked, drawingArea: drawingAreaOut, readFrom, sizeScale: sizeScaleOut, ...(lineCapped !== undefined ? { lineCapped } : {}) } : {}) };
   } catch {
     return { ok: false, why: 'failed' };
   }

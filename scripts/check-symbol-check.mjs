@@ -395,6 +395,12 @@ async function main() {
   const sh = shapesFor(input, result);
   const lineCount = k => sh.split.lines.filter(l => l.kind === k).length;
   console.log(`  shapes: ${sh.shapes.length} (lines: run ${lineCount('run')}, dashed ${lineCount('dashed')}, hatch ${lineCount('hatch')}, connector ${lineCount('connector')}, arrow ${lineCount('arrow')})`);
+  if (Array.isArray(result.shapes)) {
+    const n = v => result.shapes.filter(x => x.verdict === v).length;
+    const ps = Number.isFinite(result.printScale) ? Math.round(result.printScale * 100) : 100;
+    const area = result.drawingArea && result.drawingArea.found ? 'frame found' : 'frame not found, page edge used';
+    console.log(`  marks: ${n('standard')} standard · ${n('not-standard')} not to standard · ${n('not-identified')} not identified · Read from: ${result.readFrom === 'line-pieces' ? 'line pieces' : 'drawn paths'}${ps < 95 || ps > 105 ? ` · Printed at ${ps}% of full size` : ''} · Drawing area: ${area}`);
+  }
   if (opts['shapes-out']) {
     try { await fs.writeFile(opts['shapes-out'], JSON.stringify({ sheet: path.basename(opts.file), page: { w: sheet.width, h: sheet.height, rotate: sheet.rotate }, shapes: sh.shapes })); }
     catch { return fail(`Could not write ${opts['shapes-out']}.`); }

@@ -1052,3 +1052,401 @@ export function sheetShapes(paths, options) {
     return EMPTY_SHAPES();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reading by line pieces. Contractors' PDFs often write a tag bubble as
+// several arcs (not one closed path), a fill as slices and a printed line in
+// broken pieces. This reads the sheet as loose pieces instead of as the paths
+// the file happened to use: pieces of one straight line are joined, slices of
+// one fill are made one outline, and arcs of one circle become one closed
+// ring. Every lookup goes through a grid, so the cost grows with the number of
+// pieces. Never throws.
+
+export const RING_FIT = 0.04, RING_COVER = 0.75, JOIN_GAP = 1;
+const RING_SIDES = 32;           // sides of the polygon a ring is written as
+const RING_R_MIN = 2, RING_R_MAX = 200;   // points
+const RING_TURN = 0.5;           // sin of the sharpest turn between neighbouring pieces of one arc (30 degrees)
+const RING_STRAIGHT = 0.005;     // sin of a turn so slight the join is a straight one, not part of an arc
+const FILL_TOUCH = 0.3;          // points: edges this close are one shared edge
+const PIECE_MIN = 0.05;          // points: shorter pieces are not pieces
+const PIECE_CELL_SCAN = 5000;    // safety valve, far above any real sheet: entries looked at in one cell or run; pieces past it are counted (distinct) in `capped`
+const PIECE_GROUP_SCAN = 1000;   // circles compared in a cell of centres (same valve)
+const PIECE_INDEX_BUDGET = 4e6;  // cell entries the join index may hold
+const LINE_ANGLE = 0.03;         // radians: width of an angle bin when lines are keyed (collinear pieces are within 0.02 of each other)
+const PIECE_LIMIT = 300000;      // pieces past this are left as written
+
+// True when finite segment quadruples run end to end and the last end is on the first start (as isClosedPath).
+function isClosedLoop(s) {
+  if (s.length < 12) return false;
+  for (let i = 4; i < s.length; i += 4) if (Math.abs(s[i] - s[i - 2]) > 0.05 || Math.abs(s[i + 1] - s[i - 1]) > 0.05) return false;
+  return Math.abs(s[0] - s[s.length - 2]) <= 0.05 && Math.abs(s[1] - s[s.length - 1]) <= 0.05;
+}
+
+// A cell key for small integer cells (a sane page).
+const pKey = (cx, cy) => (cx + 20000) * 65536 + (cy + 20000);
+
+// The rim of a circle through some points (Kasa least squares): { cx, cy, r } or null when they are nearly in line.
+function fitCircle(pts) {
+  const n = pts.length;
+  if (n < 3) return null;
+  let mx = 0, my = 0;
+  for (const p of pts) { mx += p[0]; my += p[1]; }
+  mx /= n; my /= n;
+  let suu = 0, suv = 0, svv = 0, suuu = 0, svvv = 0, suvv = 0, svuu = 0;
+  for (const p of pts) {
+    const u = p[0] - mx, v = p[1] - my;
+    suu += u * u; suv += u * v; svv += v * v; suuu += u * u * u; svvv += v * v * v; suvv += u * v * v; svuu += v * u * u;
+  }
+  const det = suu * svv - suv * suv;
+  if (!(Math.abs(det) > 1e-9 * (suu + svv) * (suu + svv))) return null;
+  const b1 = (suuu + suvv) / 2, b2 = (svvv + svuu) / 2;
+  const uc = (b1 * svv - b2 * suv) / det, vc = (b2 * suu - b1 * suv) / det;
+  const r2 = uc * uc + vc * vc + (suu + svv) / n;
+  if (!(r2 > 0)) return null;
+  return { cx: mx + uc, cy: my + vc, r: Math.sqrt(r2) };
+}
+
+// Runs of three or more pieces that meet end to end and turn the same way: { pts, segs } (segs index the pieces).
+function curvedRuns(S, ok, cap) {
+  const n = S.length;
+  const grid = new Map();
+  for (let i = 0; i < n; i++) {
+    if (!ok[i]) continue;
+    for (let w = 0; w < 2; w++) {
+      const k = pKey(Math.floor(S[i][2 * w]), Math.floor(S[i][2 * w + 1]));
+      let c = grid.get(k); if (!c) grid.set(k, c = []); c.push(2 * i + w);
+    }
+  }
+  const px = e => S[e >> 1][(e & 1) * 2], py = e => S[e >> 1][(e & 1) * 2 + 1];
+  // Unit direction of piece e>>1 pointing from end e&1 into the piece.
+  const dirIn = e => { const s = S[e >> 1], w = e & 1; return [(w ? s[0] - s[2] : s[2] - s[0]) / s[4], (w ? s[1] - s[3] : s[3] - s[1]) / s[4]]; };
+  const best = new Int32Array(2 * n).fill(-1), cross = new Float64Array(2 * n);
+  for (let e = 0; e < 2 * n; e++) {
+    if (!ok[e >> 1]) continue;
+    const x = px(e), y = py(e), de = dirIn(e);   // travelling on past this end, the heading is -de
+    let bd = JOIN_GAP * JOIN_GAP + 1e-12;
+    const cx = Math.floor(x), cy = Math.floor(y);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const cell = grid.get(pKey(cx + dx, cy + dy));
+      if (!cell) continue;
+      const m = Math.min(cell.length, cap.scan);
+      for (let t = m; t < cell.length; t++) cap.set.add(cell[t] >> 1);
+      for (let t = 0; t < m; t++) {
+        const f = cell[t];
+        if ((f >> 1) === (e >> 1)) continue;
+        const d2 = (px(f) - x) ** 2 + (py(f) - y) ** 2;
+        if (d2 >= bd) continue;
+        const df = dirIn(f);
+        const c = (-de[0]) * df[1] - (-de[1]) * df[0], cosT = (-de[0]) * df[0] + (-de[1]) * df[1];
+        if (cosT <= 0 || Math.abs(c) > RING_TURN) continue;
+        bd = d2; best[e] = f; cross[e] = c;
+      }
+    }
+  }
+  const link = new Int32Array(2 * n).fill(-1), turn = new Float64Array(2 * n);
+  for (let e = 0; e < 2 * n; e++) { const f = best[e]; if (f >= 0 && best[f] === e) { link[e] = f; turn[e] = cross[e]; } }
+
+  const seen = new Uint8Array(n), runs = [];
+  // Walk one chain from piece `first`, entering at end `entry`, until it ends or comes round to a piece seen.
+  const walk = (first, entry) => {
+    const chain = [];   // { i, w (end entered at), before (turn at that join) }
+    let i = first, w = entry, before = 0;
+    while (i >= 0 && !seen[i]) {
+      seen[i] = 1; chain.push({ i, w, before });
+      const exit = 2 * i + (w ^ 1), f = link[exit];
+      if (f < 0) break;
+      before = turn[exit]; i = f >> 1; w = f & 1;
+    }
+    let from = 0;
+    const flush = to => {
+      if (to - from >= 3) {
+        const pts = [], list = [];
+        for (let k = from; k < to; k++) {
+          const c = chain[k], s = S[c.i];
+          if (k === from) pts.push(c.w ? [s[2], s[3]] : [s[0], s[1]]);
+          pts.push(c.w ? [s[0], s[1]] : [s[2], s[3]]);
+          list.push(c.i);
+        }
+        runs.push({ pts, segs: list });
+      }
+      from = to;
+    };
+    // Cut the chain where the turn changes hand or is only a straight join.
+    let sign = 0;
+    for (let k = 1; k < chain.length; k++) {
+      const c = chain[k].before;
+      if (Math.abs(c) < RING_STRAIGHT) { flush(k); sign = 0; continue; }
+      const sg = c > 0 ? 1 : -1;
+      if (sign && sg !== sign) flush(k);
+      sign = sg;
+    }
+    flush(chain.length);
+  };
+  for (let i = 0; i < n; i++) if (ok[i] && !seen[i]) {
+    // Start at an end with nothing joined to it, so a chain is walked whole.
+    if (link[2 * i] < 0) walk(i, 0); else if (link[2 * i + 1] < 0) walk(i, 1);
+  }
+  for (let i = 0; i < n; i++) if (ok[i] && !seen[i]) walk(i, 0);   // what is left is round a loop
+  return runs;
+}
+
+// Rings: arcs of one circle, whatever paths they came from. Returns { rings: [{ segs, width, grey, key }], used: Set of piece indexes }.
+function findRings(S, ok, cap) {
+  const fits = [];
+  for (const run of curvedRuns(S, ok, cap)) {
+    const f = fitCircle(run.pts);
+    if (!f || f.r < RING_R_MIN || f.r > RING_R_MAX) continue;
+    let good = true;
+    for (const p of run.pts) if (Math.abs(Math.hypot(p[0] - f.cx, p[1] - f.cy) - f.r) > RING_FIT * f.r) { good = false; break; }
+    if (good) fits.push({ run, f });
+  }
+  // Group runs whose circles agree; centres go in a grid so only near ones are compared.
+  const groups = [], cells = new Map();
+  for (const q of fits) {
+    const cx = Math.floor(q.f.cx / 10), cy = Math.floor(q.f.cy / 10);
+    let hit = null;
+    outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const c = cells.get(pKey(cx + dx, cy + dy));
+      if (!c) continue;
+      for (let gi = PIECE_GROUP_SCAN; gi < c.length; gi++) for (const mq of c[gi].members) for (const i of mq.run.segs) cap.set.add(i);
+      for (const g of c.slice(0, PIECE_GROUP_SCAN)) {
+        const s = g.seed;
+        if (Math.abs(q.f.r - s.r) <= RING_FIT * s.r && Math.hypot(q.f.cx - s.cx, q.f.cy - s.cy) <= RING_FIT * s.r) { hit = g; break outer; }
+      }
+    }
+    if (!hit) {
+      hit = { seed: q.f, members: [] }; groups.push(hit);
+      const k = pKey(cx, cy); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(hit);
+    }
+    hit.members.push(q);
+  }
+  const rings = [], used = new Set(), TAU = 2 * Math.PI;
+  for (const g of groups) {
+    const pts = []; for (const q of g.members) for (const p of q.run.pts) pts.push(p);
+    const f = fitCircle(pts);
+    if (!f || f.r < RING_R_MIN || f.r > RING_R_MAX) continue;
+    // The angles the pieces cover, joined across gaps of up to JOIN_GAP.
+    const iv = [];
+    for (const q of g.members) for (let k = 0; k + 1 < q.run.pts.length; k++) {
+      const a = Math.atan2(q.run.pts[k][1] - f.cy, q.run.pts[k][0] - f.cx), b = Math.atan2(q.run.pts[k + 1][1] - f.cy, q.run.pts[k + 1][0] - f.cx);
+      let d = b - a; while (d > Math.PI) d -= TAU; while (d <= -Math.PI) d += TAU;
+      const lo = (((d >= 0 ? a : a + d) % TAU) + TAU) % TAU, len = Math.abs(d);
+      if (lo + len > TAU) iv.push([lo, TAU], [0, lo + len - TAU]); else iv.push([lo, lo + len]);
+    }
+    iv.sort((p, q) => p[0] - q[0]);
+    const tol = JOIN_GAP / f.r + 1e-9;
+    let covered = 0, curLo = iv[0][0], curHi = iv[0][1];
+    for (let k = 1; k < iv.length; k++) {
+      if (iv[k][0] <= curHi + tol) curHi = Math.max(curHi, iv[k][1]);
+      else { covered += curHi - curLo; if (iv[k][0] - curHi <= tol) covered += iv[k][0] - curHi; curLo = iv[k][0]; curHi = iv[k][1]; }
+    }
+    covered += curHi - curLo;
+    const wrap = iv[0][0] + TAU - curHi;   // the gap round the back, from the last piece to the first
+    if (wrap <= tol) covered += wrap;
+    if (covered / TAU < RING_COVER - 1e-6) continue;
+    let width = 0, grey = Infinity, key = Infinity;
+    for (const q of g.members) for (const i of q.run.segs) { used.add(i); width = Math.max(width, S[i][6]); grey = Math.min(grey, S[i][7]); key = Math.min(key, S[i][5]); }
+    const segs = [];
+    for (let k = 0; k < RING_SIDES; k++) {
+      const a0 = (TAU * k) / RING_SIDES, a1 = (TAU * (k + 1)) / RING_SIDES, last = k === RING_SIDES - 1;
+      segs.push(f.cx + f.r * Math.cos(a0), f.cy + f.r * Math.sin(a0), last ? segs[0] : f.cx + f.r * Math.cos(a1), last ? segs[1] : f.cy + f.r * Math.sin(a1));
+    }
+    rings.push({ segs, width, grey, key });
+  }
+  return { rings, used };
+}
+
+// Collinear pieces that overlap or nearly meet, end to end, are one piece. Returns [{ members, segs, width, grey, key }].
+// Pieces are keyed by their line (direction angle bin, perpendicular offset bin); the pieces of the lines in
+// one bin and its neighbours are sorted along the line and compared only with the ones that reach as far.
+function collinearJoin(S, ok, cap) {
+  const n = S.length, NA = Math.ceil(Math.PI / LINE_ANGLE), cells = new Map(), idx = [];
+  const ckey = (ab, ob) => ab * 1e6 + ob + 5e5;
+  let budget = 0;
+  for (let i = 0; i < n; i++) {
+    if (!ok[i]) continue;
+    idx.push(i);
+    const s = S[i];
+    let th = Math.atan2(s[3] - s[1], s[2] - s[0]); if (th < 0) th += Math.PI;
+    const home = Math.min(NA - 1, Math.floor(th / LINE_ANGLE));
+    // In its own angle bin and the two beside it (wrapping), each with the offset measured in that bin's frame.
+    for (let da = -1; da <= 1; da++) {
+      const ab = (home + da + NA) % NA, c = (ab + 0.5) * LINE_ANGLE, sn = Math.sin(c), cs = Math.cos(c);
+      const v0 = -s[0] * sn + s[1] * cs, v1 = -s[2] * sn + s[3] * cs;
+      const o0 = Math.floor(Math.min(v0, v1) - COL_OFF - 0.1), o1 = Math.floor(Math.max(v0, v1) + COL_OFF + 0.1);
+      if (o1 - o0 > 400 || budget + (o1 - o0 + 1) > PIECE_INDEX_BUDGET) { cap.set.add(i); continue; }
+      budget += o1 - o0 + 1;
+      for (let o = o0; o <= o1; o++) { const k = ckey(ab, o); let l = cells.get(k); if (!l) cells.set(k, l = []); l.push(i); }
+    }
+  }
+  const uf = makeFind(n), stamp = new Int32Array(n).fill(-1);
+  const meets = (a, b) => {
+    const ua = unitOf(a), ub = unitOf(b);
+    if (sinBetween(ua, ub) > COL_SIN) return false;
+    if (ptLine(b[0], b[1], a, ua) > COL_OFF || ptLine(b[2], b[3], a, ua) > COL_OFF || ptLine(a[0], a[1], b, ub) > COL_OFF || ptLine(a[2], a[3], b, ub) > COL_OFF) return false;
+    const t0 = (b[0] - a[0]) * ua[0] + (b[1] - a[1]) * ua[1], t1 = (b[2] - a[0]) * ua[0] + (b[3] - a[1]) * ua[1];
+    return Math.max(Math.min(t0, t1) - a[4], -Math.max(t0, t1)) <= JOIN_GAP;
+  };
+  let round = 0;
+  for (const key of cells.keys()) {
+    const ab = Math.floor((key - 5e5 + 5e5) / 1e6), ob = key - ab * 1e6 - 5e5;
+    const c = (ab + 0.5) * LINE_ANGLE, sn = Math.sin(c), cs = Math.cos(c), items = [];
+    round++;
+    for (let d = -1; d <= 1; d++) {
+      const list = cells.get(ckey(ab, ob + d));
+      if (!list) continue;
+      for (const i of list) {
+        if (stamp[i] === round) continue;
+        stamp[i] = round;
+        const s = S[i], u0 = s[0] * cs + s[1] * sn, u1 = s[2] * cs + s[3] * sn;
+        items.push({ i, u0: Math.min(u0, u1), u1: Math.max(u0, u1) });
+      }
+    }
+    items.sort((p, q) => p.u0 - q.u0);
+    const m = items.length;
+    for (let a = 0; a < m; a++) {
+      const A = items[a], lim = A.u1 + JOIN_GAP + 0.1;
+      let scanned = 0;
+      for (let b = a + 1; b < m && items[b].u0 <= lim; b++) {
+        if (++scanned > cap.scan) { for (let q = b; q < m && items[q].u0 <= lim; q++) cap.set.add(items[q].i); break; }
+        if (uf.find(A.i) !== uf.find(items[b].i) && meets(S[A.i], S[items[b].i])) uf.union(A.i, items[b].i);
+      }
+    }
+  }
+  const comps = new Map();
+  for (const i of idx) { const r = uf.find(i); let c = comps.get(r); if (!c) comps.set(r, c = []); c.push(i); }
+  const joined = [];
+  for (const m of comps.values()) {
+    if (m.length < 2) continue;
+    let ref = m[0]; for (const i of m) if (S[i][4] > S[ref][4]) ref = i;
+    const r = S[ref], u = unitOf(r);
+    let lo = null, hi = null, width = 0, grey = Infinity, key = Infinity;
+    for (const i of m) {
+      const s = S[i];
+      for (let w = 0; w < 2; w++) {
+        const t = (s[2 * w] - r[0]) * u[0] + (s[2 * w + 1] - r[1]) * u[1], p = [s[2 * w], s[2 * w + 1]];
+        if (!lo || t < lo.t) lo = { t, p };
+        if (!hi || t > hi.t) hi = { t, p };
+      }
+      width = Math.max(width, s[6]); grey = Math.min(grey, s[7]); key = Math.min(key, s[5]);
+    }
+    joined.push({ members: m, segs: [lo.p[0], lo.p[1], hi.p[0], hi.p[1]], width, grey, key });
+  }
+  return joined;
+}
+
+// Filled ink paths of one grey whose edges touch are one filled path with the shared edges dropped. Returns [{ key, path }].
+function mergeFills(fills, cap) {
+  const n = fills.length, grid = new Map(), uf = makeFind(n);
+  const drop = fills.map(f => new Uint8Array(f.segs.length / 4)), base = [];
+  let edges = 0;
+  fills.forEach((f, fi) => { base[fi] = edges; edges += f.segs.length / 4; });
+  fills.forEach((f, fi) => {
+    const s = f.segs;
+    for (let k = 0; k < s.length / 4; k++) {
+      const o = 4 * k, kk = pKey(Math.floor((s[o] + s[o + 2]) / 2), Math.floor((s[o + 1] + s[o + 3]) / 2));
+      let c = grid.get(kk); if (!c) grid.set(kk, c = []); c.push(fi, k);
+    }
+  });
+  const near = (a, b) => Math.abs(a - b) <= FILL_TOUCH;
+  fills.forEach((f, fi) => {
+    const s = f.segs;
+    for (let k = 0; k < s.length / 4; k++) {
+      const o = 4 * k, cx = Math.floor((s[o] + s[o + 2]) / 2), cy = Math.floor((s[o + 1] + s[o + 3]) / 2);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const cell = grid.get(pKey(cx + dx, cy + dy));
+        if (!cell) continue;
+        const m = Math.min(cell.length, 2 * cap.scan);
+        for (let t = m; t < cell.length; t += 2) cap.set.add(1e9 + base[cell[t]] + cell[t + 1]);
+        for (let t = 0; t < m; t += 2) {
+          const gi = cell[t];
+          if (gi === fi || Math.abs(fills[gi].grey - f.grey) >= 0.5) continue;
+          const q = fills[gi].segs, p = 4 * cell[t + 1];
+          const same = near(s[o], q[p]) && near(s[o + 1], q[p + 1]) && near(s[o + 2], q[p + 2]) && near(s[o + 3], q[p + 3]);
+          const back = near(s[o], q[p + 2]) && near(s[o + 1], q[p + 3]) && near(s[o + 2], q[p]) && near(s[o + 3], q[p + 1]);
+          if (same || back) { drop[fi][k] = 1; drop[gi][cell[t + 1]] = 1; uf.union(fi, gi); }
+        }
+      }
+    }
+  });
+  const groups = new Map();
+  fills.forEach((f, fi) => { const r = uf.find(fi); let g = groups.get(r); if (!g) groups.set(r, g = []); g.push(fi); });
+  const out = [];
+  for (const g of groups.values()) {
+    if (g.length === 1) { out.push({ key: fills[g[0]].pi, path: fills[g[0]].p }); continue; }
+    const segs = []; let width = 0, stroked = false, key = Infinity;
+    for (const fi of g) {
+      const f = fills[fi];
+      for (let k = 0; k < f.segs.length / 4; k++) if (!drop[fi][k]) segs.push(f.segs[4 * k], f.segs[4 * k + 1], f.segs[4 * k + 2], f.segs[4 * k + 3]);
+      width = Math.max(width, f.width); stroked = stroked || !!f.p.stroked; key = Math.min(key, f.pi);
+    }
+    if (segs.length) out.push({ key, path: { ...fills[g[0]].p, segs, width, stroked, filled: true } });
+  }
+  return out;
+}
+
+/**
+ * Read a sheet by its line pieces. paths: page paths ({ segs, width, stroked,
+ * filled, grey }, segs flat quadruples of straight segments, points, top-left).
+ * Returns paths in the same shape: pale paths and white fills as they were,
+ * touching fills of one grey made one outline, the arcs of a circle made one
+ * closed 32-sided ring, and collinear pieces joined. Paths none of that
+ * touches come back as the same objects; a path that is already one closed
+ * loop stays whole. Returns { paths, capped }: capped counts the pieces or
+ * distinct edges a cap left out (0 when none; options.limit and options.scan
+ * lower the piece limit and the safety valve). Never throws; hostile input gives { paths: [], capped: 0 }.
+ */
+export function readByLinePieces(paths, options) {
+  try {
+    if (!Array.isArray(paths)) return { paths: [], capped: 0 };
+    const limit = options && isNum(options.limit) && options.limit >= 0 ? options.limit : PIECE_LIMIT, cap = { set: new Set(), extra: 0, scan: options && isNum(options.scan) && options.scan > 0 ? options.scan : PIECE_CELL_SCAN };
+    const out = [];            // { key (the input position it sorts to), path }
+    const S = [], fills = [], inkPaths = [];
+    paths.forEach((p, pi) => {
+      if (!p || typeof p !== 'object' || !Array.isArray(p.segs) || p.segs.length < 4) return;
+      const grey = isNum(p.grey) ? p.grey : 0, width = isNum(p.width) ? p.width : 0, s = p.segs;
+      if (grey >= SHAPE_INK_GREY) { out.push({ key: pi, path: p }); return; }
+      let clean = s.length % 4 === 0;
+      for (let i = 0; clean && i < s.length; i++) if (!isNum(s[i]) || Math.abs(s[i]) > SHAPE_COORD) clean = false;
+      if (p.filled) {
+        if (clean && s.length >= 4) fills.push({ pi, p, segs: s, grey, width });
+        else out.push({ key: pi, path: p });   // a fill that cannot be read is left as written
+        return;
+      }
+      if (clean && isClosedLoop(s)) { out.push({ key: pi, path: p }); return; }   // one closed loop stays whole
+      const from = S.length;
+      for (let i = 0; i + 3 < s.length; i += 4) {
+        const a = s[i], b = s[i + 1], c = s[i + 2], d = s[i + 3];
+        if (![a, b, c, d].every(isNum) || Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d)) > SHAPE_COORD) continue;
+        const len = Math.hypot(c - a, d - b);
+        if (len > PIECE_MIN) S.push([a, b, c, d, len, pi, width, grey]);
+      }
+      inkPaths.push({ pi, p, from, to: S.length, bad: !clean });
+    });
+    const n = S.length, used = new Uint8Array(n), ok = new Uint8Array(n).fill(1), extra = [];
+    if (n > limit) cap.extra += n;
+    else {
+      const { rings, used: ringUsed } = findRings(S, ok, cap);
+      for (const i of ringUsed) { used[i] = 1; ok[i] = 0; }
+      for (const r of rings) extra.push({ key: r.key, path: { segs: r.segs, width: r.width, stroked: true, filled: false, grey: r.grey } });
+      for (const j of collinearJoin(S, ok, cap)) {
+        for (const i of j.members) used[i] = 1;
+        extra.push({ key: j.key, path: { segs: j.segs, width: j.width, stroked: true, filled: false, grey: j.grey } });
+      }
+    }
+    // A stroked path nothing took from is handed back as it was; one that gave up pieces keeps the rest.
+    for (const q of inkPaths) {
+      let touched = q.bad;
+      for (let i = q.from; i < q.to && !touched; i++) if (used[i]) touched = true;
+      if (!touched) { out.push({ key: q.pi, path: q.p }); continue; }
+      const segs = [];
+      for (let i = q.from; i < q.to; i++) if (!used[i]) segs.push(S[i][0], S[i][1], S[i][2], S[i][3]);
+      if (segs.length) out.push({ key: q.pi, path: { ...q.p, segs } });
+    }
+    for (const f of mergeFills(fills, cap)) out.push(f);
+    for (const e of extra) out.push(e);
+    return { paths: out.map((e, i) => ({ e, i })).sort((a, b) => a.e.key - b.e.key || a.i - b.i).map(o => o.e.path), capped: cap.set.size + cap.extra };
+  } catch {
+    return { paths: [], capped: 0 };
+  }
+}

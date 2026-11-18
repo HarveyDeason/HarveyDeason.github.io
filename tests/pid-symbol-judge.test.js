@@ -88,7 +88,7 @@ test('a METER on a pipe drawn straight through it is standard', () => {
 
 test('every shape has the fields of the result shape', () => {
   for (const s of R.shapes) {
-    assert.deepEqual(Object.keys(s).sort(), ['box', 'closest', 'explained', 'id', 'operator', 'share', 'standard', 'symbols', 'why']);
+    assert.deepEqual(Object.keys(s).sort(), ['box', 'closest', 'explained', 'id', 'operator', 'reason', 'share', 'standard', 'symbols', 'verdict', 'why']);
     assert.ok([true, false, null].includes(s.standard));
   }
 });

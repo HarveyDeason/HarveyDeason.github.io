@@ -246,3 +246,51 @@ test('buildReportPdf, symbols first: the trial note is on the front page and und
   assert.ok(ps[0].text.includes(TRIAL_NOTE));
   assert.ok(ps.find(p => p.text.includes('1 standard symbol')).text.includes(TRIAL_NOTE));
 });
+
+// ── Task 7 (shape-check redesign): red boxes, the drawing area, the not identified column ──
+function lineWidths(ol) {
+  const { OPS } = loadVendoredPdfjs();
+  const out = [];
+  ol.fnArray.forEach((fn, i) => { if (fn === OPS.setLineWidth) out.push(Math.round(ol.argsArray[i][0] * 100) / 100); });
+  return out;
+}
+const VSHEET = { ...MODEL.sheets[0], layout: 'symbols', shapeLine: '2 standard · 1 not to standard · 2 not identified', standardCount: 2, notStandardCount: 1, notJudgedCount: 0, notIdentifiedCount: 2,
+  reasonLine: '', standardRows: [{ name: 'WIDGET', userRect: [100, 190, 130, 210] }],
+  shapeRows: [{ no: 1, kind: 'not-standard', label: 'Not to standard', tag: '', fc: '', detail: 'drawn differently from WIDGET (92% alike)', userRect: [300, 190, 330, 210] }],
+  redRows: [{ userRect: [20, 20, 50, 50] }, { userRect: [60, 20, 90, 50] }], areaRect: [10, 10, 490, 390], markVerdicts: true };
+const vModel = sheet => ({ ...MODEL, sheets: [sheet, ...MODEL.sheets.slice(1)] });
+
+test('buildReportPdf, verdicts: red boxes are thin, solid and unnumbered; the drawing area is faint', async () => {
+  const src = new Map([['INV-0001||C01', BYTES]]);
+  const ps = await pages(await buildReportPdf(vModel(VSHEET), src, PDFLib));
+  const bare = await pages(await buildReportPdf(vModel({ ...VSHEET, redRows: [], areaRect: null }), src, PDFLib));
+  const d = ps.find(p => !isA4(p)), db = bare.find(p => !isA4(p));
+  const a = rectCounts(await d.page.getOperatorList()), b = rectCounts(await db.page.getOperatorList());
+  assert.equal(a.stroked - b.stroked, 3, JSON.stringify([a, b]));   // two red and the area
+  assert.equal(a.filled - b.filled, 0);                              // no number tab for red
+  const wa = lineWidths(await d.page.getOperatorList()), wb = lineWidths(await db.page.getOperatorList());
+  assert.equal(wa.filter(x => x === 0.3).length - wb.filter(x => x === 0.3).length, 1, 'the area at 0.3 pt: ' + wa);
+  assert.equal(wa.filter(x => x === 0.5).length - wb.filter(x => x === 0.5).length, 2, 'two red lines at 0.5 pt: ' + wa);
+  assert.equal(d.text, db.text, 'red boxes and the area carry no text');
+});
+
+test('buildReportPdf, verdicts: red has no picture and no table row; the front page has a Not identified column and the key lines', async () => {
+  const { KEY_NOT_STANDARD, KEY_NOT_IDENTIFIED } = await import('../assets/js/pid-symbol-check-view.js');
+  const src = new Map([['INV-0001||C01', BYTES]]);
+  const ps = await pages(await buildReportPdf(vModel(VSHEET), src, PDFLib));
+  const none = await pages(await buildReportPdf(vModel({ ...VSHEET, redRows: [] }), src, PDFLib));
+  assert.equal(ps.length, none.length, 'red rows add no page');
+  assert.ok(ps[0].text.includes('Not identified'));
+  assert.ok(ps[0].text.includes(KEY_NOT_STANDARD) && ps[0].text.includes(KEY_NOT_IDENTIFIED), ps[0].text);
+  assert.ok(ps[0].text.includes('a solid, thin red line, unnumbered'));
+  assert.ok(ps[0].text.includes('Pictures and table rows are for amber only. Red is a count per sheet and boxes on the drawing.'));
+  assert.ok(ps.some(p => p.text.includes('drawn differently from WIDGET') && p.text.includes('not to standard')));
+  assert.ok(ps.some(p => isA4(p) && p.text.includes('Not to standard: pictures')));
+});
+
+test('buildReportPdf: a symbols sheet from a result with no verdicts keeps the old front page', async () => {
+  const sheet = { ...MODEL.sheets[0], layout: 'symbols', shapeLine: '1 standard symbol · 0 not to standard', standardRows: [], shapeRows: [] };
+  const ps = await pages(await buildReportPdf({ ...MODEL, sheets: [sheet] }, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(!ps[0].text.includes('Not identified'));
+  assert.ok(ps[0].text.includes('Not to standard (dashed)'));
+});
