@@ -209,3 +209,25 @@ test('a sheet printed at 0.45 of its size is checked at legend size: same verdic
   assert.equal(full.sheetScale, 1);
   assert.equal(C.checkSheet({ ...shrink(BS, 0.45), library: BL, lookups: LB, options: { autoScale: false } }).sheetScale, 1);
 });
+
+// A sheet at legend size with no tag bubbles of its own but a few small outlines with writing in them (an
+// owner's tuning sheet: valve-number circles, a revision mark, a title-block box) was read at 0.39, so
+// every symbol on it was judged at the wrong size. Bubbles repeat at one size; a scatter of unlike
+// outlines is not a scale.
+const writtenRing = (cx, cy, r, n = 1) => ({
+  paths: [{ segs: Array.from({ length: 32 }, (_, i) => { const a = 2 * Math.PI * i / 32, b = 2 * Math.PI * (i + 1) / 32; return [cx + r * Math.cos(a), cy + r * Math.sin(a), cx + r * Math.cos(b), cy + r * Math.sin(b)]; }).flat(),
+    width: 0.7, stroked: true, filled: false, grey: 0 }],
+  items: Array.from({ length: n }, (_, i) => ({ str: 'A', transform: [4, 0, 0, 4, cx - 2 + i, cy], width: 2.5, height: 4 })) });
+const scatter = sizes => {
+  const made = sizes.map((d, i) => writtenRing(60 + 70 * i, 60, d / 2));
+  return { pageSize: [800, 200], viewportTransform: [1, 0, 0, 1, 0, 0], tags: [], paths: made.flatMap(m => m.paths), textItems: made.flatMap(m => m.items) };
+};
+test('a handful of unlike small outlines with writing is not read as a scale', () => {
+  const r = C.checkSheet({ ...scatter([5, 6, 6.4, 14, 16, 16.5, 21, 34, 60]), library: BL, lookups: LB });
+  assert.equal(r.sheetScale, 1);
+  assert.equal(C.estimateSheetScale({ ...scatter([5, 6, 6.4, 14, 16, 16.5, 21, 34, 60]), library: BL }), 1);
+});
+test('many outlines of one small size with writing are still read as a scale', () => {
+  const k = C.estimateSheetScale({ ...scatter([18, 18.2, 18.4, 18, 18.3, 18.1, 6, 6.2]), library: BL });
+  assert.ok(Math.abs(k - 18.2 / 40) < 0.03, String(k));
+});

@@ -1593,7 +1593,8 @@ function lettersRead(symbol, box, words) {
 // A drawing printed smaller than drawn (an A1 sheet on A3) has every symbol
 // far below the legend's size. Its tag bubbles say by how much: the closed
 // outlines with writing in them, against the legend's bubbles.
-const SCALE_MIN_SAMPLES = 5;       // outlines with writing needed before a scale is read
+const SCALE_MIN_SAMPLES = 5;       // outlines of one size, with writing, needed before a scale is read
+const SCALE_SAME = 1.08;           // outlines within this ratio of each other are one size
 const SCALE_NEAR = [0.7, 1.45];    // a ratio inside this is drawn at legend size: left as it is
 const SCALE_SANE = [0.2, 5];       // a ratio outside this is not believed
 
@@ -1614,8 +1615,15 @@ export function estimateSheetScale(input, prepared) {
       if (w < 4 || h < 4 || w > 400 || h > 400 || w / h > 1.3 || h / w > 1.3 || q.p.filled === true || !isClosedPath(q.p)) continue;
       if (hasWriting(writing, b)) sizes.push(Math.max(w, h));
     }
-    if (sizes.length < SCALE_MIN_SAMPLES) return 1;
+    // Tag bubbles repeat at one size. A scatter of unlike outlines with writing (valve-number circles, a
+    // revision mark, a title-block box) is not a scale: no scale is read unless enough of them are one size.
     sizes.sort((x, y) => x - y);
+    let same = 0;
+    for (let i = 0, j = 0; i < sizes.length; i++) {
+      while (sizes[i] > sizes[j] * SCALE_SAME) j++;
+      same = Math.max(same, i - j + 1);
+    }
+    if (same < SCALE_MIN_SAMPLES) return 1;
     const ratio = sizes[Math.floor(sizes.length / 2)] / rings[Math.floor(rings.length / 2)];
     if (!isNum(ratio) || (ratio >= SCALE_NEAR[0] && ratio <= SCALE_NEAR[1]) || ratio < SCALE_SANE[0] || ratio > SCALE_SANE[1]) return 1;
     return ratio;
