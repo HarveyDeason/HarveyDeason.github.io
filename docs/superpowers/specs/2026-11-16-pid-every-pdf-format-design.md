@@ -128,7 +128,8 @@ report checks page 1.
 5. On a Readable sheet, no tag verdict gets worse.
 6. Shapes that look like symbols but match no standard symbol are marked
    **Unrecognised symbol**, with the closest standard symbol and its score
-   (phase 3).
+   (phase 3). *(2026-11-17: now "not to standard", judged on the whole
+   shape; see `2026-11-17-pid-whole-shape-check-design.md`.)*
 
 ## Non-goals
 
@@ -409,7 +410,7 @@ only with `--verbose`, a clear failure when an input is missing.
 |---|---|---|
 | 1 | The sweep, one symbol per ink, pairing; Readable and comment sheets | see *Phase 1 gate* |
 | 2 | Printed sheets: letter spotting, plain shapes; symbols found with no tags | Plant 3D sheets printed through Print To PDF find the same symbols as their originals (at least 95%, false hits ≤ 1 per 20 found); P1 and P2 checked by eye: no printed word or note box reported as a symbol |
-| 3 | Unrecognised shapes: symbol-like linework that no standard symbol explains | P1 and P2: their non-standard shapes (oval bubbles, non-standard valve blocks) marked; Plant 3D sheets: at most 1 unrecognised mark per 20 symbols that is not a real non-standard symbol; a standard symbol with one line deleted (invented edit of a converted copy) is marked unrecognised, not OK |
+| 3 | Whole shapes: each drawn shape is standard (all of its ink explained by a standard symbol, or a valve body plus a legend operator) or **not to standard** (flagged, with the closest symbol as a hint). Redesigned 2026-11-17 after the owner's trial: see `2026-11-17-pid-whole-shape-check-design.md` | measured against the owner's answer key (PDF mark-ups of 5 to 10 real sheets, some held out): at least 90% of his NOT STANDARD shapes flagged, at most 1 in 20 of his STANDARD symbols flagged; the five trial cases (pumps, valve operators, short-lined flowmeters, non-standard bubbles, dashed-line arrow); no tag verdict changed |
 | 4 | Every page; sheet-wide scale; honest statuses; opacity and hidden layers | tags and symbols on page 2 are found; the 90% copy reads OK with one "Printed at 90%" line; statuses right on all nine survey PDFs |
 | 5 | Tags on printed sheets: letter reader (filled letters from browser fonts; single-line letters from the letter library); broken character maps | converted Plant 3D sheets: at least 95% of tags read exactly, none invented; sheet M with comments deleted: at least 95% of its 42 tags |
 | 6 | Scans: ink from pixels, line finder, circle finder, letters from ink | synthetic and real scans: at least 90% of the original's symbols found, false hits ≤ 1 per 20; under 60 s; until passed, scans read "Scanned image: not checked yet" |
@@ -426,6 +427,11 @@ only with `--verbose`, a clear failure when an input is missing.
   "not read yet" until phase 5.
 
 ### Phase 3: unrecognised shapes
+
+**Superseded 2026-11-17** by `2026-11-17-pid-whole-shape-check-design.md`.
+That design asks whether each drawn shape is the standard symbol, all of it.
+It replaces "unrecognised" with "not to standard", and it measures against
+the owner's answer key. The original sketch is kept below for the record.
 
 What is left once the sweep has explained the sheet is where non-standard
 symbols hide.
