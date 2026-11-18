@@ -97,6 +97,8 @@ function symbolCard(s, opts) {
       + check('simple', 'Simple shape: too plain to check on a drawing', flags.simple === true)
       + check('stretch', 'Drawn to suit: its size varies', flags.stretch === true)
       + check('bubble', 'Tag bubble: the tag is written inside it', flags.bubble === true)
+      + check('operator', 'Operator: a handwheel, lever or actuator that sits on another symbol', flags.operator === true)
+      + (str(s.group).trim() ? '<div class="sym-actions">' + button('mark-group-operators', ' data-group="' + esc(str(s.group)) + '"', 'Mark every symbol under this table heading as an operator') + '</div>' : '')
       + notes.map((n, i) => noteMarkup(n, ' ' + button('remove-note', id + ' data-index="' + i + '"', 'Remove note'))).join('')
       + '<label>New note <input type="text" data-field="note-text" value=""></label>'
       + '<label>Reference <input type="text" data-field="note-ref" value=""></label>'
@@ -105,7 +107,7 @@ function symbolCard(s, opts) {
   }
   const meta = [str(s.group), str(s.tagId), str(s.sheet) ? 'Sheet ' + str(s.sheet) : ''].filter(Boolean).map(esc).join(' · ');
   const badges = [flags.manual === true ? 'Manual entry' : '', flags.simple === true ? 'Simple shape' : '',
-    flags.stretch === true ? 'Drawn to suit' : '', flags.bubble === true ? 'Tag bubble' : '', flags.unmatched === true ? 'Not in the imported legend' : ''].filter(Boolean);
+    flags.stretch === true ? 'Drawn to suit' : '', flags.bubble === true ? 'Tag bubble' : '', flags.operator === true ? 'Operator' : '', flags.unmatched === true ? 'Not in the imported legend' : ''].filter(Boolean);
   const nextTag = codesOf(s.tagId).map(c => button('next-tag', ' data-code="' + esc(c) + '"', 'Next available tag: ' + esc(c),
     opts.hasTags ? '' : ' disabled title="Load drawings first"')).join('');
   return '<div class="sym-card"' + id + '>' + symbolSvg(s)

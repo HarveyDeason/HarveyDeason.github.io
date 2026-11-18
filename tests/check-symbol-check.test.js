@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readSheet, setTagIds, relabel, tally, bubbleSelfTest, matchSymbolLists, insideRepo } from '../scripts/check-symbol-check.mjs';
-import { LIBRARY, SHEET, sheetPdfBytes, BUBBLE_LIBRARY } from './fixtures/symbol-check-sheet.js';
+import { readSheet, setTagIds, setOperators, relabel, tally, bubbleSelfTest, matchSymbolLists, insideRepo } from '../scripts/check-symbol-check.mjs';
+import { LIBRARY, SHEET, sheetPdfBytes, BUBBLE_LIBRARY, HANDLE, place, fixtureLine } from './fixtures/symbol-check-sheet.js';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/check-symbol-check.mjs', import.meta.url));
 const run = args => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
@@ -174,4 +174,74 @@ test('insideRepo and --symbols-out: a path under the repository is refused and n
     const cmp = run([pdf, '--library', lib, '--allow-wrong', '1', '--compare', out]);
     assert.ok(cmp.stdout.includes(`compared with out.json: matched ${saved.symbols.length} of ${saved.symbols.length}, missing 0, extra 0, offset 0, 0`), cmp.stdout);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(inside, { force: true }); }
+});
+
+// ── Phase 3: shapes out, and operators for a run ──────────────────────────
+const WIDGET = LIBRARY.symbols.find(s => s.name === 'WIDGET');
+const PIPE_SHEET = { pageSize: [500, 400], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [],
+  paths: [...place(WIDGET, { x: 200, y: 200 }), fixtureLine([100, 206, 200, 206]), fixtureLine([224, 206, 400, 206])] };
+
+test('setOperators: marks every symbol under a heading as an operator, in a copy', () => {
+  const lib = { ...LIBRARY, symbols: [...LIBRARY.symbols, HANDLE] };
+  const before = JSON.stringify(lib);
+  const r = setOperators(lib, ['HANDLES']);
+  assert.equal(r.changed, 1);
+  assert.equal(r.library.symbols.find(s => s.name === 'HANDLE').flags.operator, true);
+  assert.equal(r.library.symbols.find(s => s.name === 'WIDGET').flags.operator, undefined);
+  assert.equal(JSON.stringify(lib), before);
+  for (const bad of [['NOWHERE'], null, [5], ['']]) assert.equal(setOperators(lib, bad).changed, 0);
+});
+
+test('readSheet gives the page rotation', async () => {
+  assert.equal((await readSheet(sheetPdfBytes())).rotate, 0);
+  assert.equal((await readSheet(sheetPdfBytes({ rotate: 90 }))).rotate, 90);
+});
+
+test('--shapes-out: refused inside the repository; outside, one shape named WIDGET; the counts line always', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-shapes-'));
+  const inside = path.join(path.dirname(SCRIPT), '..', 'tests', 'never-written-shapes.json');
+  try {
+    const pdf = path.join(dir, 'pipe.pdf'), lib = path.join(dir, 'library.json'), out = path.join(dir, 'shapes.json');
+    fs.writeFileSync(pdf, sheetPdfBytes({ sheet: PIPE_SHEET }));
+    fs.writeFileSync(lib, JSON.stringify(LIBRARY));
+    const bad = run([pdf, '--library', lib, '--shapes-out', inside]);
+    assert.equal(bad.status, 1, bad.stdout + bad.stderr);
+    assert.equal(fs.existsSync(inside), false);
+    assert.match(bad.stderr, /outside the repository/);
+    const ok = run([pdf, '--library', lib, '--shapes-out', out]);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.match(ok.stdout, /shapes: 1 \(lines: run 2, dashed 0, hatch 0, connector 0, arrow 0\)/);
+    const saved = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.equal(saved.sheet, 'pipe.pdf');
+    assert.deepEqual(saved.page, { w: 500, h: 400, rotate: 0 });
+    assert.equal(saved.shapes.length, 1);
+    assert.equal(saved.shapes[0].name, 'WIDGET');
+    assert.ok(saved.shapes[0].score >= 0.9);
+    assert.ok(saved.shapes[0].box.every((v, i) => Math.abs(v - [200, 200, 224, 212][i]) <= 1), String(saved.shapes[0].box));
+    const plain = run([pdf, '--library', lib]);
+    assert.match(plain.stdout, /shapes: 1 \(lines: /);
+    const none = run([pdf, '--library', lib, '--operators', 'NOWHERE']);
+    assert.equal(none.status, 1);
+    assert.match(none.stderr, /No symbol has that table heading/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(inside, { force: true }); }
+});
+
+test('--key: the owner marked copy is read and the counts line printed', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-key-'));
+  try {
+    const pdf = path.join(dir, 'pipe.pdf'), lib = path.join(dir, 'library.json'), key = path.join(dir, 'pipe-key.pdf');
+    fs.writeFileSync(pdf, sheetPdfBytes({ sheet: PIPE_SHEET }));
+    fs.writeFileSync(lib, JSON.stringify(LIBRARY));
+    // PDF user space on a 400 pt high page: the WIDGET's box [200, 200, 224, 212] and an empty spot the owner boxed.
+    fs.writeFileSync(key, sheetPdfBytes({ sheet: PIPE_SHEET, comments: [{ text: 'STANDARD: WIDGET', rect: [199, 187, 225, 201] },
+      { text: 'NOT STANDARD', rect: [400, 50, 420, 70] }, { text: 'perhaps', rect: [10, 10, 20, 20] }] }));
+    const r = run([pdf, '--library', lib, '--key', key]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /key: standard 1, not standard 1; caught 0 of 1; false flags 0 of 1; missed 1; flagged not-a-symbol 0; named right 1 of 1; unread 1/);
+    assert.doesNotMatch(r.stdout, /perhaps/);
+    const v = run([pdf, '--library', lib, '--key', key, '--verbose']);
+    assert.match(v.stdout, /unread \(first word\): perhaps/);
+    const gone = run([pdf, '--library', lib, '--key', path.join(dir, 'nothing.pdf')]);
+    assert.equal(gone.status, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

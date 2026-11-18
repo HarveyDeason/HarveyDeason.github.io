@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { pagePaths, textWords, CURVE_STEPS, legendCells, titleBlock, readLegendPage, normName, buildLibrary, parseLibrary, serialiseLibrary, libraryCounts, searchSymbols, updateSymbol, deleteSymbol, addManualSymbol, addNote, removeNote, setException, removeException, carryOver, isClosedPath, bubbleOf } from '../assets/js/pid-symbols.js';
+import { pagePaths, textWords, CURVE_STEPS, legendCells, titleBlock, readLegendPage, normName, buildLibrary, parseLibrary, serialiseLibrary, libraryCounts, searchSymbols, updateSymbol, deleteSymbol, addManualSymbol, addNote, removeNote, setException, removeException, carryOver, isClosedPath, bubbleOf, markGroupOperators } from '../assets/js/pid-symbols.js';
 import { FAKE_OPS as O, opList } from './fixtures/symbol-ops.js';
 import { loadVendoredPdfjs, openPdf } from '../scripts/pdfjs-node.mjs';
 import { tinyPdf, TINY_CONTENT, TINY_FORM } from './fixtures/tiny-pdf.js';
@@ -531,4 +531,35 @@ test('carryOver: a renamed or flagged symbol that has gone from the legend is ke
     const r = carryOver(updateSymbol(lib4(), 'p1-001', { [flag]: true }), fresh(['VIEWING PORT']));
     assert.equal(r.library.symbols.some(s => s.legendName === 'ROUND WIDGET' && s.flags.unmatched && s.flags[flag]), true, flag);
   }
+});
+
+// ── Phase 3: operators ────────────────────────────────────────────────────
+test('updateSymbol sets and clears the operator mark', () => {
+  const on = updateSymbol(lib4(), 'p1-001', { operator: true });
+  assert.equal(sym(on, 'p1-001').flags.operator, true);
+  assert.equal(sym(updateSymbol(on, 'p1-001', { operator: false }), 'p1-001').flags.operator, false);
+  assert.equal(sym(updateSymbol(lib4(), 'p1-001', { operator: 'yes' }), 'p1-001').flags.operator, undefined);
+});
+
+test('carryOver keeps the operator mark across a re-import, and counts it as hand work', () => {
+  const old = updateSymbol(lib4(), 'p1-001', { operator: true });
+  const kept = carryOver(old, fresh(['ROUND WIDGET'])).library.symbols.find(s => s.legendName === 'ROUND WIDGET');
+  assert.equal(kept.flags.operator, true);
+  const gone = carryOver(old, fresh(['SOMETHING ELSE']));
+  assert.ok(gone.unmatched.some(u => u.name === 'ROUND WIDGET'));
+  const plain = carryOver(lib4(), fresh(['ROUND WIDGET'])).library.symbols.find(s => s.legendName === 'ROUND WIDGET');
+  assert.equal(plain.flags.operator, undefined);
+});
+
+test('markGroupOperators marks every symbol under a heading, and nothing else', () => {
+  const lib = { version: 1, symbols: [{ id: 'a', name: 'A', group: 'Operators ', flags: {} }, { id: 'b', name: 'B', group: 'OPERATORS', flags: {} },
+    { id: 'c', name: 'C', group: 'VALVES', flags: {} }], exceptions: [] };
+  const out = markGroupOperators(lib, ' operators', true);
+  assert.deepEqual(out.symbols.map(s => s.flags.operator === true), [true, true, false]);
+  assert.equal(lib.symbols[0].flags.operator, undefined);
+  assert.equal(markGroupOperators(lib, 'NOWHERE', true), lib);
+  assert.equal(markGroupOperators(out, 'OPERATORS', true), out);
+  assert.deepEqual(markGroupOperators(out, 'OPERATORS', false).symbols.map(s => s.flags.operator), [false, false, undefined]);
+  for (const bad of [null, 5, { symbols: 'x' }, { symbols: [null, 7] }]) assert.doesNotThrow(() => markGroupOperators(bad, 'X', true));
+  assert.equal(markGroupOperators(lib, '', true), lib);
 });

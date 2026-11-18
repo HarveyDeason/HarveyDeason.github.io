@@ -8,16 +8,17 @@ import { checkSheet } from '../assets/js/pid-symbol-check.js';
 import { FAMILY_NOTE, VERDICT_LABELS } from '../assets/js/pid-symbol-check-view.js';
 import { REASONS, notReadable } from '../assets/js/pid-symbol-report-run.js';
 import { buildReportModel, FALLBACK } from '../assets/js/pid-symbol-report.js';
-import { pdfSafe, buildReportPdf } from '../assets/js/pid-symbol-report-pdf.js';
+import { pdfSafe, buildReportPdf, SYMBOLS_NOTE } from '../assets/js/pid-symbol-report-pdf.js';
 import { LIBRARY, LOOKUPS, sheetPdfBytes } from './fixtures/symbol-check-sheet.js';
 
 const PDFLib = loadVendoredUmd('pdf-lib.min.js');
 const A4 = [595.28, 841.89];
 
 // Invented sheets only. One run: INV-0001 checked, INV-0002 with no PDF, INV-0003 unreadable.
+// The tag-led layout is what a result from before the shape check gets: these sheets are checked with shapes off.
 async function checkedOutcome(bytes, drawing = 'INV-0001') {
   const s = await readSheet(bytes.slice(0));
-  const result = checkSheet({ paths: s.paths, textItems: s.textItems, viewportTransform: s.viewportTransform, tags: s.tags, library: LIBRARY, lookups: LOOKUPS });
+  const result = checkSheet({ paths: s.paths, textItems: s.textItems, viewportTransform: s.viewportTransform, tags: s.tags, library: LIBRARY, lookups: LOOKUPS, options: { shapes: false } });
   return { drawing, rev: 'C01', family: 'Invented', status: 'checked', reason: '', precheck: 'readable', pages: 1,
     pageSize: [s.width, s.height], viewportTransform: s.viewportTransform, result, ms: 2500 };
 }
@@ -187,4 +188,61 @@ test('buildReportPdf: a printed sheet says its tags are not read yet; no page sa
   const ps2 = await pages(await buildReportPdf(modelOf([bare]), new Map(), PDFLib));
   assert.ok(ps2.some(p => p.text.includes('No tags read.')));
   for (const p of [...ps, ...ps2]) assert.ok(!p.text.includes('No tags.'), p.text.slice(0, 200));
+});
+
+test('buildReportPdf: a flagged shape gets a numbered amber box on the drawing and a row in the table', async () => {
+  const s0 = MODEL.sheets[0];
+  const shapeRows = [{ no: s0.rows.length + 1, tag: '', fc: '', kind: 'not-standard', label: 'Not to standard', detail: 'ink left over; closest: GADGET 97%', userRect: [20, 20, 50, 50] }];
+  const m = { ...MODEL, sheets: MODEL.sheets.map((s, i) => (i === 0 ? { ...s, shapeRows } : s)) };
+  const ps = await pages(await buildReportPdf(m, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  const before = await pages(await buildReportPdf({ ...MODEL, sheets: MODEL.sheets.map((s, i) => (i === 0 ? { ...s, shapeRows: [] } : s)) }, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  const drawing = ps.find(p => !isA4(p)), drawingBefore = before.find(p => !isA4(p));
+  const a = rectCounts(await drawing.page.getOperatorList()), b = rectCounts(await drawingBefore.page.getOperatorList());
+  assert.equal(a.stroked - b.stroked, 1, JSON.stringify([a, b]));
+  assert.equal(a.filled - b.filled, 1);   // its number tab
+  assert.ok(ps.some(p => p.text.includes('ink left over; closest: GADGET 97%')));
+  assert.ok(ps[0].text.includes('Not to standard'));
+});
+
+// ── Symbols first (owner, 2026-11-18) ──
+test('buildReportPdf, symbols first: green named boxes and amber numbered ones on the drawing, a picture page, tags at the back', async () => {
+  const s0 = MODEL.sheets[0];
+  const sheet = { ...s0, layout: 'symbols', shapeLine: '2 standard symbols · 1 not to standard',
+    standardRows: [{ name: 'WIDGET', userRect: [100, 190, 130, 210] }, { name: 'GADGET', userRect: [200, 190, 230, 220] }],
+    shapeRows: [{ no: 1, kind: 'not-standard', label: 'Not to standard', tag: '', fc: '', detail: 'extra ink; closest: WIDGET 97%', userRect: [300, 190, 330, 210] }] };
+  const m = { ...MODEL, sheets: [sheet, ...MODEL.sheets.slice(1)] };
+  const ps = await pages(await buildReportPdf(m, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  const bare = { ...MODEL, sheets: [{ ...sheet, standardRows: [], shapeRows: [] }, ...MODEL.sheets.slice(1)] };
+  const drawing = ps.find(p => !isA4(p)), drawingBare = (await pages(await buildReportPdf(bare, new Map([['INV-0001||C01', BYTES]]), PDFLib))).find(p => !isA4(p));
+  const rc = rectCounts(await drawing.page.getOperatorList()), rb = rectCounts(await drawingBare.page.getOperatorList());
+  assert.equal(rc.stroked - rb.stroked, 3, JSON.stringify([rc, rb]));   // two green, one amber
+  assert.equal(rc.filled - rb.filled, 1);                                 // one number tab: the tags have no boxes here
+  assert.ok(drawing.text.includes('WIDGET') && drawing.text.includes('GADGET'), drawing.text);
+  const heading = ps.find(p => p.text.includes('INV-0001') && p.text.includes('2 standard symbols · 1 not to standard'));
+  assert.ok(heading, 'the shape line heads the sheet');
+  const pics = ps.find(p => isA4(p) && p.text.includes('Not to standard: pictures'));
+  assert.ok(pics && pics.text.includes('extra ink; closest: WIDGET 97%'));
+  assert.ok(ps.some(p => p.text.includes('Tags (reference)')));
+});
+
+test('buildReportPdf, symbols first: the front page says what the symbol check does and counts shapes; pictures start under the heading', async () => {
+  const s0 = MODEL.sheets[0];
+  const sheet = { ...s0, layout: 'symbols', shapeLine: '2 standard symbols · 1 not to standard', standardCount: 2, notStandardCount: 1, notJudgedCount: 0,
+    reasonLine: 'Why: 1 ink left over', standardRows: [{ name: 'WIDGET', userRect: [100, 190, 130, 210] }],
+    shapeRows: [{ no: 1, kind: 'not-standard', label: 'Not to standard', tag: '', fc: '', detail: 'ink left over; closest: WIDGET 97%', userRect: [300, 190, 330, 210] }] };
+  const m = { ...MODEL, sheets: [sheet, ...MODEL.sheets.slice(1)] };
+  const ps = await pages(await buildReportPdf(m, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(ps[0].text.includes(SYMBOLS_NOTE), ps[0].text.slice(0, 300));
+  assert.ok(ps[0].text.includes('Standard symbols') && ps[0].text.includes('Not to standard'));
+  const heading = ps.find(p => p.text.includes('2 standard symbols · 1 not to standard'));
+  assert.ok(heading.text.includes('Why: 1 ink left over'));
+  assert.ok(heading.text.includes('Not to standard: pictures'), 'the pictures start on the heading page');
+});
+
+test('buildReportPdf, symbols first: the trial note is on the front page and under each sheet heading', async () => {
+  const { TRIAL_NOTE } = await import('../assets/js/pid-symbol-check-view.js');
+  const sheet = { ...MODEL.sheets[0], layout: 'symbols', shapeLine: '1 standard symbol · 0 not to standard', standardRows: [], shapeRows: [] };
+  const ps = await pages(await buildReportPdf({ ...MODEL, sheets: [sheet] }, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.ok(ps[0].text.includes(TRIAL_NOTE));
+  assert.ok(ps.find(p => p.text.includes('1 standard symbol')).text.includes(TRIAL_NOTE));
 });

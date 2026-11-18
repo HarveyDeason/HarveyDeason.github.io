@@ -12,6 +12,9 @@
 //        [--instrument "<CODE,CODE,...>"]   function codes the tool's lookup classes as instruments
 //        [--symbols-out <file>]            write the symbols found (names and boxes) as JSON; refused inside the repository
 //        [--compare <file>]                compare the symbols found with such a file (--verbose lists the differences)
+//        [--shapes-out <file>]             write the sheet's shapes (boxes, and the symbol named in each) as JSON; refused inside the repository
+//        [--operators "<table heading>"]...  mark every symbol under that heading as an operator, for this run only
+//        [--key <marked pdf>]              score the shapes against the owner's marked answer key (counts; --verbose lists)
 //        [--words text|comments|printed]   where the words are: the text layer (default), or the comments
 //                                          ("Readable from comments": letters drawn as strokes, text kept in comments),
 //                                          or none ("printed": letters are shapes; spotted ones are left out, no tags)
@@ -26,19 +29,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openPdf, loadVendoredPdfjs } from './pdfjs-node.mjs';
 import { importLegend } from './check-symbol-import.mjs';
-import { pagePaths, parseLibrary } from '../assets/js/pid-symbols.js';
+import { pagePaths, parseLibrary, textWords } from '../assets/js/pid-symbols.js';
 import { extractTags } from '../assets/js/pid-core.js';
-import { checkSheet, VERDICTS, prepareSymbols } from '../assets/js/pid-symbol-check.js';
+import { checkSheet, VERDICTS, prepareSymbols, shapeBand } from '../assets/js/pid-symbol-check.js';
 import { bubbleSummary, symbolSummary } from '../assets/js/pid-symbol-check-view.js';
 import { sheetComments } from '../assets/js/pid-precheck.js';
-import { commentWords, letterBoxes, removeLetterInk, removeSpottedLetters, glyphsOf } from '../assets/js/pid-sheet-read.js';
+import { readAnswerKey, scoreAgainstKey, keyLine } from './answer-key.mjs';
+import { commentWords, letterBoxes, removeLetterInk, removeSpottedLetters, glyphsOf, sheetShapes } from '../assets/js/pid-sheet-read.js';
 
 const USAGE = [
   'Usage:',
   '  node scripts/check-symbol-check.mjs "<drawing pdf>" (--legend "<legend pdf>" | --library "<symbol-library.json>")',
   '       [--set-tag-id "<table heading>=<code>"]... [--expect <code>=<least OK>]... [--allow-wrong <n>]',
   '       [--relabel <count>:<code>] [--max-seconds <n>] [--no-twin] [--grid <pitch>:<code>] [--instrument "<CODE,...>"]',
-  '       [--words text|comments|printed] [--symbols-out <file>] [--compare <file>] [--verbose]',
+  '       [--words text|comments|printed] [--symbols-out <file>] [--compare <file>] [--shapes-out <file>] [--operators "<table heading>"]... [--key <marked pdf>] [--verbose]',
   '  node scripts/check-symbol-check.mjs --bubble-self-test (--legend "<legend pdf>" | --library "<symbol-library.json>") [--verbose]',
 ].join('\n');
 const LABELS = { ok: 'OK', 'off-size': 'OK, off size', 'wrong-family': 'Wrong family', exception: 'Approved exception', look: 'Needs a look', 'not-checked': 'Not checked' };
@@ -80,7 +84,7 @@ export async function readSheet(data, options) {
     }
     // Tag reading does not depend on the DS310 lookup tables, which stay in the tool.
     const found = extractTags(text, { drawingName: 'CHECK', revision: '', lookups: {} });
-    return { ok: true, paths, textItems, viewportTransform: viewport.transform, width: viewport.width, height: viewport.height,
+    return { ok: true, paths, textItems, viewportTransform: viewport.transform, width: viewport.width, height: viewport.height, rotate: page.rotate || 0,
       pageSize: [viewport.width, viewport.height], writing, textCount, pathCount, words, comments: comments.length, removed, letters,
       tags: found.confirmed.map(t => ({ tag: t.tag, fc: t.fc })) };
   } catch {
@@ -105,6 +109,41 @@ export function setTagIds(library, pairs) {
     return { ...s, tagId: wanted.get(s.group) };
   });
   return { library: { ...lib, symbols }, changed };
+}
+
+/** Mark every symbol under a table heading as an operator (flags.operator), in a copy. headings: ['<heading>']. */
+export function setOperators(library, headings) {
+  let changed = 0;
+  const wanted = new Set((Array.isArray(headings) ? headings : []).filter(h => typeof h === 'string' && h.trim()).map(h => h.trim()));
+  const lib = library && typeof library === 'object' ? library : { symbols: [] };
+  const symbols = (Array.isArray(lib.symbols) ? lib.symbols : []).map(s => {
+    if (!s || typeof s !== 'object' || typeof s.group !== 'string' || !wanted.has(s.group.trim())) return s;
+    changed++;
+    return { ...s, flags: { ...(s.flags && typeof s.flags === 'object' ? s.flags : {}), operator: true } };
+  });
+  return { library: { ...lib, symbols }, changed };
+}
+
+/**
+ * The sheet's shapes for the answer key: each shape's box (page points, top-left, as the page is shown, rotation
+ * included) and the listed symbol whose box centre lies in it, the best-scoring if several. Never throws.
+ */
+export function shapesFor(input, result) {
+  const none = { split: { shapes: [], lines: [], segments: [] }, shapes: [] };
+  try {
+    const band = shapeBand(prepareSymbols(input.library), input.options);
+    if (!band) return none;
+    const writing = [...textWords(Array.isArray(input.textItems) ? input.textItems : [], input.viewportTransform).map(w => [w.x, w.y, w.x + w.w, w.y + w.h]),
+      ...(Array.isArray(input.writing) ? input.writing : [])];
+    const split = sheetShapes(input.paths, { ...band, skip: result && result.skipped, writing, page: Array.isArray(input.pageSize) ? input.pageSize : null });
+    const symbols = result && Array.isArray(result.symbols) ? result.symbols : [];
+    const shapes = split.shapes.map(sh => {
+      const inside = symbols.filter(sy => { const cx = (sy.box[0] + sy.box[2]) / 2, cy = (sy.box[1] + sy.box[3]) / 2; return cx >= sh.box[0] && cx <= sh.box[2] && cy >= sh.box[1] && cy <= sh.box[3]; })
+        .sort((a, b) => b.score - a.score);
+      return { id: sh.id, box: sh.box.map(v => Math.round(v * 1000) / 1000), name: inside.length ? inside[0].name : null, score: inside.length ? inside[0].score : null };
+    });
+    return { split, shapes };
+  } catch { return none; }
 }
 
 /** Give `count` of the OK tags, spread evenly through the list, another function code. */
@@ -212,7 +251,7 @@ function fail(message) { console.error(message); process.exitCode = 1; }
 const instrumentCodes = list => Object.fromEntries(String(list || '').split(/[\s,]+/).map(c => c.trim().toUpperCase()).filter(Boolean).map(c => [c, 'instrument']));
 async function readOr(file, encoding) { try { return await fs.readFile(file, encoding); } catch { return null; } }
 function parseArgs(argv) {
-  const opts = { file: null, setTagId: [], expect: [], verbose: false, noTwin: false };
+  const opts = { file: null, setTagId: [], expect: [], operators: [], verbose: false, noTwin: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--verbose') opts.verbose = true;
@@ -220,6 +259,7 @@ function parseArgs(argv) {
     else if (a === '--no-twin') opts.noTwin = true;
     else if (a === '--set-tag-id') opts.setTagId.push(argv[++i]);
     else if (a === '--expect') opts.expect.push(argv[++i]);
+    else if (a === '--operators') opts.operators.push(argv[++i]);
     else if (a.startsWith('--')) opts[a.slice(2)] = argv[++i];
     else if (!opts.file) opts.file = a;
   }
@@ -258,6 +298,7 @@ async function main() {
   if (!opts.file || (!opts.legend && !opts.library)) return fail(USAGE);
   // The symbol list holds legend names, so it may only go in the private folder: refuse before doing anything.
   if ('symbols-out' in opts && (!opts['symbols-out'] || insideRepo(opts['symbols-out']))) return fail('--symbols-out must name a file outside the repository (the list holds legend names).');
+  if ('shapes-out' in opts && (!opts['shapes-out'] || insideRepo(opts['shapes-out']))) return fail('--shapes-out must name a file outside the repository (the shapes are named from the legend).');
   let compareWith = null;
   if (opts.compare) {
     try { compareWith = JSON.parse(await fs.readFile(opts.compare, 'utf8')); } catch { return fail(`Could not read ${opts.compare} as a symbol list.`); }
@@ -272,6 +313,12 @@ async function main() {
     library = set.library;
     console.log(`Tag identifier set on ${set.changed} symbols.`);
     if (!set.changed) return fail('No symbol has that table heading. Check --set-tag-id.');
+  }
+  if (opts.operators.length) {
+    const set = setOperators(library, opts.operators);
+    library = set.library;
+    console.log(`Marked as operators: ${set.changed} symbols.`);
+    if (!set.changed) return fail('No symbol has that table heading. Check --operators.');
   }
   const words = opts.words === 'comments' || opts.words === 'printed' ? opts.words : 'text';
   if (opts.words && opts.words !== 'comments' && opts.words !== 'text' && opts.words !== 'printed') return fail('--words is text, comments or printed.');
@@ -343,6 +390,33 @@ async function main() {
       const fmt = s => `${s.name}  [${s.box.map(v => Math.round(v * 10) / 10).join(', ')}]`;
       for (const s of m.missing) console.log(`    missing  ${fmt(s)}`);
       for (const s of m.extra) console.log(`    extra  ${fmt(s)}`);
+    }
+  }
+  const sh = shapesFor(input, result);
+  const lineCount = k => sh.split.lines.filter(l => l.kind === k).length;
+  console.log(`  shapes: ${sh.shapes.length} (lines: run ${lineCount('run')}, dashed ${lineCount('dashed')}, hatch ${lineCount('hatch')}, connector ${lineCount('connector')}, arrow ${lineCount('arrow')})`);
+  if (opts['shapes-out']) {
+    try { await fs.writeFile(opts['shapes-out'], JSON.stringify({ sheet: path.basename(opts.file), page: { w: sheet.width, h: sheet.height, rotate: sheet.rotate }, shapes: sh.shapes })); }
+    catch { return fail(`Could not write ${opts['shapes-out']}.`); }
+  }
+  if (opts.key) {
+    const kb = await readOr(opts.key);
+    if (!kb) return fail(`Could not read ${opts.key}.`);
+    let annotations, vt;
+    try {
+      const page = await (await openPdf(new Uint8Array(kb))).getPage(1);
+      vt = page.getViewport({ scale: 1 }).transform;
+      annotations = await page.getAnnotations();
+    } catch { return fail(`${opts.key} could not be read as a PDF.`); }
+    const key = readAnswerKey(annotations, vt, library);
+    const score = scoreAgainstKey(key, Array.isArray(result.shapes) ? result.shapes : sh.shapes, result.symbols);
+    console.log(keyLine(score));
+    if (opts.verbose) {
+      const fmt = b => '[' + b.map(v => Math.round(v * 10) / 10).join(', ') + ']';
+      for (const u of score.lists.unread) console.log(`    unread (${u.reason}): ${u.text}`);
+      for (const m of score.lists.missed) console.log(`    missed  ${m.standard ? 'STANDARD' : 'NOT STANDARD'}${m.name ? ' ' + m.name : ''}  ${fmt(m.box)}`);
+      for (const m of score.lists.falseFlags) console.log(`    false flag  ${m.name || ''}  ${m.why || ''}  ${fmt(m.box)}`);
+      for (const m of score.lists.notASymbolFlagged) console.log(`    flagged, not a symbol  ${m.why || ''}  ${fmt(m.box)}`);
     }
   }
   console.log(`  Title block skipped: ${result.skipped ? 'yes, ' + Math.round(result.skipped[2] - result.skipped[0]) + ' x ' + Math.round(result.skipped[3] - result.skipped[1]) + ' pt' : 'no'}`);

@@ -59,15 +59,50 @@ const INCOMPLETE = 'The time limit was reached: this list is incomplete.';
 export const tagsTimedOut = result => !!result && typeof result === 'object'
   && (result.tagsTimedOut === true || (result.timedOut === true && typeof result.tagsTimedOut !== 'boolean'));
 
-/** 'N standard symbols found, M with tags.'; 'No standard symbols found.' for none; '' when the result has no symbol list. */
+// ── Phase 3: shapes not to standard ─────────────────────────────────────
+/** Shown wherever the shape check's flags show, until it has been tuned on more sheets (owner, 2026-11-18). */
+export const TRIAL_NOTE = 'The shape check is new and on trial: review each "not to standard" flag by eye before acting on it.';
+export const OPERATORS_NOTE = 'Operators not marked in the library: valves with an operator will be flagged.';
+export const NOT_STANDARD_COLOUR = '#E08E00';
+const shapesOf = result => (result && typeof result === 'object' && Array.isArray(result.shapes) ? result.shapes.filter(s => s && typeof s === 'object' && isBox(s.box)) : null);
+const pct = x => Math.round(Math.max(0, Math.min(1, x)) * 100) + '%';
+/** Why a shape is not to standard, in words: plain text. */
+export function shapeWhy(shape) {
+  const s = shape && typeof shape === 'object' ? shape : {};
+  if (s.why === 'left-over') return 'ink left over';
+  if (s.why === 'short-line') return 'line drawn short' + (isNum(s.share) ? ' (' + pct(s.share) + ')' : '');
+  if (s.why === 'no-fit') return 'no standard symbol fits';
+  if (s.why === 'time') return 'not judged: time limit';
+  return '';
+}
+const closestText = s => (s.closest && typeof s.closest === 'object' && str(s.closest.name) && isNum(s.closest.score)
+  ? 'closest: ' + str(s.closest.name) + ' ' + pct(s.closest.score) : 'no close symbol');
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+// A standard shape's name: its listed symbols (operator last), or the symbol fitted to it alone.
+function shapeName(result, s) {
+  const syms = asArr(result.symbols);
+  const names = asArr(s.symbols).filter(i => Number.isInteger(i) && syms[i] && str(syms[i].name)).map(i => str(syms[i].name));
+  if (s.operator && str(s.operator.name)) names.push(str(s.operator.name));
+  return names.length ? names.join(' + ') : (s.closest && str(s.closest.name)) || 'standard symbol';
+}
+// ' M shapes not to standard. K shapes not judged: time limit. <operators note>', or '' when no shape was judged.
+function shapeLine(result) {
+  const list = shapesOf(result);
+  if (!list) return '';
+  const bad = list.filter(s => s.standard === false).length, late = list.filter(s => s.standard === null).length;
+  return ' ' + plural(bad, 'shape', 'shapes') + ' not to standard.' + (late ? ' ' + plural(late, 'shape', 'shapes') + ' not judged: time limit.' : '')
+    + (result.operatorsMarked === false ? ' ' + OPERATORS_NOTE : '');
+}
+
+/** 'N standard symbols found, M with tags.'; 'No standard symbols found.' for none; '' when the result has no symbol list. Then the shapes not to standard, when shapes were judged. */
 export function symbolSummary(result) {
   try {
     const list = symbolsOf(result);
     if (!list) return '';
     const all = list.filter(isSymbol), tagged = all.filter(s => !!str(s.tag)).length;
     const short = result.sweepTimedOut === true;
-    if (!all.length) return short ? 'No standard symbols found before the time limit: this list is incomplete.' : 'No standard symbols found.';
-    return all.length + ' standard symbol' + (all.length === 1 ? '' : 's') + ' found, ' + tagged + ' with tags.' + (short ? ' ' + INCOMPLETE : '');
+    if (!all.length) return (short ? 'No standard symbols found before the time limit: this list is incomplete.' : 'No standard symbols found.') + shapeLine(result);
+    return all.length + ' standard symbol' + (all.length === 1 ? '' : 's') + ' found, ' + tagged + ' with tags.' + (short ? ' ' + INCOMPLETE : '') + shapeLine(result);
   } catch {
     return '';
   }
@@ -151,14 +186,39 @@ export function resultsHtml(result) {
     + (printed && lt ? '<div class="sc-summary">' + esc(letterLine(lt)) + '</div>' : '')
     + (bubbleSummary(result) ? '<div class="sc-summary">' + esc(bubbleSummary(result)) + '</div>' : '')
     + (symbolSummary(result) ? '<div class="sc-summary">' + esc(symbolSummary(result)) + '</div>' : '')
-    + (isBox(result.skipped) ? '<div class="sc-summary">' + SKIPPED_NOTE + '</div>' : '')
-    + '<ul class="sc-list">';
+    + (isBox(result.skipped) ? '<div class="sc-summary">' + SKIPPED_NOTE + '</div>' : '');
+  // What the tool is for, first: each shape not to standard, why, and the closest standard symbol.
+  if (shapesOf(result)) out += '<div class="sc-summary"><strong>' + esc(TRIAL_NOTE) + '</strong></div>';
+  const flagged = (shapesOf(result) || []).map((s, n) => ({ s, n })).filter(x => x.s.standard === false);
+  if (flagged.length) {
+    out += '<div class="sc-summary"><strong>Not to standard</strong>: ' + plural(flagged.length, 'shape', 'shapes') + '</div><ul class="sc-list">';
+    for (const { s, n } of flagged) {
+      out += '<li><button type="button" class="sc-row sc-not-standard" data-act="sym-jump-shape" data-sh="' + n + '">'
+        + '<strong>Not to standard</strong> <span class="sc-detail">' + esc(shapeWhy(s)) + '; ' + esc(closestText(s)) + '</span></button></li>';
+    }
+    out += '</ul>';
+  }
+  out += '<ul class="sc-list">';
   for (const { v, i, kind } of list) {
     out += '<li><button type="button" class="sc-row sc-' + kind + '" data-act="sym-jump" data-i="' + i + '">'
       + '<strong>' + esc(str(v.tag)) + '</strong> <span class="sc-label">' + VERDICT_LABELS[kind] + '</span> '
       + '<span class="sc-detail">' + esc(sentence(v, kind)) + '</span></button></li>';
   }
   out += '</ul>';
+  // Symbols first (owner, 2026-11-18): once shapes were judged, every standard shape is listed by name,
+  // whether or not a tag sits beside it.
+  const judged = shapesOf(result);
+  if (judged) {
+    const good = judged.map((s, n) => ({ s, n, name: shapeName(result, s) })).filter(x => x.s.standard === true);
+    if (good.length) {
+      const byName = new Map();
+      for (const { name } of good) byName.set(name, (byName.get(name) || 0) + 1);
+      out += '<div class="sc-summary"><strong>Standard symbols</strong>: ' + esc([...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, c]) => c + ' ' + k).join(', ')) + '</div><ul class="sc-list">';
+      for (const { n, name } of good) out += '<li><button type="button" class="sc-row sc-standard" data-act="sym-jump-shape" data-sh="' + n + '"><strong>' + esc(name) + '</strong></button></li>';
+      out += '</ul>';
+    }
+    return out + '</details>';
+  }
   // Symbols with no tag beside them: listed, not flagged. Padlocks and capped
   // ends carry none, and on some sheets the tags cannot be read yet.
   const loose = asArr(symbolsOf(result)).map((s, n) => ({ s, n })).filter(x => untagged(x.s))
@@ -202,9 +262,15 @@ export function boxRects(result, scale) {
   }
   const rect = b => ({ left: b[0] * scale - MARGIN, top: b[1] * scale - MARGIN,
     width: (b[2] - b[0]) * scale + 2 * MARGIN, height: (b[3] - b[1]) * scale + 2 * MARGIN });
+  const judged = shapesOf(result);
   asArr(symbolsOf(result)).forEach((s, n) => {
-    if (!untagged(s) || !isBox(s.box)) return;
+    if (judged || !untagged(s) || !isBox(s.box)) return;   // once shapes were judged, the shapes are boxed instead
     out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' + (s.plain === true ? ' Plain shape: check by eye.' : '') });
+  });
+  (shapesOf(result) || []).forEach((s, n) => {
+    if (s.standard === true) out.push({ sh: n, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' });
+    else if (s.standard === false) out.push({ sh: n, kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + shapeWhy(s) + '. ' + closestText(s) + '.' });
+    else if (s.standard === null) out.push({ sh: n, kind: 'not-judged', ...rect(s.box), title: 'Not judged: time limit.' });
   });
   if (isBox(result.skipped)) out.push({ kind: 'skipped', ...rect(result.skipped), title: SKIPPED_NOTE });
   return out;

@@ -226,3 +226,11 @@ test('runReport: a printed sheet is checked with its status; scanned is not chec
   assert.equal(R.notReadable('none'), 'Pre-check status is No readable text: this sheet cannot be checked.');
   assert.equal(R.REASONS.noTags, undefined);
 });
+
+test('runReport keeps the shapes and the operators mark in each outcome', async () => {
+  const shaped = { ...RESULT, shapes: [{ id: 0, box: [0, 0, 10, 10], standard: false, why: 'no-fit' }], operatorsMarked: false };
+  const { deps } = fakeDeps({ now: clock(), check: async () => ({ result: shaped, viewportTransform: VT, pages: 1, pageSize: [500, 400] }) });
+  const out = await R.runReport({ sheets: SHEETS.slice(0, 1), deps, signal: { stopped: false } });
+  assert.deepEqual(out.outcomes[0].result.shapes, shaped.shapes);
+  assert.equal(out.outcomes[0].result.operatorsMarked, false);
+});

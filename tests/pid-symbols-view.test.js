@@ -162,3 +162,13 @@ test('symbolSvg: a very thin or very small symbol is centred in a minimum view, 
   assert.match(symbolSvg({ w: 42.54, h: 0, paths: [line] }), /viewBox="-2 -12 46.54 24"/);
   assert.match(symbolSvg({ w: 6, h: 6, paths: [{ ...line, segs: [0, 0, 6, 6] }] }), /viewBox="-9 -9 24 24"/);
 });
+
+test('the edit card has an Operator tick, the group button, and the badge shows', () => {
+  const lib = { ...LIB, symbols: LIB.symbols.map(s => (s.id === 'p1-002' ? { ...s, flags: { ...s.flags, operator: true } } : s)) };
+  const html = renderResults(searchSymbols(lib, ''), { hasTags: true, editId: 'p1-002' });
+  assert.match(html, /<input type="checkbox" data-field="operator" checked> Operator: a handwheel, lever or actuator that sits on another symbol/);
+  assert.match(html, /data-act="mark-group-operators"[^>]*data-group="[^"]+"[^>]*>Mark every symbol under this table heading as an operator</);
+  const card = renderResults(searchSymbols(lib, ''), { hasTags: true });
+  assert.match(card, /<span class="sym-badge">Operator<\/span>/);
+  assert.doesNotMatch(renderResults(searchSymbols(LIB, ''), { hasTags: true }), /sym-badge">Operator</);
+});

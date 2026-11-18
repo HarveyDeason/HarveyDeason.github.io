@@ -32,7 +32,7 @@ test('resultsHtml: the family note, the counts, and a row for every tag in order
   for (const part of ['3 OK', '1 OK, off size', '1 Wrong family', '1 Approved exception', '1 Needs a look', '4 Not checked',
     'Results are shown here and are not saved.']) assert.ok(html.includes(part), part);
   assert.equal(html.split('data-act="sym-jump"').length - 1, 11);
-  assert.ok(rows(html)[0].includes('Recognised as WIDGET, BARRED (tag identifier W), which does not fit G.'));
+  assert.ok(rows(html).filter(r => r.includes('data-act="sym-jump"'))[0].includes('Recognised as WIDGET, BARRED (tag identifier W), which does not fit G.'));
   assert.ok(rowFor(html, '21-W-1003').includes('drawn at 120% of legend size'));
   assert.ok(rowFor(html, '21-W-1002').includes('filled in (normally closed)'));
   assert.ok(!rowFor(html, '21-W-1001').includes('filled in'));
@@ -41,7 +41,7 @@ test('resultsHtml: the family note, the counts, and a row for every tag in order
   assert.ok(rowFor(html, '21-G-2002').includes('Nothing recognised within 60 pt. Could be non-standard, modified, or a gap in the library.'));
   assert.ok(rowFor(html, '21-ZI-5001').includes('The library has no tag bubbles. Import the legend again to add them.'));
   // data-i is the verdict's place in the result, whatever order the rows are shown in
-  assert.ok(rows(html)[0].includes('data-i="' + RESULT.verdicts.findIndex(v => v.tag === '21-G-2001') + '"'));
+  assert.ok(rows(html).filter(r => r.includes('data-act="sym-jump"'))[0].includes('data-i="' + RESULT.verdicts.findIndex(v => v.tag === '21-G-2001') + '"'));
 });
 
 test('resultsHtml: everything from the result is shown as text', () => {
@@ -67,7 +67,7 @@ test('resultsHtml: a check that did not run says so', () => {
 
 test('boxRects: one rectangle per tag, around the symbol when there is one', () => {
   const rects = V.boxRects(RESULT, 2);
-  assert.equal(rects.length, 11);
+  assert.equal(rects.filter(x => 'i' in x).length, 11);   // tag rectangles; phase 3 adds shape ones
   const i = RESULT.verdicts.findIndex(v => v.tag === '21-W-1001');
   const r = rects.find(x => x.i === i), b = RESULT.verdicts[i].box;
   assert.deepEqual([r.kind, r.left, r.top, r.width, r.height], ['ok', b[0] * 2 - 3, b[1] * 2 - 3, (b[2] - b[0]) * 2 + 6, (b[3] - b[1]) * 2 + 6]);
@@ -163,7 +163,8 @@ test('resultsHtml: shows the tag bubble line, escaped', () => {
 
 // ── Symbols found by the sweep ────────────────────────────────────────────
 import { SWEEP_SHEET, SWEEP_LIBRARY, LOOKUPS_B, label } from './fixtures/symbol-check-sheet.js';
-const NO_TAGS = checkSheet({ ...SWEEP_SHEET, textItems: label('AB', 72, 216), library: SWEEP_LIBRARY, lookups: LOOKUPS_B });   // a word in the ring: a bubble needs writing
+// A result from before the shape check (shapes off): untagged symbols listed and boxed as they were.
+const NO_TAGS = checkSheet({ ...SWEEP_SHEET, textItems: label('AB', 72, 216), library: SWEEP_LIBRARY, lookups: LOOKUPS_B, options: { shapes: false } });   // a word in the ring: a bubble needs writing
 const sy = (name, tag = null, more = {}) => ({ name, tagId: '', box: [10, 10, 20, 20], sizePct: 100, score: 1, oneOf: [], bubble: false, tag, ...more });
 
 test('progressHtml: the sweep says which row it is on, with the same Cancel', () => {
@@ -253,4 +254,83 @@ test('boxRects: a plain symbol carries the plain note in its title', () => {
   const rects = V.boxRects({ ok: true, verdicts: [], symbols: [sy('BOXY', null, { plain: true }), sy('ROUND')] }, 1);
   assert.ok(rects.find(r => r.title.startsWith('BOXY')).title.endsWith(' Plain shape: check by eye.'));
   assert.ok(!rects.find(r => r.title.startsWith('ROUND')).title.includes('Plain shape'));
+});
+
+// ── Phase 3: shapes not to standard ───────────────────────────────────────
+const SHAPED = { ok: true, verdicts: [], skipped: null, operatorsMarked: true,
+  symbols: [{ name: 'WIDGET', tagId: 'W', box: [10, 10, 34, 22], tag: null, oneOf: [], plain: false, shape: 0, standard: true },
+    { name: 'GADGET', tagId: 'G', box: [100, 10, 120, 30], tag: null, oneOf: [], plain: false, shape: 1, standard: false }],
+  shapes: [
+    { id: 0, box: [10, 10, 34, 22], standard: true, why: null, explained: 1, share: null, symbols: [0], operator: null, closest: null },
+    { id: 1, box: [100, 10, 128, 30], standard: false, why: 'left-over', explained: 0.8, share: null, symbols: [1], operator: null, closest: { name: 'GADGET', tagId: 'G', score: 0.95, explained: 0.8 } },
+    { id: 2, box: [200, 10, 220, 30], standard: false, why: 'short-line', explained: 0, share: 0.62, symbols: [], operator: null, closest: { name: HOSTILE, tagId: '', score: 0.91, explained: 1 } },
+    { id: 3, box: [300, 10, 320, 30], standard: false, why: 'no-fit', explained: 0, share: null, symbols: [], operator: null, closest: null },
+    { id: 4, box: [400, 10, 420, 30], standard: null, why: 'time', explained: 0, share: null, symbols: [], operator: null, closest: null },
+  ] };
+
+test('symbolSummary adds the shapes not to standard, those not judged, and the operators note when none is marked', () => {
+  assert.equal(V.symbolSummary(SHAPED), '2 standard symbols found, 0 with tags. 3 shapes not to standard. 1 shape not judged: time limit.');
+  assert.equal(V.symbolSummary({ ...SHAPED, operatorsMarked: false }), '2 standard symbols found, 0 with tags. 3 shapes not to standard. 1 shape not judged: time limit. ' + V.OPERATORS_NOTE);
+  assert.equal(V.OPERATORS_NOTE, 'Operators not marked in the library: valves with an operator will be flagged.');
+  const { shapes, operatorsMarked, ...old } = SHAPED;
+  assert.equal(V.symbolSummary(old), '2 standard symbols found, 0 with tags.');
+});
+
+test('shapeWhy: the why in words', () => {
+  assert.equal(V.shapeWhy(SHAPED.shapes[1]), 'ink left over');
+  assert.equal(V.shapeWhy(SHAPED.shapes[2]), 'line drawn short (62%)');
+  assert.equal(V.shapeWhy(SHAPED.shapes[3]), 'no standard symbol fits');
+  assert.equal(V.shapeWhy(SHAPED.shapes[4]), 'not judged: time limit');
+  assert.equal(V.shapeWhy(null), '');
+});
+
+test('resultsHtml lists Not to standard first, a row per flagged shape with why, closest and a jump', () => {
+  const html = V.resultsHtml(SHAPED);
+  const first = html.indexOf('Not to standard'), loose = html.indexOf('Standard symbols');
+  assert.ok(first > 0 && first < loose, 'Not to standard comes before the other lists');
+  const shapeRows = rows(html).filter(r => r.includes('sym-jump-shape') && r.includes('sc-not-standard'));
+  assert.equal(shapeRows.length, 3);
+  assert.match(shapeRows[0], /data-sh="1"/);
+  assert.ok(shapeRows[0].includes('ink left over') && shapeRows[0].includes('closest: GADGET 95%'));
+  assert.ok(shapeRows[1].includes('line drawn short (62%)') && !shapeRows[1].includes('<img'));
+  assert.ok(shapeRows[2].includes('no close symbol'));
+});
+
+test('a result with no shapes renders exactly as before', () => {
+  const { shapes, operatorsMarked, ...old } = SHAPED;
+  assert.equal(V.resultsHtml(old).includes('Not to standard'), false);
+  assert.deepEqual(V.boxRects(old, 1).map(b => b.kind), ['symbol', 'symbol']);
+  assert.equal(V.resultsHtml(RESULT), V.resultsHtml({ ...RESULT }));
+});
+
+test('boxRects: flagged shapes amber not-standard, timed-out ones not-judged; standard ones as before', () => {
+  const rects = V.boxRects(SHAPED, 2);
+  const ns = rects.filter(b => b.kind === 'not-standard'), nj = rects.filter(b => b.kind === 'not-judged');
+  assert.deepEqual(ns.map(b => b.sh), [1, 2, 3]);
+  assert.deepEqual(nj.map(b => b.sh), [4]);
+  assert.equal(ns[0].left, 100 * 2 - 3);
+  assert.ok(ns[0].title.startsWith('Not to standard: ink left over.'));
+  assert.equal(V.NOT_STANDARD_COLOUR, '#E08E00');
+  assert.equal(rects.filter(b => b.kind === 'symbol').length, 0);     // symbols first: the standard shape is boxed instead
+  assert.equal(rects.filter(b => b.kind === 'standard').length, 1);
+});
+
+// Symbols first (owner, 2026-11-18): no "no tag" wording once shapes were judged.
+test('symbols first on screen: standard shapes are green named boxes, listed as Standard symbols; no "no tag" wording', () => {
+  const rects = V.boxRects(SHAPED, 1);
+  const std = rects.filter(b => b.kind === 'standard');
+  assert.deepEqual(std.map(b => b.sh), [0]);
+  assert.equal(std[0].title, 'Standard symbol: WIDGET.');
+  assert.equal(rects.filter(b => b.kind === 'symbol').length, 0);
+  const html = V.resultsHtml(SHAPED);
+  assert.ok(!/with no tag|no tag beside/i.test(html), 'no "no tag" wording');
+  assert.match(html, /<strong>Standard symbols<\/strong>: 1 WIDGET/);
+  assert.match(html, /data-act="sym-jump-shape" data-sh="0"/);
+});
+
+test('the shape check is labelled a trial wherever its flags show', () => {
+  assert.match(V.TRIAL_NOTE, /trial/i);
+  assert.ok(V.resultsHtml(SHAPED).includes('The shape check is new and on trial'));
+  const { shapes, operatorsMarked, ...old } = SHAPED;
+  assert.ok(!V.resultsHtml(old).includes('on trial'));
 });

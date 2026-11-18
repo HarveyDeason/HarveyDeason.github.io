@@ -9,7 +9,7 @@
 // cannot encode would otherwise make pdf-lib throw.
 // Nothing here throws: a drawing that cannot be copied gets a line saying so.
 
-import { FAMILY_NOTE, VERDICT_LABELS, SUMMARY_ORDER } from './pid-symbol-check-view.js';
+import { FAMILY_NOTE, VERDICT_LABELS, SUMMARY_ORDER, TRIAL_NOTE } from './pid-symbol-check-view.js';
 import { PRINT_COLOURS, FALLBACK, SHORT_NOTE } from './pid-symbol-report.js';
 
 const A4 = [595.28, 841.89];
@@ -44,6 +44,10 @@ const KEY = {
   'not-checked': 'The check could not judge this tag; the row says why.',
 };
 const SYMBOL_KEY = 'Standard symbol with no tag: found on the sheet, with no readable tag beside it. Listed, not flagged.';
+/** What the symbol check does, for the front page of a symbols-first report. */
+export const SYMBOLS_NOTE = 'Every drawn shape on each sheet is compared with the symbol legend. A shape is standard when standard symbols explain all of its linework; otherwise it is marked not to standard, with the reason and the closest legend symbol. It judges the drawing against the legend only: it cannot say whether a symbol is the right one for its place in the process.';
+const STANDARD_KEY = 'Standard symbol (green, named on the drawing): standard symbols explain all of the drawn shape.';
+const NOT_STANDARD_KEY = 'Not to standard (dashed): a drawn shape the standard symbols do not wholly explain. Numbered after the tags in the table.';
 const SYMBOL_LINE = 0.5;
 
 function duration(seconds) {
@@ -179,7 +183,7 @@ function drawBoxes(page, PDFLib, fonts, rows) {
     const kind = Object.prototype.hasOwnProperty.call(PRINT_COLOURS, r.kind) ? r.kind : 'not-checked';
     const colour = colourOf(PDFLib, PRINT_COLOURS[kind]);
     page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: colour, borderWidth: BOX_LINE,
-      ...(kind === 'not-checked' ? { borderDashArray: [3, 2] } : {}) });
+      ...(kind === 'not-checked' || kind === 'not-standard' ? { borderDashArray: [3, 2] } : {}) });
     // The number on a small filled tab sitting on the box's top-left corner, upright for the viewer.
     const label = String(count(r.no));
     const lw = fonts.bold.widthOfTextAtSize(label, size) + 3;
@@ -191,6 +195,58 @@ function drawBoxes(page, PDFLib, fonts, rows) {
     const o = at(1.5, 2);
     page.drawText(label, { x: o[0], y: o[1], size, font: fonts.bold, color: white, rotate: PDFLib.degrees(angle) });
   }
+}
+
+// A thin green box round each standard symbol, its name above it, upright for the viewer.
+function drawStandardBoxes(page, PDFLib, fonts, rows) {
+  let angle = 0;
+  try { angle = page.getRotation().angle; } catch { angle = 0; }
+  angle = (((Math.round((isNum(angle) ? angle : 0) / 90) * 90) % 360) + 360) % 360;
+  const [R, U] = AXES[angle];
+  const colour = colourOf(PDFLib, PRINT_COLOURS.standard), size = 4.5;
+  for (const r of rows) {
+    const rect = obj(r).userRect;
+    if (!isRect(rect)) continue;
+    page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: colour, borderWidth: SYMBOL_LINE });
+    const name = pdfSafe(str(r.name)).slice(0, 40);
+    if (!name) continue;
+    const C = TOP_LEFT[angle](rect);
+    page.drawText(name, { x: C[0] + 1 * U[0], y: C[1] + 1 * U[1], size, font: fonts.regular, color: colour, rotate: PDFLib.degrees(angle) });
+  }
+}
+
+// One picture per flagged shape: the drawing's page drawn once per tile, clipped to the shape and its
+// surroundings, the shape boxed in amber and numbered, its reason below. Unrotated, as the page is stored.
+async function drawPictures(w, PDFLib, fonts, doc, bytes, rows, title) {
+  const list = rows.filter(r => isRect(obj(r).userRect));
+  if (!list.length) return;
+  let emb = null;
+  try { [emb] = await doc.embedPdf(bytes, [0]); } catch { emb = null; }
+  if (!emb) return;
+  const cols = 3, gap = 8, W = A4[0] - 2 * MARGIN, cw = (W - (cols - 1) * gap) / cols, ch = 130, caption = 26;
+  const amber = colourOf(PDFLib, PRINT_COLOURS['not-standard']), frame = PDFLib.rgb(0.8, 0.8, 0.8);
+  w.gap(6);
+  w.room(ch + caption + 40);
+  w.text(title, { size: 12, bold: true });
+  let col = 0;
+  for (const r of list) {
+    if (col === 0) w.room(ch + caption + gap);
+    const x = MARGIN + col * (cw + gap), top = w.y, y = top - ch;
+    const b = r.userRect, bw = b[2] - b[0], bh = b[3] - b[1], m = Math.max(15, 0.6 * Math.max(bw, bh));
+    const c = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
+    const sc = Math.min(cw / (c[2] - c[0]), ch / (c[3] - c[1]));
+    const ox = x + (cw - (c[2] - c[0]) * sc) / 2 - c[0] * sc, oy = y + (ch - (c[3] - c[1]) * sc) / 2 - c[1] * sc;
+    w.page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.rectangle(x, y, cw, ch), PDFLib.clip(), PDFLib.endPath());
+    w.page.drawPage(emb, { x: ox, y: oy, xScale: sc, yScale: sc });
+    w.page.pushOperators(PDFLib.popGraphicsState());
+    w.page.drawRectangle({ x, y, width: cw, height: ch, borderColor: frame, borderWidth: 0.5 });
+    w.page.drawRectangle({ x: ox + b[0] * sc, y: oy + b[1] * sc, width: bw * sc, height: bh * sc, borderColor: amber, borderWidth: BOX_LINE, borderDashArray: [3, 2] });
+    const lines = wrap('#' + count(r.no) + '  ' + str(r.detail), fonts.regular, 7, cw);
+    lines.slice(0, 3).forEach((ln, k) => w.page.drawText(ln, { x, y: y - 9 - k * 8, size: 7, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) }));
+    col++;
+    if (col === cols) { col = 0; w.y = y - caption - gap; }
+  }
+  if (col) w.y = w.y - ch - caption - gap;
 }
 
 async function loadSource(PDFLib, doc, bytes) {
@@ -221,8 +277,10 @@ async function render(model, sources, PDFLib, withDrawings) {
   w.text('Run ' + str(m.when), { size: 10 });
   if (str(m.checkedBy)) w.text('Checked by: ' + str(m.checkedBy), { size: 10 });
   w.gap(6);
-  w.text('What this check can say', { size: 10, bold: true, gap: 0.1 });
-  w.text(str(m.familyNote) || FAMILY_NOTE, { size: 10 });
+  const symbolsMode = sheets.some(s => s.layout === 'symbols');
+  w.text(symbolsMode ? 'What this check does' : 'What this check can say', { size: 10, bold: true, gap: 0.1 });
+  w.text(symbolsMode ? SYMBOLS_NOTE : (str(m.familyNote) || FAMILY_NOTE), { size: 10 });
+  if (symbolsMode) w.text(TRIAL_NOTE, { size: 10, bold: true });
   w.gap(4);
   w.text('Symbol library', { size: 10, bold: true, gap: 0.1 });
   w.text(str(lib.legend), { size: 9, gap: 0.1 });
@@ -236,6 +294,29 @@ async function render(model, sources, PDFLib, withDrawings) {
   w.text('These results are in this report only. Nothing from this check is saved in the register.', { size: 9 });
   w.gap(6);
   const kinds = SUMMARY_ORDER;
+  if (symbolsMode) {
+    w.table([{ title: 'Drawing', width: 110 }, { title: 'Rev.', width: 35 }, { title: 'Pre-check', width: 80 }, { title: 'Result', width: 120 },
+      { title: 'Standard symbols', width: 55 }, { title: 'Not to standard', width: 55 }, { title: 'Not judged', width: 50 }],
+    sheets.map(s => [str(s.drawing), str(s.rev), str(s.precheckLabel), str(s.resultText),
+      ...(s.status === 'checked' && s.layout === 'symbols' ? [String(count(s.standardCount)), String(count(s.notStandardCount)), String(count(s.notJudgedCount))] : ['', '', ''])]), { size: 8, headSize: 7 });
+    w.gap(4);
+    w.text('Key', { size: 10, bold: true, gap: 0.2 });
+    for (const [kind, line, dashed, text] of [['standard', SYMBOL_LINE, false, STANDARD_KEY], ['not-standard', BOX_LINE, true, NOT_STANDARD_KEY]]) {
+      w.room(12);
+      w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS[kind]), borderWidth: line, ...(dashed ? { borderDashArray: [2, 1.5] } : {}) });
+      w.page.drawText(pdfSafe(text), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
+      w.y -= 12;
+    }
+    w.gap(4);
+    w.text('Tags (reference, at the back of each sheet)', { size: 9, bold: true, gap: 0.2 });
+    w.text(str(m.familyNote) || FAMILY_NOTE, { size: 8 });
+    for (const k of kinds) {
+      w.room(11);
+      swatchAt(w.page, PDFLib, k, MARGIN, w.y - 7, 12, 7);
+      w.page.drawText(pdfSafe(VERDICT_LABELS[k] + ': ' + KEY[k]), { x: MARGIN + 18, y: w.y - 6.5, size: 7.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
+      w.y -= 11;
+    }
+  } else {
   // Count columns wide enough for their longest header word ("exception") at 6.5 pt.
   w.table([{ title: 'Drawing', width: 80 }, { title: 'Rev.', width: 30 }, { title: 'Pre-check', width: 55 }, { title: 'Result', width: 110 },
     ...kinds.map(k => ({ title: VERDICT_LABELS[k], width: 40 }))],
@@ -254,10 +335,20 @@ async function render(model, sources, PDFLib, withDrawings) {
   w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS.symbol), borderWidth: SYMBOL_LINE });
   w.page.drawText(pdfSafe(SYMBOL_KEY), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
   w.y -= 12;
+  w.room(12);
+  w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS['not-standard']), borderWidth: BOX_LINE, borderDashArray: [2, 1.5] });
+  w.page.drawText(pdfSafe(NOT_STANDARD_KEY), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
+  w.y -= 12;
+  w.room(12);
+  w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 14, height: 8, borderColor: colourOf(PDFLib, PRINT_COLOURS.standard), borderWidth: SYMBOL_LINE });
+  w.page.drawText(pdfSafe(STANDARD_KEY), { x: MARGIN + 20, y: w.y - 7.5, size: 8.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) });
+  w.y -= 12;
+  }
 
   // A section per checked sheet
   for (const s of sheets) {
     if (s.status !== 'checked') continue;
+    if (s.layout === 'symbols') { await symbolsFirst(s); continue; }
     const drawingPage = withDrawings ? await loadSource(PDFLib, doc, get(str(s.key))) : null;
     w.newPage();
     w.text(str(s.drawing), { size: 16, bold: true, gap: 0.2 });
@@ -275,15 +366,55 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.gap(6);
     w.text(drawingPage ? 'The next page is the drawing, with a numbered box around each item. The numbers match the table after it.' : FALLBACK, { size: 10 });
     const rows = asArr(s.rows).filter(r => r && typeof r === 'object');
+    const shapeRows = asArr(s.shapeRows).filter(r => r && typeof r === 'object');
     if (drawingPage) {
       const page = doc.addPage(drawingPage);
       try { drawSymbolBoxes(page, PDFLib, asArr(s.symbolRows)); } catch { /* the drawing stays, with what was drawn */ }
-      try { drawBoxes(page, PDFLib, fonts, rows); } catch { /* the drawing stays, with what was drawn */ }
+      try { drawBoxes(page, PDFLib, fonts, [...rows, ...shapeRows]); } catch { /* the drawing stays, with what was drawn */ }
     }
     w.newPage();
     w.text(str(s.drawing) + ' rev ' + str(s.rev) + ': results', { size: 12, bold: true });
     w.table([{ title: 'No.', width: 26 }, { title: 'Tag', width: 88 }, { title: 'Verdict', width: 86 }, { title: 'Detail', width: 315 }],
-      rows.map(r => [String(count(r.no)), str(r.tag), { text: str(r.label), swatch: str(r.kind) }, str(r.detail)]));
+      [...rows, ...shapeRows].map(r => [String(count(r.no)), str(r.tag), { text: str(r.label), swatch: str(r.kind) }, str(r.detail)]));
+  }
+
+  // Symbols first (owner, 2026-11-18): what was found on the drawing leads; the tags are reference at the back.
+  async function symbolsFirst(s) {
+    const bytes = get(str(s.key));
+    const drawingPage = withDrawings ? await loadSource(PDFLib, doc, bytes) : null;
+    w.newPage();
+    w.text(str(s.drawing), { size: 16, bold: true, gap: 0.2 });
+    w.text('Revision ' + str(s.rev) + (str(s.family) ? '. Family: ' + str(s.family) + '.' : ''), { size: 10, gap: 0.1 });
+    w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
+    w.text(str(s.shapeLine), { size: 11, bold: true, gap: 0.2 });
+    w.text(TRIAL_NOTE, { size: 9, gap: 0.2 });
+    if (str(s.reasonLine)) w.text(str(s.reasonLine), { size: 10, gap: 0.2 });
+    if (str(s.skippedLine)) w.text(str(s.skippedLine), { size: 10, gap: 0.1 });
+    w.text('Tags (reference): ' + (countsLine(s.counts) || str(s.tagsLine) || 'No tags read.'), { size: 9, gap: 0.1 });
+    if (str(s.bubbleLine)) w.text(str(s.bubbleLine), { size: 9, gap: 0.1 });
+    w.text('Checked in ' + (isNum(s.seconds) ? s.seconds : 0) + ' s.', { size: 9, gap: 0.1 });
+    if (str(s.timedOutLine)) w.text(str(s.timedOutLine), { size: 9, gap: 0.1 });
+    if (str(s.pageNote)) w.text(str(s.pageNote), { size: 9, gap: 0.1 });
+    w.gap(6);
+    w.text(drawingPage ? 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard.' : FALLBACK, { size: 10 });
+    const shapeRows = asArr(s.shapeRows).filter(r => r && typeof r === 'object');
+    if (drawingPage) {
+      try { await drawPictures(w, PDFLib, fonts, doc, bytes, shapeRows, 'Not to standard: pictures'); } catch { /* the list below still says what each is */ }
+      const page = doc.addPage(drawingPage);
+      try { drawStandardBoxes(page, PDFLib, fonts, asArr(s.standardRows)); } catch { /* the drawing stays, with what was drawn */ }
+      try { drawBoxes(page, PDFLib, fonts, shapeRows); } catch { /* the drawing stays, with what was drawn */ }
+    }
+    if (shapeRows.length) {
+      w.newPage();
+      w.text(str(s.drawing) + ' rev ' + str(s.rev) + ': not to standard', { size: 12, bold: true });
+      w.table([{ title: 'No.', width: 26 }, { title: 'Why, and the closest standard symbol', width: 489 }],
+        shapeRows.map(r => [String(count(r.no)), str(r.detail)]));
+    }
+    w.newPage();
+    w.text(str(s.drawing) + ' rev ' + str(s.rev) + ': Tags (reference)', { size: 12, bold: true });
+    w.text(str(m.shortNote) || SHORT_NOTE, { size: 9 });
+    w.table([{ title: 'No.', width: 26 }, { title: 'Tag', width: 88 }, { title: 'Verdict', width: 86 }, { title: 'Detail', width: 315 }],
+      asArr(s.rows).filter(r => r && typeof r === 'object').map(r => [String(count(r.no)), str(r.tag), { text: str(r.label), swatch: str(r.kind) }, str(r.detail)]));
   }
 
   // Footer on the A4 pages

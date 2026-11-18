@@ -473,3 +473,582 @@ export function removeSpottedLetters(paths) {
     return { paths: list.slice(), removed: 0, rows: 0, capped: 0 };
   }
 }
+
+// ── Shapes: the linework cut into symbol-sized pieces (phase 3) ───────────
+// THIS SPLITS LINEWORK; IT RECOGNISES NOTHING. The P&ID check asks of every
+// drawn shape whether standard symbols explain all of it, so it first needs
+// the shapes: the sheet's ink with its linework taken out.
+//
+// Linework, each kind returned as a `line`:
+// - run: collinear pieces joined across gaps up to RUN_GAP, longer than any
+//   legend line could be drawn (options.longRun): pipelines, signal lines;
+//   a straight piece standing alone is a short run too;
+// - dashed: DASH_MIN or more short collinear dashes with even gaps;
+// - hatch: HATCH_MIN or more like-sized strokes, each from one run to a
+//   parallel one (lagged pipe);
+// - connector: a straight piece from one shape's edge to another's (a leader
+//   to a bubble, a short pipe between two valves), or from a line to a shape
+//   with nothing else at the line end (a stub from a pipe tee).
+// What is left groups into shapes wherever pieces touch or cross within
+// SHAPE_JOIN. A closed outline holding writing (a bubble) is a shape of its
+// own: only what lies inside its box joins it. Shapes whose longer side is
+// outside [minSide, maxSide] are dropped.
+// Every lookup goes through a grid of cells at least 10 pt across, so the
+// cost grows with the number of pieces; a cell scans at most SHAPE_CELL_SCAN
+// entries (the result's `capped` counts the lookups cut short), and a sheet
+// past SHAPE_BUDGET cell entries is not split (`capped: true`). Never throws.
+
+export const SHAPE_JOIN = 0.5, DASH_MIN = 3, HATCH_MIN = 3;   // HATCH_MIN tuned from 4 on the owner's answers (2026-11-18)
+const SH_RUN_GAP = 2;           // as RUN_GAP in pid-symbol-check.js
+const DASH_GAP_MAX = 5;         // points: the widest gap between two dashes of one dashed line
+const DASH_LEN_MAX = 12;        // points: the longest dash
+const DASH_EVEN = 0.3;          // each gap within this share of the median gap
+const HATCH_TOL = 1;            // points: a hatch stroke's ends lie this close to its two runs
+const HATCH_SAME = 0.25;        // hatch strokes' lengths agree within this share of their median (one may be cut short by a valve)
+const TAIL_MIN = 4;            // points: a straight line hanging off a shape by a free end, at least this long, is linework
+const ARROW_MAX = 16;          // points: a lone triangle on a line no longer than this is an arrowhead
+const CURVE_GAP = 4;           // points: open curves this close to each other are one shape
+const THIN_FLOOR = 4;          // points: a long sliver thinner than this is linework, whatever the legend's thinnest symbol (tuned)
+const SMOOTH_TURN = 0.6;        // sin of the sharpest turn between pieces of a smooth curve (about 37 degrees)
+const PAGE_MARGIN = 20;        // points: a shape wholly this close to the page's edge is a border mark, not judged
+const LABEL_ASPECT = 3;        // an outline holding writing this many times longer than wide is a label, not judged
+const SIDE_SCAN = 400;         // pieces looked at to size what a cut would leave
+const COL_SIN = 0.02;           // collinear: directions within about 1 degree
+const COL_OFF = 0.3;            // collinear: each end within this of the other's line
+const STROKE_MERGE = 0.3;       // points: collinear pieces this close are one stroke
+const NOT_PARALLEL = 0.2;       // sin of the angle a stub or hatch stroke must make with its line
+const SHAPE_COORD = 15000;      // points; beyond any sheet
+const SHAPE_BUDGET = 4e6, SHAPE_CELL_SCAN = 256, CONNECT_MAX = 300;
+const SHAPE_INK_GREY = 175;     // as CHECK_DEFAULTS.inkGrey
+
+const EMPTY_SHAPES = () => ({ shapes: [], lines: [], segments: [] });
+const boxOk = b => Array.isArray(b) && b.length === 4 && b.every(isNum);
+const inBoxPt = (b, x, y) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
+
+// Distance from point (px, py) to segment s.
+function ptSeg(px, py, s) {
+  const dx = s[2] - s[0], dy = s[3] - s[1], l2 = dx * dx + dy * dy;
+  let t = l2 > 0 ? ((px - s[0]) * dx + (py - s[1]) * dy) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s[0] + t * dx), py - (s[1] + t * dy));
+}
+// Distance from a point to the infinite line through segment s with unit direction u.
+const ptLine = (x, y, s, u) => Math.abs((x - s[0]) * u[1] - (y - s[1]) * u[0]);
+const orient = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+function segDist(a, b) {
+  const d1 = orient(a[0], a[1], a[2], a[3], b[0], b[1]), d2 = orient(a[0], a[1], a[2], a[3], b[2], b[3]);
+  const d3 = orient(b[0], b[1], b[2], b[3], a[0], a[1]), d4 = orient(b[0], b[1], b[2], b[3], a[2], a[3]);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(ptSeg(b[0], b[1], a), ptSeg(b[2], b[3], a), ptSeg(a[0], a[1], b), ptSeg(a[2], a[3], b));
+}
+const unitOf = s => [(s[2] - s[0]) / s[4], (s[3] - s[1]) / s[4]];
+const sinBetween = (u, v) => Math.abs(u[0] * v[1] - u[1] * v[0]);
+function makeFind(n) {
+  const parent = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = k => { while (parent[k] !== k) { parent[k] = parent[parent[k]]; k = parent[k]; } return k; };
+  return { find, union: (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; } };
+}
+function boxOfSegs(S, m) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const i of m) { const q = S[i]; x0 = Math.min(x0, q[0], q[2]); y0 = Math.min(y0, q[1], q[3]); x1 = Math.max(x1, q[0], q[2]); y1 = Math.max(y1, q[1], q[3]); }
+  return [x0, y0, x1, y1];
+}
+const longSide = b => Math.max(b[2] - b[0], b[3] - b[1]);
+// The number of corners of the convex hull of some points (corners closer to straight than about 3 degrees dropped).
+function hullCorners(points) {
+  // Points within 0.3 pt of one already kept are the same point (a shape drawn twice, rounding apart).
+  const p = [];
+  for (const q of points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1])) if (!p.some(k => Math.hypot(k[0] - q[0], k[1] - q[1]) < 0.3)) p.push(q);
+  if (p.length < 3) return p.length;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = list => { const h = []; for (const q of list) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], q) <= 0) h.pop(); h.push(q); } return h; };
+  const hull = [...half(p).slice(0, -1), ...half(p.slice().reverse()).slice(0, -1)];
+  const n = hull.length;
+  let corners = 0;
+  for (let k = 0; k < n; k++) {
+    const a = hull[(k + n - 1) % n], b = hull[k], c = hull[(k + 1) % n];
+    const u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]];
+    const lu = Math.hypot(u[0], u[1]), lv = Math.hypot(v[0], v[1]);
+    if (lu < 0.3 || lv < 0.3) continue;
+    if (Math.abs(u[0] * v[1] - u[1] * v[0]) / (lu * lv) > 0.05) corners++;
+  }
+  return corners;
+}
+
+// Segments, and the closed paths among them ({ from, to, box }: a path whose segments run end to end and close).
+function flattenInk(paths, skip) {
+  const S = [], closed = [];
+  asArr(paths).forEach((p, pi) => {
+    if (!p || typeof p !== 'object' || !Array.isArray(p.segs)) return;
+    if ((isNum(p.grey) ? p.grey : 0) >= SHAPE_INK_GREY) return;
+    const s = p.segs, from = S.length;
+    let whole = s.length >= 12 && s.length % 4 === 0;
+    for (let i = 0; i + 3 < s.length; i += 4) {
+      const a = s[i], b = s[i + 1], c = s[i + 2], d = s[i + 3];
+      if (![a, b, c, d].every(isNum) || Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d)) > SHAPE_COORD) { whole = false; continue; }
+      const len = Math.hypot(c - a, d - b);
+      if (len <= 0.05 || (skip && inBoxPt(skip, (a + c) / 2, (b + d) / 2))) { whole = false; continue; }
+      S.push([a, b, c, d, len, pi]);
+    }
+    if (!whole || S.length - from < 3) return;
+    for (let k = from + 1; k < S.length; k++) if (Math.hypot(S[k][0] - S[k - 1][2], S[k][1] - S[k - 1][3]) >= 0.05) return;
+    const last = S[S.length - 1];
+    if (Math.hypot(S[from][0] - last[2], S[from][1] - last[3]) < 0.05) closed.push({ from, to: S.length, box: boxOfSegs(S, Array.from({ length: S.length - from }, (_, k) => from + k)) });
+  });
+  return { S, closed };
+}
+
+/**
+ * Cut a sheet's ink into shapes and lines. paths: page paths in points,
+ * top-left (letters already left out). options = { minSide, maxSide, longRun,
+ * skip, writing }: the symbol-size band and the long-run length in points, an
+ * optional box not split (the title block), optional writing boxes (for
+ * the bubble rule), minShort (the thinnest symbol) and page ([w, h], for the
+ * border strip). Returns { shapes, lines, segments } where
+ * segments = [x0, y0, x1, y1, len, pathIndex][], shapes = [{ id, box,
+ * pieces, closed }] and lines = [{ kind, pieces }]; pieces index `segments`.
+ */
+export function sheetShapes(paths, options) {
+  try {
+    const o = options && typeof options === 'object' ? options : null;
+    if (!o || ![o.minSide, o.maxSide, o.longRun].every(v => isNum(v) && v > 0) || o.minSide > o.maxSide) return EMPTY_SHAPES();
+    const skip = boxOk(o.skip) ? o.skip : null;
+    const writing = asArr(o.writing).filter(boxOk);
+    const { S, closed: closedPaths } = flattenInk(paths, skip);
+    const n = S.length;
+    if (!n) return EMPTY_SHAPES();
+
+    // The grid: each segment in every cell it passes through. Cells are at
+    // least twice the widest gap looked across, so a neighbour is always in
+    // one of the 3 x 3 cells round one of a segment's own.
+    const C = Math.max(10, o.longRun / 4), cellOfV = v => Math.floor(v / C), key = (x, y) => (x + 2048) * 4096 + y + 2048;   // |cell| < 1501: small integer keys
+    const grid = new Map(), cellsOf = new Array(n);
+    let budget = 0;
+    for (let i = 0; i < n; i++) {
+      const s = S[i], steps = Math.max(1, Math.ceil(s[4] / (C / 4))), mine = [];
+      for (let k = 0; k <= steps; k++) {
+        const cx = cellOfV(s[0] + (s[2] - s[0]) * k / steps), cy = cellOfV(s[1] + (s[3] - s[1]) * k / steps);
+        let had = false;
+        for (let q = mine.length - 2; q >= 0 && !had; q -= 2) had = mine[q] === cx && mine[q + 1] === cy;
+        if (!had) mine.push(cx, cy);
+      }
+      budget += mine.length / 2;
+      if (budget > SHAPE_BUDGET) return { ...EMPTY_SHAPES(), capped: true };
+      cellsOf[i] = mine;
+      for (let k = 0; k < mine.length; k += 2) { const kk = key(mine[k], mine[k + 1]); let c = grid.get(kk); if (!c) grid.set(kk, c = []); c.push(i); }
+    }
+    const stamp = new Int32Array(n).fill(-1);
+    let capped = 0;   // neighbour lookups cut short by a full cell: reported, never silent
+    // Every segment j near segment i, each once.
+    const eachNear = (i, fn) => {
+      const mine = cellsOf[i];
+      for (let k = 0; k < mine.length; k += 2) {
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+          const cell = grid.get(key(mine[k] + dx, mine[k + 1] + dy));
+          if (!cell) continue;
+          const m = Math.min(cell.length, SHAPE_CELL_SCAN);
+          if (cell.length > m) capped++;
+          for (let t = 0; t < m; t++) { const j = cell[t]; if (j !== i && stamp[j] !== i) { stamp[j] = i; fn(j); } }
+        }
+      }
+    };
+    // Touches (for grouping) and collinear neighbours (for runs and dashes).
+    const units = S.map(unitOf);
+    const bx0 = new Float64Array(n), by0 = new Float64Array(n), bx1 = new Float64Array(n), by1 = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const q = S[i]; bx0[i] = Math.min(q[0], q[2]); bx1[i] = Math.max(q[0], q[2]); by0[i] = Math.min(q[1], q[3]); by1[i] = Math.max(q[1], q[3]); }
+    // adj: pieces within SHAPE_JOIN; close: within HATCH_TOL (a superset). Lists are made when first needed.
+    const NONE = [], col = makeFind(n), adj = new Array(n).fill(NONE), close = new Array(n).fill(NONE);
+    const link = (lists, i, j) => { if (lists[i] === NONE) lists[i] = []; if (lists[j] === NONE) lists[j] = []; lists[i].push(j); lists[j].push(i); };
+    const G = DASH_GAP_MAX;
+    for (let i = 0; i < n; i++) {
+      const a = S[i], u = units[i];
+      eachNear(i, j => {
+        if (j < i || bx0[j] > bx1[i] + G || bx1[j] < bx0[i] - G || by0[j] > by1[i] + G || by1[j] < by0[i] - G) return;
+        const b = S[j], v = units[j];
+        const d = segDist(a, b);
+        if (d > G) return;
+        if (d <= HATCH_TOL) link(close, i, j);
+        if (d <= SHAPE_JOIN) link(adj, i, j);
+        if (sinBetween(u, v) > COL_SIN) return;
+        if (ptLine(b[0], b[1], a, u) > COL_OFF || ptLine(b[2], b[3], a, u) > COL_OFF) return;
+        if (ptLine(a[0], a[1], b, v) > COL_OFF || ptLine(a[2], a[3], b, v) > COL_OFF) return;
+        const ta0 = a[0] * u[0] + a[1] * u[1], ta1 = a[2] * u[0] + a[3] * u[1], tb0 = b[0] * u[0] + b[1] * u[1], tb1 = b[2] * u[0] + b[3] * u[1];
+        const gap = Math.max(Math.min(tb0, tb1) - Math.max(ta0, ta1), Math.min(ta0, ta1) - Math.max(tb0, tb1));
+        if (gap <= G) col.union(i, j);
+      });
+    }
+
+    // Collinear families: strokes, dashed lines, runs, and short straight chains.
+    const kind = new Array(n).fill(null), lines = [], chains = [];
+    const fams = new Map();
+    for (let i = 0; i < n; i++) { const r = col.find(i); let f = fams.get(r); if (!f) fams.set(r, f = []); f.push(i); }
+    for (const members of fams.values()) {
+      if (members.length === 1) {
+        // A piece on its own: a long run, or a short straight chain.
+        const i = members[0], q = S[i];
+        if (q[4] > o.longRun) { kind[i] = 'run'; lines.push({ kind: 'run', pieces: [i] }); }
+        else chains.push({ m: [i], u: units[i], len: q[4], ends: [[q[0], q[1]], [q[2], q[3]]], line: false });
+        continue;
+      }
+      let lead = members[0];
+      for (const i of members) if (S[i][4] > S[lead][4]) lead = i;
+      const u = units[lead], along = (x, y) => x * u[0] + y * u[1];
+      const iv = members.map(i => { const s = S[i], t0 = along(s[0], s[1]), t1 = along(s[2], s[3]); return { i, t0: Math.min(t0, t1), t1: Math.max(t0, t1) }; })
+        .sort((p, q) => p.t0 - q.t0);
+      const strokes = [];
+      for (const v of iv) {
+        const cur = strokes[strokes.length - 1];
+        if (cur && v.t0 <= cur.t1 + STROKE_MERGE) { cur.t1 = Math.max(cur.t1, v.t1); cur.m.push(v.i); } else strokes.push({ t0: v.t0, t1: v.t1, m: [v.i], dashed: false });
+      }
+      // Dashed: short strokes with gaps up to DASH_GAP_MAX, each within DASH_EVEN of the median gap.
+      for (let k = 0; k < strokes.length;) {
+        let e = k;
+        if (strokes[k].t1 - strokes[k].t0 <= DASH_LEN_MAX) {
+          while (e + 1 < strokes.length && strokes[e + 1].t1 - strokes[e + 1].t0 <= DASH_LEN_MAX && strokes[e + 1].t0 - strokes[e].t1 <= DASH_GAP_MAX) e++;
+        }
+        if (e - k + 1 >= DASH_MIN) {
+          const gaps = [];
+          for (let q = k; q < e; q++) gaps.push(strokes[q + 1].t0 - strokes[q].t1);
+          const med = gaps.slice().sort((p, q) => p - q)[Math.floor(gaps.length / 2)];
+          if (med > 0 && gaps.every(g => Math.abs(g - med) <= DASH_EVEN * med)) {
+            const pieces = [];
+            for (let q = k; q <= e; q++) { strokes[q].dashed = true; pieces.push(...strokes[q].m); }
+            for (const i of pieces) kind[i] = 'dashed';
+            lines.push({ kind: 'dashed', pieces: pieces.sort((p, q) => p - q) });
+          }
+        }
+        k = e + 1;
+      }
+      // Runs: the other strokes joined across gaps up to RUN_GAP.
+      let run = null;
+      const closeRun = () => {
+        if (!run) return;
+        if (run.t1 - run.t0 > o.longRun) {
+          for (const i of run.m) kind[i] = 'run';
+          lines.push({ kind: 'run', pieces: run.m.sort((p, q) => p - q) });
+        } else {
+          let lo = null, hi = null, tlo = Infinity, thi = -Infinity;
+          for (const i of run.m) {
+            for (const e of [0, 2]) {
+              const t = along(S[i][e], S[i][e + 1]);
+              if (t < tlo) { tlo = t; lo = [S[i][e], S[i][e + 1]]; }
+              if (t > thi) { thi = t; hi = [S[i][e], S[i][e + 1]]; }
+            }
+          }
+          chains.push({ m: run.m, u, len: run.t1 - run.t0, ends: [lo, hi], line: false });
+        }
+        run = null;
+      };
+      for (const st of strokes) {
+        if (st.dashed) continue;
+        if (run && st.t0 <= run.t1 + SH_RUN_GAP) { run.t1 = Math.max(run.t1, st.t1); run.m.push(...st.m); } else { closeRun(); run = { t0: st.t0, t1: st.t1, m: st.m.slice() }; }
+      }
+      closeRun();
+    }
+    const chainOf = new Int32Array(n).fill(-1);
+    chains.forEach((ch, ci) => { for (const i of ch.m) chainOf[i] = ci; });
+    const asLine = (ch, k) => {
+      ch.line = true;
+      for (const i of ch.m) kind[i] = k;
+    };
+
+    // The pieces outside chain ci lying within tol of a point, found among the chain's own neighbours.
+    const atEnd = (pt, ci, tol) => {
+      const out = [];
+      for (const i of chains[ci].m) for (const j of (tol > SHAPE_JOIN ? close : adj)[i]) {
+        if (chainOf[j] !== ci && !out.includes(j) && ptSeg(pt[0], pt[1], S[j]) <= tol) out.push(j);
+      }
+      return out;
+    };
+    const free = i => kind[i] === null;
+    const piecesAt = (pt, ci) => atEnd(pt, ci, SHAPE_JOIN);
+    const asNewLine = (ch, k) => { asLine(ch, k); lines.push({ kind: k, pieces: ch.m.slice().sort((p, q) => p - q) }); };
+
+    // Hatch: HATCH_MIN or more like-sized short chains, each from one line to
+    // a parallel one (any length): the strokes are hatch, the two lines run.
+    // The pieces at each end the stroke crosses (not parallel to it); the pair taken is two parallel lines of different families.
+    const across = (pt, ci, u) => atEnd(pt, ci, HATCH_TOL).filter(j => sinBetween(u, units[j]) > NOT_PARALLEL);
+    const hatchGroups = new Map();
+    chains.forEach((ch, ci) => {
+      if (ch.line) return;
+      let a = -1, b = -1;
+      for (const x of across(ch.ends[0], ci, ch.u)) {
+        for (const y of across(ch.ends[1], ci, ch.u)) if (col.find(x) !== col.find(y) && sinBetween(units[x], units[y]) <= COL_SIN) { a = x; b = y; break; }
+        if (a >= 0) break;
+      }
+      if (a < 0 || b < 0) return;
+      const fa = col.find(a), fb = col.find(b);
+      const hk = Math.min(fa, fb) + ':' + Math.max(fa, fb);
+      let g = hatchGroups.get(hk);
+      if (!g) hatchGroups.set(hk, g = { strokes: [], sides: new Set() });
+      g.strokes.push(ch); g.sides.add(a); g.sides.add(b);
+    });
+    for (const g of hatchGroups.values()) {
+      if (g.strokes.length < HATCH_MIN) continue;
+      const med = g.strokes.map(c => c.len).sort((p, q) => p - q)[Math.floor(g.strokes.length / 2)];
+      const same = g.strokes.filter(c => !c.line && Math.abs(c.len - med) <= HATCH_SAME * med);
+      if (same.length < HATCH_MIN) continue;
+      for (const c of same) asLine(c, 'hatch');
+      lines.push({ kind: 'hatch', pieces: same.flatMap(c => c.m).sort((p, q) => p - q) });
+      for (const j of g.sides) if (chainOf[j] >= 0 && !chains[chainOf[j]].line) asNewLine(chains[chainOf[j]], 'run');
+    }
+
+    // Stubs, to a fixed point: a straight chain with an end on a line it is
+    // not parallel to and nothing else at that end is line too, so line
+    // spreads from long runs through pipe bends and tees, never round a
+    // symbol's corner (where another symbol line meets it).
+    const isStub = ci => {
+      const ch = chains[ci];
+      for (const end of ch.ends) {
+        const at = piecesAt(end, ci);
+        if (!at.some(free) && at.some(j => sinBetween(ch.u, units[j]) > NOT_PARALLEL)) return true;
+      }
+      return false;
+    };
+    const queue = chains.map((_, ci) => ci), queued = new Uint8Array(chains.length).fill(1);
+    for (let guard = 0; queue.length && guard < 4 * chains.length + 16; guard++) {
+      const ci = queue.pop();
+      queued[ci] = 0;
+      const ch = chains[ci];
+      if (ch.line || !isStub(ci)) continue;
+      asNewLine(ch, 'connector');
+      for (const i of ch.m) for (const j of adj[i]) {
+        const cj = chainOf[j];
+        if (cj >= 0 && !chains[cj].line && !queued[cj]) { queued[cj] = 1; queue.push(cj); }
+      }
+    }
+
+    // Outlines holding writing: only what lies inside an outline's box joins it.
+    const outlineOf = new Int32Array(n).fill(-1), outlines = [];
+    for (const cp of closedPaths) {
+      if (!writing.some(w => inBoxPt(cp.box, (w[0] + w[2]) / 2, (w[1] + w[3]) / 2))) continue;
+      for (let k = cp.from; k < cp.to; k++) outlineOf[k] = outlines.length;
+      outlines.push(cp.box);
+    }
+    const J = SHAPE_JOIN;
+    // Inside: both ends within the box (grown by J), the middle clear of its edge (a bar across a ring is inside; a symbol touching its edge is not).
+    const insideBox = (b, s) => Math.min(s[0], s[2]) >= b[0] - J && Math.max(s[0], s[2]) <= b[2] + J && Math.min(s[1], s[3]) >= b[1] - J && Math.max(s[1], s[3]) <= b[3] + J
+      && inBoxPt([b[0] + J, b[1] + J, b[2] - J, b[3] - J], (s[0] + s[2]) / 2, (s[1] + s[3]) / 2);
+    const mayJoin = (i, j) => {
+      const oi = outlineOf[i], oj = outlineOf[j];
+      if (oi === oj) return true;
+      return !(oi >= 0 && !insideBox(outlines[oi], S[j])) && !(oj >= 0 && !insideBox(outlines[oj], S[i]));
+    };
+    // Components of the free pieces in `start`, leaving out `out`.
+    // `comp` maps a piece to its component's index in `list`.
+    const components = (start, out) => {
+      const comp = new Map(), list = [];
+      for (const s0 of start) {
+        if (comp.has(s0) || out.has(s0) || !free(s0)) continue;
+        const id = list.length, m = [s0];
+        comp.set(s0, id);
+        for (let q = 0; q < m.length; q++) {
+          for (const j of adj[m[q]]) if (!comp.has(j) && free(j) && !out.has(j) && mayJoin(m[q], j)) { comp.set(j, id); m.push(j); }
+        }
+        list.push(m);
+      }
+      return { comp, list };
+    };
+    // The box of what touches `start` once `out` is left out, looking at no more than SIDE_SCAN pieces (null past that: big).
+    const sideBox = (start, out) => {
+      const seen = new Set(), m = [];
+      for (const s0 of start) if (free(s0) && !out.has(s0) && !seen.has(s0)) { seen.add(s0); m.push(s0); }
+      for (let q = 0; q < m.length; q++) {
+        if (m.length > SIDE_SCAN) return null;
+        for (const j of adj[m[q]]) if (!seen.has(j) && free(j) && !out.has(j) && mayJoin(m[q], j)) { seen.add(j); m.push(j); }
+      }
+      return m.length ? boxOfSegs(S, m) : null;
+    };
+    // T connectors: a straight chain whose two ends each stand on the middle
+    // of other pieces (a T, as a pipe meets a valve's edge) or on a line, and
+    // not inside an outline holding writing. A symbol's own lines meet at
+    // their ends (corners), so they are not taken; an inner bar that is (a
+    // bar across a ring) is given back to a found symbol by the check.
+    const midOf = (pt, j) => Math.hypot(pt[0] - S[j][0], pt[1] - S[j][1]) > 1 && Math.hypot(pt[0] - S[j][2], pt[1] - S[j][3]) > 1;
+    const inOutline = ch => outlines.some(b => inBoxPt(b, (ch.ends[0][0] + ch.ends[1][0]) / 2, (ch.ends[0][1] + ch.ends[1][1]) / 2));
+    chains.forEach((ch, ci) => {
+      if (ch.line || ch.len < 2 || inOutline(ch)) return;
+      const ok = ch.ends.every(e => { const at = piecesAt(e, ci); return at.length > 0 && at.every(j => !free(j) || midOf(e, j)); });
+      if (!ok) return;
+      // Not when a side it would leave is too small to be a symbol (a pump's little base triangle on its stem).
+      const out = new Set(ch.m);
+      if (ch.ends.some(e => { const b = sideBox(piecesAt(e, ci), out); return b && longSide(b) < o.minSide; })) return;
+      asNewLine(ch, 'connector');
+    });
+
+    // Tails: a straight chain with one free end whose other end stands on the
+    // middle of a piece (a line hanging off a valve or a meter) is linework.
+    for (let round = 0; round < 2; round++) {
+      chains.forEach((ch, ci) => {
+        if (ch.line || ch.len < TAIL_MIN || inOutline(ch)) return;
+        const at = ch.ends.map(e => piecesAt(e, ci));
+        const loose = at.findIndex(a => a.length === 0);
+        if (loose < 0) return;
+        const other = at[1 - loose], e = ch.ends[1 - loose];
+        if (other.some(free) && other.every(j => !free(j) || midOf(e, j))) asNewLine(ch, 'run');
+      });
+    }
+
+    const all = Array.from({ length: n }, (_, i) => i);
+    let groups = components(all, new Set()).list;
+
+    // Connectors: a straight chain whose two ends sit on the edges of two
+    // different shapes, each at least minSide and more than one straight line. An end inside a shape's box (a
+    // valve stem standing on the body's centre) is not on its edge.
+    const inner = (b, pt) => pt[0] > b[0] + J && pt[0] < b[2] - J && pt[1] > b[1] + J && pt[1] < b[3] - J;
+    let cut = false;
+    for (const g of groups) {
+      if (g.length < 3 || g.length > CONNECT_MAX) continue;
+      const inG = new Set(g), removed = new Set();
+      const mine = [...new Set(g.map(i => chainOf[i]).filter(ci => ci >= 0))];
+      for (const ci of mine) {
+        const ch = chains[ci];
+        if (ch.line || ch.len < TAIL_MIN || !ch.m.every(i => inG.has(i) && free(i))) continue;   // a chord of a curve is no connector
+        const { comp, list } = components(g, new Set([...removed, ...ch.m]));
+        const ends = ch.ends.map(e => { const c = new Set(piecesAt(e, ci).filter(j => inG.has(j) && comp.has(j)).map(j => comp.get(j))); return c.size === 1 ? [...c][0] : -1; });
+        if (ends[0] < 0 || ends[1] < 0 || ends[0] === ends[1]) continue;
+        const bA = boxOfSegs(S, list[ends[0]]), bB = boxOfSegs(S, list[ends[1]]);
+        if (longSide(bA) < o.minSide || longSide(bB) < o.minSide) continue;
+        // Each side must be a shape, not one straight line (a pump's base, a zigzag's stroke).
+        const straight = m => m.every(i => chainOf[i] >= 0 && chainOf[i] === chainOf[m[0]]);
+        if (straight(list[ends[0]]) || straight(list[ends[1]])) continue;
+        if (ch.ends.some(e => inner(bA, e) || inner(bB, e))) continue;
+        for (const i of ch.m) removed.add(i);
+        asLine(ch, 'connector'); cut = true;
+        lines.push({ kind: 'connector', pieces: ch.m.slice().sort((p, q) => p - q) });
+      }
+    }
+    if (cut) groups = components(all, new Set()).list;
+
+    // Open curves close together (a stack of arcs drawn as one symbol) are one shape.
+    const hasClosed = g => { const inG = new Set(g); return closedPaths.some(cp => inG.has(cp.from)); };
+    // An open curve: no closed path, at least 3 pieces, each short, gently turning (a thin box).
+    const curvy = g => {
+      if (g.length < 3 || hasClosed(g) || !g.every(i => S[i][4] <= 6)) return false;
+      const b = boxOfSegs(S, g);
+      return Math.min(b[2] - b[0], b[3] - b[1]) <= 0.5 * longSide(b);
+    };
+    const curves = groups.filter(curvy);
+    if (curves.length > 1 && curves.length <= 2000) {
+      const boxes = curves.map(g => boxOfSegs(S, g)), cf = makeFind(curves.length);
+      for (let a = 0; a < curves.length; a++) for (let b = a + 1; b < curves.length; b++) {
+        const A = boxes[a], B = boxes[b];
+        if (Math.max(A[0] - B[2], B[0] - A[2], A[1] - B[3], B[1] - A[3]) <= CURVE_GAP) cf.union(a, b);
+      }
+      const joined = new Map();
+      curves.forEach((g, a) => { const r = cf.find(a); if (!joined.has(r)) joined.set(r, []); joined.get(r).push(...g); });
+      const isCurve = new Set(curves);
+      groups = [...groups.filter(g => !isCurve.has(g)), ...joined.values()];
+    }
+
+    // Linework a group can still be: a square-cornered L, T or + of up to three
+    // plain lines (pipe and signal-line corners), or a lone small triangle on a
+    // line (an arrowhead).
+    const touchesLine = g => g.some(i => adj[i].some(j => kind[j] !== null));
+    const axisTree = g => {
+      const cs = new Set(g.map(i => chainOf[i]));
+      if (cs.has(-1) || cs.size > 3) return false;
+      if (![...cs].every(ci => Math.min(Math.abs(chains[ci].u[0]), Math.abs(chains[ci].u[1])) <= 0.02)) return false;
+      const pairs = new Set();
+      for (const i of g) for (const j of adj[i]) if (chainOf[j] >= 0 && chainOf[j] !== chainOf[i] && cs.has(chainOf[j])) pairs.add(Math.min(chainOf[i], chainOf[j]) + ':' + Math.max(chainOf[i], chainOf[j]));
+      return pairs.size <= cs.size - 1;
+    };
+    const triangle = g => {
+      const pts = [];
+      for (const i of g) pts.push([S[i][0], S[i][1]], [S[i][2], S[i][3]]);
+      return hullCorners(pts) === 3;
+    };
+    // A smooth open curve: one path of pieces end to end, no closed path, no branch, every turn gentle
+    // (a rounded pipe bend, a crossover hop, a piece of a tank's outline). A stack of separate arcs is no one path.
+    const smoothPath = g => {
+      if (g.length < 2 || hasClosed(g)) return false;
+      const inG = new Set(g);
+      let pairs = 0;
+      for (const i of g) {
+        const nb = adj[i].filter(j => inG.has(j));
+        if (nb.length > 2) return false;
+        for (const j of nb) {
+          if (j < i) continue;
+          pairs++;
+          const a = S[i], b = S[j];
+          const ends = [[a[0], a[1]], [a[2], a[3]]].flatMap(p => [[b[0], b[1]], [b[2], b[3]]].map(q => Math.hypot(p[0] - q[0], p[1] - q[1])));
+          if (Math.min(...ends) > SHAPE_JOIN) return false;              // they cross or meet mid-piece: a branch
+          if (sinBetween(units[i], units[j]) > SMOOTH_TURN) return false;   // a corner
+        }
+      }
+      return pairs === g.length - 1;
+    };
+    // A label: an outline holding writing, much longer than wide, that is the whole group.
+    const label = (g, box) => g.some(i => outlineOf[i] >= 0 && outlines[outlineOf[i]].every((v, q) => Math.abs(v - box[q]) <= 1))
+      && Math.max(box[2] - box[0], box[3] - box[1]) >= LABEL_ASPECT * Math.max(0.1, Math.min(box[2] - box[0], box[3] - box[1]));
+
+    // A group that is one straight chain is a short run; the rest, in the size band, are shapes.
+    const shapes = [];
+    for (const g of groups) {
+      if (chainOf[g[0]] >= 0 && g.every(i => chainOf[i] === chainOf[g[0]])) {
+        for (const i of g) kind[i] = 'run';
+        lines.push({ kind: 'run', pieces: g.slice().sort((p, q) => p - q) });
+        continue;
+      }
+      const box = boxOfSegs(S, g), side = longSide(box);
+      if (axisTree(g)) {
+        for (const i of g) kind[i] = 'run';
+        lines.push({ kind: 'run', pieces: g.slice().sort((p, q) => p - q) });
+        continue;
+      }
+      if (smoothPath(g)) {
+        for (const i of g) kind[i] = 'run';
+        lines.push({ kind: 'run', pieces: g.slice().sort((p, q) => p - q) });
+        continue;
+      }
+      if (side <= ARROW_MAX && touchesLine(g) && triangle(g)) {
+        for (const i of g) kind[i] = 'arrow';
+        lines.push({ kind: 'arrow', pieces: g.slice().sort((p, q) => p - q) });
+        continue;
+      }
+      // An arrowhead on a line too short to be pipe: what is left without the long straight lines is a small
+      // triangle they pass through. The triangle is an arrow, the lines are linework.
+      const longs = [...new Set(g.map(i => chainOf[i]))].filter(ci => ci >= 0 && chains[ci].len > ARROW_MAX);
+      if (longs.length) {
+        const inLong = new Set(longs.flatMap(ci => chains[ci].m)), rest = g.filter(i => !inLong.has(i));
+        const rb = rest.length >= 3 ? boxOfSegs(S, rest) : null;
+        if (rb && longSide(rb) <= ARROW_MAX && triangle(rest)) {
+          const c = [(rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2];
+          if (longs.every(ci => { const ch = chains[ci]; return ptLine(c[0], c[1], [ch.ends[0][0], ch.ends[0][1]], ch.u) <= 1; })) {
+            for (const i of rest) kind[i] = 'arrow';
+            lines.push({ kind: 'arrow', pieces: rest.slice().sort((p, q) => p - q) });
+            for (const ci of longs) { for (const i of chains[ci].m) kind[i] = 'run'; lines.push({ kind: 'run', pieces: chains[ci].m.slice().sort((p, q) => p - q) }); }
+            continue;
+          }
+        }
+      }
+      if (label(g, box)) continue;
+      const pg = Array.isArray(o.page) ? o.page : null;
+      if (pg && isNum(pg[0]) && isNum(pg[1]) && (box[2] <= PAGE_MARGIN || box[3] <= PAGE_MARGIN || box[0] >= pg[0] - PAGE_MARGIN || box[1] >= pg[1] - PAGE_MARGIN)) continue;
+      // A sliver thinner than any legend symbol and long (line drawn double, a label's edge) is linework; a short one may be an operator's part.
+      if (isNum(o.minShort) && Math.min(box[2] - box[0], box[3] - box[1]) < Math.max(o.minShort, THIN_FLOOR) && side >= 2 * o.minSide) continue;
+      if (side < o.minSide || side > o.maxSide) continue;
+      const inG = new Set(g);
+      const closed = closedPaths.some(cp => inG.has(cp.from) && cp.box.every((v, q) => Math.abs(v - box[q]) <= 0.5));
+      shapes.push({ id: 0, box, pieces: g.slice().sort((p, q) => p - q), closed });
+    }
+    shapes.sort((a, b) => (Math.round(a.box[1]) - Math.round(b.box[1])) || (a.box[0] - b.box[0]));
+    shapes.forEach((s, i) => { s.id = i; });
+    // Arrowheads, for the judge: small closed triangles, copies drawn over each other counted once.
+    const tris = closedPaths.filter(cp => cp.to - cp.from === 3 && longSide(cp.box) <= ARROW_MAX);
+    const tf = makeFind(tris.length);
+    for (let a = 0; a < tris.length && tris.length <= 5000; a++) for (let b = a + 1; b < tris.length; b++) {
+      const A = tris[a].box, B = tris[b].box;   // copies of one triangle: boxes overlapping by most of the smaller
+      const w = Math.min(A[2], B[2]) - Math.max(A[0], B[0]), h = Math.min(A[3], B[3]) - Math.max(A[1], B[1]);
+      const sm = Math.min((A[2] - A[0]) * (A[3] - A[1]), (B[2] - B[0]) * (B[3] - B[1]));
+      if (w > 0 && h > 0 && w * h >= 0.5 * sm) tf.union(a, b);
+    }
+    const arrowUnits = new Map();
+    tris.forEach((cp, a) => { const r = tf.find(a); if (!arrowUnits.has(r)) arrowUnits.set(r, []); for (let k = cp.from; k < cp.to; k++) arrowUnits.get(r).push(k); });
+    const arrows = [...arrowUnits.values()].filter(m => { const b = boxOfSegs(S, m); return longSide(b) <= ARROW_MAX && triangle(m); }).map(m => m.sort((p, q) => p - q));
+    return capped ? { shapes, lines, segments: S, arrows, capped } : { shapes, lines, segments: S, arrows };
+  } catch {
+    return EMPTY_SHAPES();
+  }
+}

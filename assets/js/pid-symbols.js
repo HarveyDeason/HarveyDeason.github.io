@@ -750,10 +750,28 @@ export function updateSymbol(library, id, patch) {
     if (Array.isArray(p.aliases)) next.aliases = cleanAliases(p.aliases);
     if (typeof p.simple === 'boolean') next.flags.simple = p.simple;
     if (typeof p.stretch === 'boolean') next.flags.stretch = p.stretch;
+    if (typeof p.operator === 'boolean') next.flags.operator = p.operator;
     // The automatic tag-bubble mark, changed by the owner, is hand work.
     if (typeof p.bubble === 'boolean' && p.bubble !== (next.flags.bubble === true)) { next.flags.bubble = p.bubble; next.flags.bubbleByHand = true; }
     return next;
   });
+}
+
+/**
+ * Mark (on) or unmark every symbol under one table heading as an operator: a
+ * handwheel, lever or actuator that sits on another symbol's stem. Headings
+ * match trimmed and case-blind. The same library comes back when nothing changes.
+ */
+export function markGroupOperators(library, group, on) {
+  if (!hasSymbols(library) || typeof group !== 'string' || !group.trim()) return library;
+  const want = normName(group), value = on === true;
+  let changed = false;
+  const symbols = library.symbols.map(s => {
+    if (!isPlain(s) || normName(text(s.group)) !== want || (asObj(s.flags).operator === true) === value) return s;
+    changed = true;
+    return { ...s, flags: { ...asObj(s.flags), operator: value } };
+  });
+  return changed ? { ...library, symbols } : library;
 }
 
 export function deleteSymbol(library, id) {
@@ -879,6 +897,7 @@ export function carryOver(oldLibrary, newLibrary) {
       f.aliases = mergeAliases(aliases, f.aliases);
       f.flags.simple = flags.simple === true;
       f.flags.stretch = flags.stretch === true;
+      if (flags.operator === true) f.flags.operator = true;
       if (flags.bubbleByHand === true) { f.flags.bubble = flags.bubble === true; f.flags.bubbleByHand = true; }
       if (normName(s.name) !== legendKey(s)) { f.name = s.name; summary.renames++; }
       if (!text(f.tagId).trim() && text(s.tagId).trim()) f.tagId = s.tagId;
@@ -886,9 +905,9 @@ export function carryOver(oldLibrary, newLibrary) {
       return;
     }
     // Kept whenever it carries anything entered by hand: a note, an alias, a
-    // rename, or a simple / drawn-to-suit mark. Only a symbol exactly as the
+    // rename, or a simple / drawn-to-suit / operator mark. Only a symbol exactly as the
     // old legend gave it is let go, because a fresh import can regenerate it.
-    const handWork = notes.length || aliases.length || normName(s.name) !== legendKey(s) || flags.simple === true || flags.stretch === true || flags.bubbleByHand === true;
+    const handWork = notes.length || aliases.length || normName(s.name) !== legendKey(s) || flags.simple === true || flags.stretch === true || flags.bubbleByHand === true || flags.operator === true;
     if (handWork) {
       carried.push({ ...s, flags: { ...flags, unmatched: true } });
       unmatched.push({ name: s.name, group: text(s.group), notes: notes.length, aliases: aliases.length });

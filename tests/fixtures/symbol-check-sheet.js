@@ -238,3 +238,55 @@ MOTORISED.letters = [{ text: 'M' }];
 export const STRIP = sym('s14', 'STRIP', 'STRIPS', 'R', 48, 8,
   Array.from({ length: 6 }, (_, i) => [loop([[i * 8, 0], [i * 8 + 8, 0], [i * 8 + 8, 8], [i * 8, 8]]), line([i * 8, 0, i * 8 + 8, 8]), line([i * 8, 8, i * 8 + 8, 0])]).flat());
 export const WRITTEN_LIBRARY = { ...SWEEP_LIBRARY, symbols: [...SWEEP_LIBRARY.symbols, MOTORISED, STRIP] };
+
+// ── Whole shapes (invented) ───────────────────────────────────────────────
+// HANDLE: a T, a stem with a bar across its top, too plain to sweep. Phase 3
+// marks it as an operator, placed on a body's stem.
+export const HANDLE = sym('s15', 'HANDLE', 'HANDLES', '', 10, 8, [line([5, 8, 5, 0]), line([0, 0, 10, 0])], { simple: true });
+// A WIDGET at (x, y) with a HANDLE whose stem foot stands on the WIDGET's centre (where its two triangles meet).
+export function bodyWithHandle(x, y) {
+  return [...place(byName('WIDGET'), { x, y }), ...place(HANDLE, { x: x + 7, y: y - 2 })];
+}
+
+// HEX: a hexagon 16 pt across. PUMPISH: the same hexagon standing on a base
+// (two legs and a foot), so a HEX found on a PUMPISH drawn without one leg
+// explains less of the shape than PUMPISH does. METER: a box with a line
+// through its middle, drawn on a pipe that runs straight through it.
+const hexPts = [0, 1, 2, 3, 4, 5].map(i => [8 + 8 * Math.cos(i * Math.PI / 3), 6.928 + 8 * Math.sin(i * Math.PI / 3)]);
+export const HEX = sym('s16', 'HEX', 'HEXES', 'H', 16, 13.856, [loop(hexPts)]);
+export const PUMPISH = sym('s17', 'PUMPISH', 'PUMPISHES', 'K', 16, 22,
+  [loop(hexPts), line([0, 22, 16, 22]), line([4, 13.856, 0, 22]), line([12, 13.856, 16, 22])]);
+export const METER = sym('s18', 'METER', 'METERS', 'F', 20, 12, [loop([[0, 0], [20, 0], [20, 12], [0, 12]]), line([0, 6, 20, 6])]);
+export const SHAPE_LIBRARY = { ...BUBBLE_LIBRARY, symbols: [...BUBBLE_LIBRARY.symbols, HANDLE, HEX, PUMPISH, METER] };
+export const OPERATOR_LIBRARY = { ...SHAPE_LIBRARY,
+  symbols: SHAPE_LIBRARY.symbols.map(s => (s === HANDLE ? { ...s, flags: { ...s.flags, operator: true } } : s)) };
+
+// A 900 x 500 pt invented sheet, one item to a cell, no frame, no tags. Pipes are 60 pt or more,
+// longer than any line of SHAPE_LIBRARY at maxScale (the BOXED RING's 40 pt side: 54 pt).
+const dashedLine = (x0, x1, y) => { const out = []; for (let x = x0; x + 3 <= x1; x += 5) out.push(line([x, y, x + 3, y])); return out; };
+export const SHAPE_ITEMS = {
+  pipedWidget: [...place(byName('WIDGET'), { x: 80, y: 60 }), line([10, 66, 80, 66]), line([104, 66, 170, 66])],
+  handled: bodyWithHandle(240, 60),
+  extraStroke: [...place(byName('WIDGET'), { x: 340, y: 60 }), line([364, 60, 369.66, 54.34])],
+  shortDiagonal: [loop([[460, 60], [480, 60], [480, 80], [460, 80]]), line([460, 60, 472, 72])],
+  squiggle: [line([580, 60, 590, 75, 590, 75, 600, 60, 600, 60, 610, 75])],
+  taggedRing: place(bub('RING'), { x: 60, y: 200 }),
+  bareRing: place(bub('RING'), { x: 200, y: 200 }),
+  dashed: dashedLine(340, 520, 220),
+  pumpNoLeg: place(PUMPISH, { x: 600, y: 200 }).slice(0, 3),
+  meterOnPipe: [...place(METER, { x: 80, y: 344 }), line([10, 350, 170, 350])],
+};
+export const SHAPE_SHEET = {
+  pageSize: [900, 500],
+  viewportTransform: [1, 0, 0, 1, 0, 0],
+  paths: Object.values(SHAPE_ITEMS).flat(),
+  textItems: label('21-ZI-9001', 69, 211, { split: true }),
+  tags: [],
+};
+
+// WHEEL: an invented handwheel, a 16 x 5 box on a 6 pt stem, standing on the top edge of a body (not its centre).
+export const WHEEL = sym('s19', 'WHEEL', 'HANDLES', '', 16, 11, [line([8, 11, 8, 5]), loop([[0, 0], [16, 0], [16, 5], [0, 5]])]);
+export const WHEEL_LIBRARY = { ...OPERATOR_LIBRARY, symbols: [...OPERATOR_LIBRARY.symbols, { ...WHEEL, flags: { ...WHEEL.flags, operator: true } }] };
+// A GADGET at (100, 100) on a pipe, with a WHEEL whose stem foot stands on the middle of its top edge.
+export const EDGE_STEM_SHEET = { pageSize: [300, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [],
+  paths: [...place(byName('GADGET'), { x: 100, y: 100 }), ...place(WHEEL, { x: 102, y: 89 }), line([20, 110, 100, 110]), line([120, 110, 200, 110])] };

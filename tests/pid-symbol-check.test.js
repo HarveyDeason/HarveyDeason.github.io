@@ -542,7 +542,7 @@ test('checkSheet: each OK tag has exactly one symbol carrying its tag and name; 
 });
 test('checkSheet: a symbol has its name, identifier, box, size, score, one-of, bubble and tag', () => {
   const s = run().symbols.find(x => x.tag === '21-W-1003');
-  assert.deepEqual(Object.keys(s).sort(), ['box', 'bubble', 'name', 'oneOf', 'plain', 'score', 'sizePct', 'tag', 'tagId']);
+  assert.deepEqual(Object.keys(s).sort(), ['box', 'bubble', 'name', 'oneOf', 'plain', 'score', 'shape', 'sizePct', 'standard', 'tag', 'tagId']);
   assert.deepEqual([s.name, s.tagId, s.bubble], ['WIDGET', 'W', false]);
   assert.ok(near(s.sizePct, 120, 2) && s.score >= 0.9 && near(s.box[0], 300, 0.5));
   const p = run().symbols.find(x => x.tag === '21-P-6001');
@@ -827,4 +827,27 @@ test('weakestLine: rubbish gives 0, never a throw', () => {
   for (const bad of [[null, null], [{}, {}], ['x', 5], [{ p: { segs: [[NaN, 0, 1, 1]] }, placement: { o: 0, k: 1, tx: 0, ty: 0 } }, { near: {} }]]) {
     assert.equal(C.weakestLine(bad[0], bad[1], null), 0);
   }
+});
+
+// ── Phase 3: the symbol-size band and long-run length ─────────────────────
+test('shapeBand: smallest and largest checkable symbol at minScale and maxScale; longest joined line at maxScale', () => {
+  const b = C.shapeBand(C.prepareSymbols(LIBRARY));
+  // PENNANT 10 x 20 is the smallest checkable symbol by its longer side; WIDGET 24 the largest; GADGET's 28.28 pt diagonal the longest line.
+  assert.equal(b.minSide, 20 * 0.75);
+  assert.equal(b.maxSide, 24 * 1.35);
+  assert.equal(b.minShort, 10 * 0.75);   // PENNANT's 10 pt is the thinnest checkable symbol's shorter side
+  assert.ok(Math.abs(b.longRun - Math.hypot(20, 20) * 1.35) < 1e-9, String(b.longRun));
+  assert.equal(C.shapeBand([]), null);
+  assert.equal(C.shapeBand(null), null);
+});
+
+test('shapeBand: a line drawn in collinear pieces counts as one', () => {
+  const lib = { ...LIBRARY, symbols: [{ ...LIBRARY.symbols[2], id: 'x', name: 'LONG BOX', w: 20, h: 40,
+    paths: [{ segs: [0, 0, 0, 20, 0, 20, 0, 40, 0, 40, 20, 40, 20, 40, 20, 0, 20, 0, 0, 0], width: 0.7, stroked: true, filled: false, grey: 0 }] }] };
+  assert.ok(Math.abs(C.shapeBand(C.prepareSymbols(lib)).longRun - 40 * 1.35) < 1e-9);
+});
+
+test('shapeBand: the long run is capped by longRunCap when one is given', () => {
+  assert.equal(C.shapeBand(C.prepareSymbols(LIBRARY), { longRunCap: 20 }).longRun, 20);
+  assert.ok(C.shapeBand(C.prepareSymbols(LIBRARY)).longRun > 38);
 });

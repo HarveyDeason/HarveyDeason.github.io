@@ -109,7 +109,7 @@ test('workbookRows and writeWorkbook: Tags, Sheets and About', async () => {
   assert.deepEqual(w.tags.columns, ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail']);
   assert.deepEqual(w.sheets.columns, ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles']);
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard']);
   assert.equal(w.tags.rows.length, 11);
   assert.ok(w.tags.rows.every(r => r[0] === 'INV-0001' && r.length === 15));
   assert.equal(w.sheets.rows.length, 3);
@@ -166,7 +166,7 @@ test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kin
   const m = model({ outcomes: [{ ...checked, result }, noPdf], stopped: false, ms: 1 });
   assert.deepEqual(m.sheets.map(s => s.bubbleLine), ['Tag bubbles: 2 RING, 1 HEXAGON', '']);
   const w = M.workbookRows(m);
-  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 1]), ['2 RING, 1 HEXAGON', '']);
+  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 2]), ['2 RING, 1 HEXAGON', '']);   // the last column is Not to standard
   assert.equal(model().sheets[0].bubbleLine, '');
 });
 
@@ -174,7 +174,9 @@ test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kin
 const sy = (name, tag, box, more = {}) => ({ name, tagId: 'W', box, sizePct: 100, score: 0.987, oneOf: [], bubble: false, tag, ...more });
 const SYMBOLS = [sy('GADGET', null, [100, 100, 120, 120], { tagId: 'G', oneOf: ['GADGET', 'WIDGET'] }), sy('WIDGET', '21-W-1001', [100, 200, 124, 212]),
   sy('WIDGET', null, [300, 300, 324, 312], { sizePct: 120 })];
-const withSymbols = { ...checked, result: { ...RESULT, symbols: SYMBOLS, skipped: [400, 0, 500, 400] } };
+// Hand-made symbols stand for a result from before phase 3: the real sheet's shapes do not belong with them.
+const { shapes: _shapes, operatorsMarked: _ops, ...PRE_SHAPES } = RESULT;
+const withSymbols = { ...checked, result: { ...PRE_SHAPES, symbols: SYMBOLS, skipped: [400, 0, 500, 400] } };
 
 test('buildReportModel: each checked sheet gets its symbol line, untagged symbol boxes and every symbol', () => {
   const m = model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 });
@@ -184,7 +186,8 @@ test('buildReportModel: each checked sheet gets its symbol line, untagged symbol
   assert.deepEqual(s.symbolRows.map(r => r.name), ['GADGET', 'WIDGET']);
   assert.deepEqual(s.symbolRows[0].userRect, M.toUserRect([100, 100, 120, 120], VT, 3));
   assert.equal(s.allSymbols.length, 3);
-  assert.deepEqual(s.allSymbols[0], { page: 1, symbol: 'GADGET', oneOf: 'GADGET, WIDGET', tagId: 'G', sizePct: 100, score: 0.987, tag: '', plain: false });
+  assert.deepEqual(s.allSymbols[0], { page: 1, symbol: 'GADGET', oneOf: 'GADGET, WIDGET', tagId: 'G', sizePct: 100, score: 0.987, tag: '', plain: false,
+    toStandard: '', why: '', closest: '', closestScore: null });
   assert.equal(s.allSymbols[1].tag, '21-W-1001');
   assert.deepEqual([n.symbolLine, n.skippedLine, n.symbolRows, n.allSymbols], ['', '', [], []]);
   assert.equal(model().sheets[0].skippedLine, '');
@@ -192,8 +195,9 @@ test('buildReportModel: each checked sheet gets its symbol line, untagged symbol
 test('workbookRows: a Symbols sheet, one row per physical symbol', async () => {
   const m = model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 });
   const w = M.workbookRows(m);
-  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note']);
-  assert.deepEqual(w.symbols.rows, [
+  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note',
+    'To standard?', 'Why', 'Closest', 'Closest score %']);
+  assert.deepEqual(w.symbols.rows.map(r => r.slice(0, 10)), [
     ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, '', ''],
     ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001', ''],
     ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '', '']]);
@@ -214,7 +218,7 @@ test('hostile symbols: a model, never a throw; text kept plain', () => {
   assert.ok(!JSON.stringify(M.workbookRows(m)).includes('\\u0001'));
 });
 test('report: a sweep cut short says the symbol list is incomplete and does not blame the tags', () => {
-  const res = { ...RESULT, symbols: SYMBOLS, timedOut: true, sweepTimedOut: true, tagsTimedOut: false };
+  const res = { ...PRE_SHAPES, symbols: SYMBOLS, timedOut: true, sweepTimedOut: true, tagsTimedOut: false };
   const s = model({ outcomes: [{ ...checked, result: res }], stopped: false, ms: 1 }).sheets[0];
   assert.ok(s.symbolLine.endsWith('The time limit was reached: this list is incomplete.'), s.symbolLine);
   assert.equal(s.timedOutLine, '');
@@ -233,6 +237,74 @@ test('plain symbols: allSymbols carries plain and the Symbols sheet says check b
   const m = model({ outcomes: [{ ...checked, precheck: 'printed', result: res }], stopped: false, ms: 1 });
   assert.deepEqual(m.sheets[0].allSymbols.map(s => s.plain), [true, false]);
   const w = M.workbookRows(m);
-  assert.equal(w.symbols.columns[w.symbols.columns.length - 1], 'Note');
-  assert.deepEqual(w.symbols.rows.map(r => r[r.length - 1]), ['Plain shape: check by eye', '']);
+  assert.equal(w.symbols.columns[9], 'Note');
+  assert.deepEqual(w.symbols.rows.map(r => r[9]), ['Plain shape: check by eye', '']);
+});
+
+// ── Phase 3: shapes in the report ─────────────────────────────────────────
+const SHAPED_RESULT = { ...PRE_SHAPES, operatorsMarked: true,
+  symbols: [sy('WIDGET', null, [100, 100, 124, 112]), sy('GADGET', null, [200, 100, 220, 120], { tagId: 'G' }), sy('WIDGET', '21-W-1001', [100, 200, 124, 212])],
+  shapes: [
+    { id: 0, box: [100, 98, 124, 112], standard: true, why: null, explained: 1, share: null, symbols: [0], operator: { name: 'HANDLE', score: 0.95 }, closest: null },
+    { id: 1, box: [200, 100, 228, 120], standard: false, why: 'left-over', explained: 0.8, share: null, symbols: [1], operator: null, closest: { name: 'GADGET', tagId: 'G', score: 0.97, explained: 0.8 } },
+    { id: 2, box: [300, 100, 320, 120], standard: false, why: 'no-fit', explained: 0, share: null, symbols: [], operator: null, closest: null },
+    { id: 3, box: [400, 100, 420, 120], standard: null, why: 'time', explained: 0, share: null, symbols: [], operator: null, closest: null },
+  ] };
+const shapedSheet = { ...checked, result: SHAPED_RESULT };
+
+test('workbookRows: the Symbols sheet is one row per shape, not to standard first, with the four new columns', () => {
+  const w = M.workbookRows(model({ outcomes: [shapedSheet], stopped: false, ms: 1 }));
+  assert.deepEqual(w.symbols.columns, ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note',
+    'To standard?', 'Why', 'Closest', 'Closest score %']);
+  const r = w.symbols.rows.map(x => [x[3], x[10], x[11], x[12], x[13]]);
+  assert.deepEqual(r, [
+    ['GADGET', 'No', 'ink left over', 'GADGET', 97],
+    ['', 'No', 'no standard symbol fits', '', ''],
+    ['WIDGET + HANDLE', 'Yes', '', '', ''],
+    ['', 'Not judged', 'not judged: time limit', '', ''],
+    ['WIDGET', '', '', '', '']]);   // a listed symbol in no shape keeps its row
+  assert.equal(w.sheets.columns[w.sheets.columns.length - 1], 'Not to standard');
+  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 1], 2);
+});
+
+test('workbookRows: an old result with no shapes gives the rows of before with the new columns blank', () => {
+  const w = M.workbookRows(model({ outcomes: [withSymbols, noPdf], stopped: false, ms: 1 }));
+  assert.deepEqual(w.symbols.rows, [
+    ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, '', '', '', '', '', ''],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001', '', '', '', '', ''],
+    ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '', '', '', '', '', '']]);
+  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 1], '');
+});
+
+test('buildReportModel: flagged shapes become numbered amber rows, with their boxes', () => {
+  const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(s.shapeRows.length, 2);
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 2]);   // symbols first: the tags carry no boxes on the drawing
+  assert.deepEqual(s.shapeRows.map(r => r.kind), ['not-standard', 'not-standard']);
+  assert.equal(s.shapeRows[0].label, 'Not to standard');
+  assert.equal(s.shapeRows[0].detail, 'ink left over; closest: GADGET 97%');
+  assert.deepEqual(s.shapeRows[0].userRect, M.toUserRect([200, 100, 228, 120], VT, 3));
+  assert.equal(M.PRINT_COLOURS['not-standard'], '#E08E00');
+  assert.ok(s.symbolLine.includes('2 shapes not to standard.'));
+  assert.deepEqual(model().sheets[0].shapeRows.length >= 0, true);
+});
+
+// ── Symbols first (owner, 2026-11-18): standard symbols named in green, shapes not to standard numbered in amber ──
+test('buildReportModel, symbols first: a shape line, named standard boxes, flagged shapes numbered from 1', () => {
+  const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(s.layout, 'symbols');
+  assert.equal(s.shapeLine, '1 standard symbol · 2 not to standard · 1 not judged (time limit)');
+  assert.deepEqual(s.standardRows.map(r => r.name), ['WIDGET + HANDLE']);
+  assert.deepEqual(s.standardRows[0].userRect, M.toUserRect([100, 98, 124, 112], VT, 3));
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 2]);
+  assert.equal(M.PRINT_COLOURS.standard, '#2E7D32');
+  const old = model({ outcomes: [withSymbols], stopped: false, ms: 1 }).sheets[0];
+  assert.equal(old.layout, 'tags');
+  assert.deepEqual(old.standardRows, []);
+});
+
+test('buildReportModel, symbols first: counts and a line of reasons for the heading', () => {
+  const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
+  assert.deepEqual([s.standardCount, s.notStandardCount, s.notJudgedCount], [1, 2, 1]);
+  assert.equal(s.reasonLine, 'Why: 1 ink left over, 1 no standard symbol fits');
 });
