@@ -466,6 +466,182 @@ export function legendCells(paths, words, options) {
   return out;
 }
 
+// ── Sample boxes (Legend Sheet 1) ─────────────────────────────────────────
+// Some boxes draw standard practice as samples beside their names, not as a
+// ruled table: LINE TYPES, LINE DEMARCATION and the INSTRUMENTATION
+// DESIGNATION examples. The symbols read from them are for the shape check
+// only (judgeOnly): the sweep never looks for them. Line types that are
+// marks repeated along a line (signal ticks, lagging hatches) are stored as
+// one repeat (lineMark), for the pipe cut to pass through.
+const SAMPLE_NAMES = [
+  ['LINE TYPES', /^SIGNAL - /, 'signal'], ['LINE TYPES', /^PIPELINE - LAGGED$/, 'lagged'],
+  ['LINE TYPES', /^PIPELINE - HEATED OR COOLED WITH LAGGING$/, 'heated'],
+  ['LINE TYPES', /^(CONNECTION POINT|DIRECTION FLOW ARROW|CHANNEL)$/, null],
+  ['LINE DEMARCATION', /^(TIE-IN POINT NUMBER MARKER|TIE-IN POINT DEMARCATION|PROCESS CONTINUATION MARKER|TIE-IN POINT)$/, null],
+];
+const RIM_MARKS = [[/\bGEP\b|GOOD ENGINEERING/i, 'GEP MARK'], [/QUALITY/i, 'QUALITY MARK'], [/SAFETY/i, 'SAFETY MARK']];
+const RIM_MAX = 8;       // points: a rim mark beside a bubble is no bigger than this
+const SAMPLE_REACH = 12; // points: a sample's centre lies this close (in y) to its name's lines
+
+// Words as text lines (a gap wider than 1.5 heights starts a new line), then a
+// line and the one just under it, starting at the same x, as one label.
+function textLines(ws) {
+  const lines = [];
+  for (const w of ws.slice().sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const cy = w.y + w.h / 2;
+    const l = lines.find(q => Math.abs(cy - q.cy) < 0.5 * Math.max(w.h, q.h) && w.x - q.x1 <= 1.5 * w.h && q.x0 - (w.x + w.w) <= 1.5 * w.h);
+    if (l) { l.words.push(w); l.x0 = Math.min(l.x0, w.x); l.x1 = Math.max(l.x1, w.x + w.w); l.y0 = Math.min(l.y0, w.y); l.y1 = Math.max(l.y1, w.y + w.h); }
+    else lines.push({ cy, h: w.h, x0: w.x, x1: w.x + w.w, y0: w.y, y1: w.y + w.h, words: [w] });
+  }
+  for (const l of lines) l.text = upper(l.words.sort((a, b) => a.x - b.x).map(w => w.str).join(' '));
+  return lines.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+}
+const under = (a, b) => Math.abs(b.x0 - a.x0) <= 2 && b.y0 - a.y1 >= -1 && b.y0 - a.y1 <= 0.6 * a.h;
+
+// One repeat of a mark drawn along a line: the line is the horizontal (or vertical) run with the most length;
+// the rest repeats. A tick (signal) is the first cluster of the rest; a hatch (lagging) one period of it.
+function oneRepeat(ps, kind) {
+  const seg = [];
+  for (const q of ps) for (let i = 0; i + 3 < q.p.segs.length; i += 4) seg.push({ q, s: q.p.segs.slice(i, i + 4) });
+  const runs = new Map();
+  for (const { q, s } of seg) {
+    if (Math.abs(s[1] - s[3]) > 0.3) continue;
+    const k = Math.round(s[1] * 2) / 2;
+    runs.set(k, (runs.get(k) || 0) + Math.abs(s[2] - s[0]));
+  }
+  if (!runs.size) return null;
+  const y = [...runs.entries()].reduce((m, e) => (e[1] > m[1] ? e : m))[0];
+  const onLine = q => { for (let i = 0; i + 3 < q.p.segs.length; i += 4) if (Math.abs(q.p.segs[i + 1] - y) > 0.5 || Math.abs(q.p.segs[i + 3] - y) > 0.5) return false; return true; };
+  const line = ps.filter(onLine), rest = ps.filter(q => !onLine(q)).sort((a, b) => a.b[0] - b.b[0]);
+  if (!line.length || !rest.length) return null;
+  const width = line.reduce((m, q) => Math.max(m, isNum(q.p.width) ? q.p.width : 0), 0);
+  let x0, x1;
+  if (kind === 'signal') {
+    x0 = rest[0].b[0]; x1 = rest[0].b[2];
+    for (const q of rest) { if (q.b[0] > x1 + 2) break; x1 = Math.max(x1, q.b[2]); }
+    x0 -= 1; x1 += 1;
+  } else {
+    // The period: per kind of piece (its size), the usual gap between one and the next; the longest such.
+    const kinds = new Map();
+    for (const q of rest) { const k = Math.round((q.b[2] - q.b[0]) * 2) + ':' + Math.round((q.b[3] - q.b[1]) * 2); if (!kinds.has(k)) kinds.set(k, []); kinds.get(k).push(q.b[0]); }
+    let period = 0, start = null;
+    for (const xs of kinds.values()) {
+      if (xs.length < 3) continue;
+      // Pieces at one x (a hatch's two rows) are one repeat.
+      const at = xs.sort((a, b) => a - b).filter((v, i) => !i || v - xs[i - 1] > 0.3);
+      if (at.length < 3) continue;
+      const gaps = at.slice(1).map((v, i) => v - at[i]).sort((a, b) => a - b);
+      const g = gaps[Math.floor(gaps.length / 2)];
+      if (g > period) { period = g; start = at[1]; }
+    }
+    if (!(period > 0)) return null;
+    x0 = start - 0.01; x1 = start + period;
+  }
+  const kept = rest.filter(q => { const cx = (q.b[0] + q.b[2]) / 2; return cx >= x0 && cx <= x1; }).map(q => q.p);
+  return [...kept, { segs: [x0, y, x1, y], width, stroked: true, filled: false, grey: 0 }];
+}
+
+/**
+ * The symbols drawn as samples beside their names in Legend Sheet 1's LINE
+ * TYPES, LINE DEMARCATION and INSTRUMENTATION DESIGNATION boxes. areas: the
+ * ruled areas that are not symbol tables (legendCells' `other`). Returns
+ * [{ label, header, symbolPaths, lettersInside: [], box, judgeOnly: true,
+ * lineMark: 'signal'|'lagged'|'heated'|null }]. Never throws.
+ */
+// A path as its sub-paths (runs of segments each starting where the last ended): a composite sample draws
+// several symbols in one path.
+function subPaths(pb) {
+  const out = [];
+  for (const q of pb) {
+    const s = q.p.segs;
+    let cur = [];
+    const flush = () => { if (cur.length) { const p = { ...q.p, segs: cur }; out.push({ p, b: boxOfSegs(cur) }); } cur = []; };
+    for (let i = 0; i + 3 < s.length; i += 4) {
+      if (cur.length && (Math.abs(s[i] - cur[cur.length - 2]) > JOIN || Math.abs(s[i + 1] - cur[cur.length - 1]) > JOIN)) flush();
+      cur.push(s[i], s[i + 1], s[i + 2], s[i + 3]);
+      // A loop closed on a point drawn before (a stem, then a diamond round from its top): the run up to that
+      // point and the loop are separate parts, and what comes next is another.
+      for (let k = 0; k + 12 <= cur.length; k += 4) {
+        if (Math.abs(s[i + 2] - cur[k]) > JOIN || Math.abs(s[i + 3] - cur[k + 1]) > JOIN) continue;
+        const tail = cur.slice(0, k), loop = cur.slice(k);
+        if (tail.length) { cur = tail; flush(); }
+        cur = loop; flush();
+        break;
+      }
+    }
+    flush();
+  }
+  return out.filter(q => q.b);
+}
+
+export function sampleRows(paths, words, areas) {
+  const out = [];
+  let pb = [], lines = [];
+  try { pb = subPaths(cleanPaths(paths)); lines = textLines(cleanWords(words)); } catch { return out; }
+  for (const a of asArr(areas)) {
+   try {
+    // Labels: a line, or a line with the one under it, that names a sample.
+    const named = (l, i) => {
+      const next = lines.slice(i + 1).find(b => under(l, b));
+      for (const text of next ? [l.text + ' ' + next.text, l.text] : [l.text]) {
+        const hit = SAMPLE_NAMES.find(n => n[1].test(text));
+        if (hit) return { text, heading: hit[0], kind: hit[2], x0: l.x0, y0: l.y0, y1: text === l.text ? l.y1 : next.y1 };
+      }
+      return null;
+    };
+      const box = asArr(asObj(a).box);
+      if (box.length !== 4 || !box.every(isNum)) continue;
+      const inA = (x, y) => x > box[0] && x < box[2] && y > box[1] && y < box[3];
+      const heads = lines.filter(l => inA(l.x0 + 1, l.cy));
+      const heading = ['LINE TYPES', 'LINE DEMARCATION'].find(h => heads.some(l => l.text === h));
+      if (!heading) continue;
+      const labels = [];
+      lines.forEach((l, i) => { if (!inA(l.x0 + 1, l.cy)) return; const n = named(l, i); if (n && n.heading === heading) labels.push({ ...n, ps: [] }); });
+      // A path's name: of the names to its right, those in the nearest column; of those, the nearest in y.
+      for (const q of pb) {
+        if (!inA(q.b[0], q.b[1]) || !inA(q.b[2], q.b[3])) continue;
+        const right = labels.filter(l => l.x0 >= q.b[2] - 1);
+        if (!right.length) continue;
+        const col = Math.min(...right.map(l => l.x0));
+        const cy = (q.b[1] + q.b[3]) / 2, dy = l => (cy < l.y0 ? l.y0 - cy : cy > l.y1 ? cy - l.y1 : 0);
+        const column = right.filter(r => r.x0 - col <= 20);
+        // Linework running past two names (a stem joining a composite sample's parts) belongs to neither.
+        if (column.filter(r => q.b[1] < r.y1 + 2 && q.b[3] > r.y0 - 2).length >= 2) continue;
+        const l = column.reduce((m, r) => (dy(r) < dy(m) ? r : m));
+        if (dy(l) <= SAMPLE_REACH) l.ps.push(q);
+      }
+      for (const l of labels) {
+        if (!l.ps.length) continue;
+        const symbolPaths = l.kind ? oneRepeat(l.ps, l.kind) : l.ps.map(q => q.p);
+        if (!symbolPaths || !symbolPaths.length) continue;
+        const b = symbolPaths.map(p => boxOfSegs(p.segs)).filter(Boolean).reduce((u, v) => [Math.min(u[0], v[0]), Math.min(u[1], v[1]), Math.max(u[2], v[2]), Math.max(u[3], v[3])]);
+        if (!(b[2] - b[0] > 0.5 && b[3] - b[1] > 0.5)) continue;   // a lone line is no sample
+        out.push({ label: l.text, header: heading, symbolPaths, lettersInside: [], box: b, judgeOnly: true, lineMark: l.kind });
+      }
+   } catch { /* this box stands as read */ }
+  }
+  try {
+    // Rim marks: a small closed outline with a sentence beside it naming GEP, Quality or Safety, on a page
+    // with an INSTRUMENTATION DESIGNATION heading.
+    if (lines.some(l => l.text === 'INSTRUMENTATION DESIGNATION' || (l.text === 'INSTRUMENTATION' && lines.some(b => under(l, b) && b.text === 'DESIGNATION')))) {
+      const seen = new Set();
+      for (const q of pb) {
+        const w = q.b[2] - q.b[0], h = q.b[3] - q.b[1];
+        if (!isClosedPath(q.p) || Math.max(w, h) > RIM_MAX || Math.min(w, h) < 3) continue;
+        const cy = (q.b[1] + q.b[3]) / 2;
+        const says = lines.find(l => l.x0 >= q.b[2] && l.x0 - q.b[2] <= 30 && cy >= l.y0 - 2 && cy <= l.y1 + 12 && /^(CIRCLE|SQUARE|TRIANGLE)\b/.test(l.text));
+        if (!says) continue;
+        const sentence = [says, ...lines.filter(b => Math.abs(b.x0 - says.x0) <= 2 && b.y0 > says.y0 && b.y0 - says.y1 <= 2.5 * says.h)].map(l => l.text).join(' ');
+        const rim = RIM_MARKS.find(m => m[0].test(sentence));
+        if (!rim || seen.has(rim[1])) continue;
+        seen.add(rim[1]);
+        out.push({ label: rim[1], header: 'INSTRUMENTATION DESIGNATION', symbolPaths: [q.p], lettersInside: [], box: q.b.slice(), judgeOnly: true, lineMark: null });
+      }
+    }
+  } catch { /* what was read stands */ }
+  return out;
+}
+
 /** Sheet number and revision from a title block's words; '' for either when not found. */
 export function titleBlock(words) {
   const res = { sheet: '', rev: '' };
@@ -492,7 +668,8 @@ export function readLegendPage(input) {
   const paths = pagePaths(i.fnArray, i.argsArray, i.OPS, i.viewportTransform);
   const words = textWords(i.textItems, i.viewportTransform);
   const n = typeof i.page === 'number' || typeof i.page === 'string' ? Number(i.page) : 0;
-  return { page: Number.isFinite(n) ? n : 0, ...titleBlock(words), ...legendCells(paths, words, i.options) };
+  const cells = legendCells(paths, words, i.options);
+  return { page: Number.isFinite(n) ? n : 0, ...titleBlock(words), ...cells, samples: sampleRows(paths, words, cells.other) };
 }
 
 // ── The library ───────────────────────────────────────────────────────────
@@ -550,9 +727,11 @@ export function buildLibrary(pages, importedAt) {
     const pg = isNum(page.page) ? page.page : 0;
     const sheet = text(page.sheet).trim() || String(pg);
     lib.legend.push({ sheet, rev: text(page.rev).trim(), page: pg });
-    let n = 0;
-    for (const row of asArr(page.rows)) {
+    let n = 0, ns = 0;
+    const rows = [...asArr(page.rows), ...asArr(page.samples).filter(r => isPlain(r) && r.judgeOnly === true)];
+    for (const row of rows) {
       if (!isPlain(row) || typeof row.label !== 'string' || !row.label.trim()) continue;
+      const sample = row.judgeOnly === true;
       // The box comes from the linework itself, not from the row's own box.
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const p of asArr(row.symbolPaths)) {
@@ -566,19 +745,20 @@ export function buildLibrary(pages, importedAt) {
       }
       const has = x1 >= x0;
       const dx = has ? x0 : 0, dy = has ? y0 : 0;
-      n++;
+      if (sample) ns++; else n++;
       const name = row.label.replace(/\s+/g, ' ').trim();
       // A tag bubble's placeholder text is replaced by the tag on a drawing,
       // so it is not kept as letters a drawing must show.
       const ring = row.bubble === true && has ? cleanRing(asArr(row.ring).map((v, i) => (i % 2 ? v - dy : v - dx))) : null;
       const bubble = !!ring;
       lib.symbols.push({
-        id: 'p' + pg + '-' + String(n).padStart(3, '0'), name, legendName: name,
+        id: 'p' + pg + '-' + (sample ? 's' + String(ns).padStart(2, '0') : String(n).padStart(3, '0')), name, legendName: name,
         group: text(row.header).trim(), tagId: text(row.tagId).trim(), sheet,
         w: has ? round2(x1 - x0) : 0, h: has ? round2(y1 - y0) : 0,
         paths: asArr(row.symbolPaths).map(p => cleanPath(p, dx, dy)).filter(Boolean),
         letters: bubble ? [] : cleanLetters(row.lettersInside, dx, dy),
-        flags: { simple: false, stretch: false, manual: false, unmatched: false, bubble, bubbleByHand: false }, aliases: [], notes: [],
+        flags: { simple: false, stretch: false, manual: false, unmatched: false, bubble, bubbleByHand: false,
+          ...(sample ? { judgeOnly: true, ...(typeof row.lineMark === 'string' && row.lineMark ? { lineMark: row.lineMark } : {}) } : {}) }, aliases: [], notes: [],
         ...(ring ? { ring } : {}),
       });
     }

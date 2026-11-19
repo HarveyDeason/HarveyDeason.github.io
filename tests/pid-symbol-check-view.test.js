@@ -416,3 +416,21 @@ test('resultsHtml: amber rows only, one red count line, mark line, escaped reaso
   assert.ok(html.includes(V.KEY_NOT_STANDARD) && html.includes(V.KEY_NOT_IDENTIFIED));
   assert.match(V.symbolSummary({ ...NEW, symbols: [] }), /1 standard shape, 2 not to standard, 2 not identified\./);
 });
+
+// Legend rules, Task 7 (2026-11-18): a green shape is named by its parts; line marks are counted on the heading.
+test('partsName: bodies first, then peeled symbols, then attachments, repeats counted', () => {
+  // Within a role, in the order found.
+  const parts = [{ name: 'MANUAL ISOLATION', role: 'attachment' }, { name: 'BALL', role: 'body' }, { name: 'FLANGED CONNECTION', role: 'attachment' },
+    { name: 'FLANGED CONNECTION', role: 'attachment' }, { name: 'REDUCER', role: 'symbol' }];
+  assert.equal(V.partsName(parts), 'BALL + REDUCER + MANUAL ISOLATION + FLANGED CONNECTION ×2');
+  assert.equal(V.partsName([]), '');
+  assert.equal(V.partsName(null), '');
+  assert.equal(V.partsName([{ name: '<b>', role: 'body' }, 7, { role: 'body' }]), '<b>');
+});
+test('markLine: line marks read as part of their lines, when there are any; an old result reads as before', () => {
+  const r = { ...NEW, shapes: [sv('standard', null, [0, 0, 1, 1])] };
+  assert.equal(V.markLine({ ...r, lineMarks: 3 }), '1 standard · 0 not to standard · 0 not identified · 3 line marks read as part of their lines · Read from: line pieces · Printed at 41% of full size');
+  assert.ok(V.markLine({ ...r, lineMarks: 1 }).includes('1 line mark read as part of its line'));
+  assert.equal(V.markLine({ ...r, lineMarks: 0 }), V.markLine(r));
+  assert.ok(!V.markLine(r).includes('line mark'));
+});

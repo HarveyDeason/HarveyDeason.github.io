@@ -105,6 +105,10 @@ async function importMode(opts) {
     for (const u of p.unsplit) console.log(`  NOT SPLIT  ${u.reason}: ${u.text}`);
     const otherRows = p.other.reduce((n, o) => n + o.rows.length, 0);
     console.log(`  other ruled areas: ${p.other.length} (${otherRows} rows), empty rows: ${p.emptyRows}`);
+    // What each sample box gave (judge-only symbols, line marks), so a re-issued legend that reads differently shows.
+    const boxes = {};
+    for (const s of p.samples || []) { const k = s.header; boxes[k] ||= [0, 0]; boxes[k][s.lineMark ? 1 : 0]++; }
+    for (const [k, [n, m]] of Object.entries(boxes)) console.log(`  sample box ${k}: ${n} judge-only symbol(s), ${m} line mark(s)`);
     unsplit += p.unsplit.length; other += otherRows; empty += p.emptyRows;
   }
   const total = result.library.symbols.length;

@@ -8,7 +8,7 @@
 // They are kept here as plain text: the PDF renderer passes them through
 // pdfSafe, and the workbook strips control characters.
 
-import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary, symbolSummary, SKIPPED_NOTE, tagsTimedOut, shapeWhy, NOT_STANDARD_COLOUR, NOT_IDENTIFIED_COLOUR, OPERATORS_NOTE, reasonText, markLine, VERDICTS, verdictOf } from './pid-symbol-check-view.js';
+import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary, symbolSummary, SKIPPED_NOTE, tagsTimedOut, shapeWhy, NOT_STANDARD_COLOUR, NOT_IDENTIFIED_COLOUR, OPERATORS_NOTE, reasonText, markLine, VERDICTS, verdictOf, partsName } from './pid-symbol-check-view.js';
 import { STATUS_LABELS } from './pid-precheck.js';
 import { REASONS } from './pid-symbol-report-run.js';
 
@@ -104,7 +104,7 @@ function symbolParts(result, vt) {
     const names = mine.map(i => str(raw[i].name));
     if (str(obj(s.operator).name)) names.push(str(s.operator.name));
     const c = obj(s.closest);
-    return { ...first, symbol: names.join(' + '), toStandard: toStandard(s), why: (marked && reasonText(s)) || shapeWhy(s), closest: s.standard === true ? '' : str(c.name),
+    return { ...first, symbol: (s.standard === true && partsName(s.parts)) || names.join(' + '), toStandard: toStandard(s), why: (marked && reasonText(s)) || shapeWhy(s), closest: s.standard === true ? '' : str(c.name),
       closestScore: s.standard !== true && isNum(c.score) ? c.score : null };
   });
   for (const s of all) if (!inShape.has(s)) allSymbols.push(symbolEntry(s));
@@ -113,6 +113,7 @@ function symbolParts(result, vt) {
   const late = shapes.filter(s => marked ? verdictOf(s) === 'not-judged' : s.standard !== true && s.standard !== false).length;
   // A standard shape is named by its symbols (operator last), or by the symbol fitted to it alone.
   const nameOf = s => {
+    if (partsName(s.parts)) return partsName(s.parts);
     const names = asArr(s.symbols).filter(i => Number.isInteger(i) && raw[i] && str(raw[i].name)).map(i => str(raw[i].name));
     if (str(obj(s.operator).name)) names.push(str(s.operator.name));
     return names.length ? names.join(' + ') : str(obj(s.closest).name);

@@ -274,7 +274,7 @@ test('readLegendPage: operator list and text items in, rows and title block out'
   const r = readLegendPage({ fnArray, argsArray, OPS: O, viewportTransform: [1, 0, 0, 1, 0, 0], textItems, page: 3 });
   assert.deepEqual([r.page, r.sheet, r.rev], [3, '7', 'B03']);
   assert.deepEqual(r.rows.map(x => x.label), ['ROUND WIDGET', 'SQUARE WIDGET (LARGE)', 'LAST WIDGET']);
-  assert.deepEqual(readLegendPage(null), { page: 0, sheet: '', rev: '', tables: [], rows: [], unsplit: [], other: [], emptyRows: 0 });
+  assert.deepEqual(readLegendPage(null), { page: 0, sheet: '', rev: '', tables: [], rows: [], unsplit: [], other: [], emptyRows: 0, samples: [] });
 });
 
 const INVENTED = readFileSync(new URL('./fixtures/invented-symbol-library.json', import.meta.url), 'utf8');

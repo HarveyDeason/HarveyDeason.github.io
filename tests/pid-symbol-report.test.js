@@ -371,3 +371,12 @@ test('buildReportModel, verdicts: the heading keeps the not judged count and the
   assert.equal(t.shapeLine, markLine({ ...VERDICT_RESULT }) + '. ' + OPERATORS_NOTE);
   assert.equal(model({ outcomes: [verdictSheet], stopped: false, ms: 1 }).sheets[0].shapeLine, markLine(VERDICT_RESULT));
 });
+
+// Legend rules, Task 7 (2026-11-18): a green shape with parts is named by them; one without reads as before.
+test('buildReportModel: a standard shape with parts is named by its parts', () => {
+  const shapes = SHAPED_RESULT.shapes.map(s => (s.standard === true ? { ...s, parts: [{ name: 'WIDGET', role: 'body' }, { name: 'HANDLE', role: 'attachment' }, { name: 'FLANGE', role: 'attachment' }, { name: 'FLANGE', role: 'attachment' }] } : s));
+  const s = model({ outcomes: [{ ...checked, result: { ...SHAPED_RESULT, shapes } }], stopped: false, ms: 1 }).sheets[0];
+  assert.deepEqual(s.standardRows.map(r => r.name), ['WIDGET + HANDLE + FLANGE ×2']);
+  const w = M.workbookRows(model({ outcomes: [{ ...checked, result: { ...SHAPED_RESULT, shapes } }], stopped: false, ms: 1 }));
+  assert.ok(w.symbols.rows.some(x => x[3] === 'WIDGET + HANDLE + FLANGE ×2'), JSON.stringify(w.symbols.rows.map(x => x[3])));
+});

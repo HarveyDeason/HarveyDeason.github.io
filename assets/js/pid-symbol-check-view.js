@@ -83,12 +83,27 @@ export function reasonText(shape) {
 }
 // The words for an amber shape: the new reason, or (no reason given) the old why and closest symbol.
 const amberText = s => reasonText(s) || (shapeWhy(s) + '; ' + closestText(s));
+/**
+ * A shape's parts in words (legend rules): bodies first, then the standard symbols peeled off it, then its
+ * attachments, a repeat counted ('BALL + MANUAL ISOLATION + FLANGED CONNECTION ×2'). '' for none. Plain text.
+ */
+export function partsName(parts) {
+  const order = { body: 0, symbol: 1, attachment: 2 };
+  const list = asArr(parts).filter(p => p && typeof p === 'object' && str(p.name)).map((p, i) => ({ name: str(p.name), rank: order[p.role] ?? 0, i }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i);
+  const seen = new Map();
+  for (const p of list) { const k = p.rank + '|' + p.name; seen.set(k, seen.has(k) ? { ...seen.get(k), n: seen.get(k).n + 1 } : { name: p.name, n: 1 }); }
+  return [...seen.values()].map(p => p.name + (p.n > 1 ? ' ×' + p.n : '')).join(' + ');
+}
+
 /** 'N standard · M not to standard · K not identified · Read from: … · Printed at N% of full size'; '' when no shapes. */
 export function markLine(result) {
   const list = shapesOf(result);
   if (!list || !list.length) return '';
   const n = v => list.filter(s => verdictOf(s) === v).length;
   const parts = [n('standard') + ' standard', n('not-standard') + ' not to standard', n('not-identified') + ' not identified'];
+  // Ticks standing alone on a line, read as part of it (counted, so the class is visible).
+  if (isNum(result.lineMarks) && result.lineMarks > 0) parts.push(result.lineMarks === 1 ? '1 line mark read as part of its line' : result.lineMarks + ' line marks read as part of their lines');
   if (result.readFrom === 'paths') parts.push('Read from: drawn paths');
   else if (result.readFrom === 'line-pieces') parts.push('Read from: line pieces' + (isNum(result.lineCapped) && result.lineCapped > 0 ? ' · Line-piece reading incomplete' : ''));
   if (isNum(result.printScale)) { const p = Math.round(result.printScale * 100); if (p < 95 || p > 105) parts.push('Printed at ' + p + '% of full size'); }
@@ -111,6 +126,7 @@ const closestText = s => (s.closest && typeof s.closest === 'object' && str(s.cl
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 // A standard shape's name: its listed symbols (operator last), or the symbol fitted to it alone.
 function shapeName(result, s) {
+  if (partsName(s.parts)) return partsName(s.parts);
   const syms = asArr(result.symbols);
   const names = asArr(s.symbols).filter(i => Number.isInteger(i) && syms[i] && str(syms[i].name)).map(i => str(syms[i].name));
   if (s.operator && str(s.operator.name)) names.push(str(s.operator.name));

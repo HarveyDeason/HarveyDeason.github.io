@@ -27,6 +27,16 @@ test('pipeLines: a bowtie has no ends on its box edge off the corners, so its lo
 test('pipeLines: a symbol with stubs on its top and bottom edges is cut vertically', () => {
   assert.deepEqual(C.pipeLines(prepOf(STEMMED)), { axis: 'v', at: [5] });
 });
+// Gate trace (2026-11-19, M): the legend's BALL is a bowtie with its ball touching the box's top and bottom. The arc's
+// touch points are no pipe connections: the pipe runs along its length, as a bowtie's.
+test('pipeLines: a circle touching the box edges is no connection; a bowtie with its ball runs along its length', () => {
+  const ring = []; for (let k = 0; k < 32; k++) { const a0 = (k / 32) * 2 * Math.PI, a1 = ((k + 1) / 32) * 2 * Math.PI; ring.push(14.16 + 7.14 * Math.cos(a0), 7.14 + 7.14 * Math.sin(a0), 14.16 + 7.14 * Math.cos(a1), 7.14 + 7.14 * Math.sin(a1)); }
+  const BALLISH = { id: 'bp1', name: 'BALLISH', legendName: 'BALLISH', group: 'VALVES', tagId: 'V', sheet: '2', w: 28.32, h: 14.28, aliases: [], notes: [], letters: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false },
+    paths: [{ segs: ring, width: 0.7, stroked: true, filled: false, grey: 0 },
+      { segs: [0, 0.1, 0, 14.28, 0, 14.28, 28.32, 0.1, 28.32, 0.1, 28.32, 14.28, 28.32, 14.28, 0, 0.1], width: 0.7, stroked: true, filled: false, grey: 0 }] };
+  assert.deepEqual(C.pipeLines(prepOf(BALLISH)), { axis: 'h', at: [7.14] });
+});
 test('pipeLines: a ring (bubble), an operator and a square symbol with no stubs give null', () => {
   assert.equal(C.pipeLines(prep('RING')), null);
   assert.equal(C.pipeLines(prep('HANDLE')), null);
@@ -58,7 +68,10 @@ test('stubs that end in a cross tick: the straight stubs are cut, the ticks stay
   const s = at(run(stubs), 112, 106);
   assert.equal(s.standard, false, JSON.stringify(s));
   assert.equal(s.why, 'left-over');
-  assert.ok(s.explained > 0.9, 'only the ticks are left over, not the stubs: ' + s.explained);
+  // The ticks are about 17% of the ink left once the stubs are cut (0.83); stubs left on would give about 0.71.
+  assert.ok(s.explained > 0.8, 'only the ticks are left over, not the stubs: ' + s.explained);
+  // Legend rules (2026-11-18): an operator stands on its body, never out on the pipe past the body's ends.
+  assert.equal(s.operator, null, JSON.stringify(s));
 });
 
 test('a stub that turns a corner: the straight part is cut, the bend stays as extra linework', () => {
