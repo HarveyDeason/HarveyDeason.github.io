@@ -280,10 +280,10 @@ test('bubble on a printed sheet: a ring with letter strokes under writing boxes 
   assert.notEqual(b.verdict, 'standard', JSON.stringify(b));
 });
 
-test('a bubble is never the closest behind "differs": the bare ring is red with no reason; the ringed tag stays green', () => {
+test('a bubble is never the closest behind "differs"; a bare ring at a bubble’s size and the ringed tag are both green', () => {
   const bare = at(RUN_SHAPES, 220, 220), tagged = at(RUN_SHAPES, 80, 220);
-  assert.equal(bare.verdict, 'not-identified', JSON.stringify(bare));
-  assert.equal(bare.reason, null);
+  // Owner, 2026-11-20: a ring matching a legend bubble is standard even with no tag in it.
+  assert.equal(bare.verdict, 'standard', JSON.stringify(bare));
   assert.equal(tagged.verdict, 'standard', JSON.stringify(tagged));
   assert.deepEqual(C.shapeVerdict({ bodies: [], explained: 0, closest: { name: 'RING', score: 1, explained: 1, bubble: true }, sizeScale: 1 }), { verdict: 'not-identified', reason: null });
 });

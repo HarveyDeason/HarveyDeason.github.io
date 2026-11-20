@@ -356,3 +356,14 @@ test('owner 2: a line with small marks along it, 3 pt tall (an electrical line),
   for (let i = 0; i < 3; i++) paths.push(poly([[104 + i * 7, 98.5], [106 + i * 7, 101.5], [108 + i * 7, 98.5]]));
   assert.equal(R.sheetShapes(paths, { ...OPT2, longRun: 150 }).shapes.length, 0);
 });
+
+// Contractor set (2026-11-20): two valves joined by a bent pipe made one group bigger than any symbol, and it was
+// dropped with no box. An oversized group gives up its open straight pieces (its pipework) and is grouped again.
+test('two WIDGETs joined by a bent pipe, the whole too big for a symbol: each WIDGET is a shape, the pipe is linework', () => {
+  const pipe = [line([124, 106, 150, 106]), line([150, 106, 150, 146]), line([150, 146, 190, 146])];
+  const paths = [...place(W, { x: 100, y: 100 }), ...pipe, ...place(W, { x: 190, y: 140 })];
+  const r = R.sheetShapes(paths, OPT);
+  assert.equal(r.shapes.length, 2, JSON.stringify(r.shapes.map(x => x.box)));
+  assert.ok(r.shapes.some(x => near(x.box, [100, 100, 124, 112])) && r.shapes.some(x => near(x.box, [190, 140, 214, 152])), JSON.stringify(r.shapes.map(x => x.box)));
+  for (const i of indexesOf(paths, pipe)) assert.ok(['run', 'connector'].includes(kindOf(r, i)), String(kindOf(r, i)));
+});

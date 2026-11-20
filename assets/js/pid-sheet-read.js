@@ -985,6 +985,10 @@ export function sheetShapes(paths, options) {
 
     // A group that is one straight chain is a short run; the rest, in the size band, are shapes.
     const shapes = [];
+    // Pieces of closed outlines (a valve's triangles, a pump's ring): never taken out as pipework.
+    const inClosed = new Set();
+    for (const cp of closedPaths) for (let k = cp.from; k < cp.to; k++) inClosed.add(k);
+    const regrouped = new WeakSet();
     for (const g of groups) {
       if (chainOf[g[0]] >= 0 && g.every(i => chainOf[i] === chainOf[g[0]])) {
         for (const i of g) kind[i] = 'run';
@@ -1028,6 +1032,18 @@ export function sheetShapes(paths, options) {
       if (pg && isNum(pg[0]) && isNum(pg[1]) && (box[2] <= PAGE_MARGIN || box[3] <= PAGE_MARGIN || box[0] >= pg[0] - PAGE_MARGIN || box[1] >= pg[1] - PAGE_MARGIN)) continue;
       // A sliver thinner than any legend symbol and long (line drawn double, a label's edge) is linework; a short one may be an operator's part.
       if (isNum(o.minShort) && Math.min(box[2] - box[0], box[3] - box[1]) < Math.max(o.minShort, THIN_FLOOR) && side >= 2 * o.minSide) continue;
+      // A group bigger than any symbol (symbols joined by bent pipework: a dosing pump set) gives up its open straight
+      // pieces at least minSide long, its pipework, and what is left is grouped again (owner, 2026-11-20). Once only.
+      if (side > o.maxSide && !regrouped.has(g)) {
+        const pipe = g.filter(i => !inClosed.has(i) && S[i][4] >= o.minSide);
+        if (pipe.length && pipe.length < g.length) {
+          for (const i of pipe) kind[i] = 'run';
+          lines.push({ kind: 'run', pieces: pipe.slice().sort((p, q) => p - q) });
+          const pipeSet = new Set(pipe);
+          for (const sub of components(g.filter(i => !pipeSet.has(i)), pipeSet).list) { regrouped.add(sub); groups.push(sub); }
+          continue;
+        }
+      }
       if (side < o.minSide || side > o.maxSide) continue;
       const inG = new Set(g);
       const closed = closedPaths.some(cp => inG.has(cp.from) && cp.box.every((v, q) => Math.abs(v - box[q]) <= 0.5));

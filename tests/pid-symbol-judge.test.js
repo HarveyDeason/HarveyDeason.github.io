@@ -64,10 +64,17 @@ test('an invented squiggle: no-fit, no close symbol or a poor one', () => {
   assert.ok(!s.closest || s.closest.score < 0.9);
 });
 
-test('a ring with a tag written in it is standard; a bare ring is not', () => {
+// Owner, 2026-11-20 (overrules 2026-11-17): a ring matching a legend bubble at the sheet's size is standard even when
+// no tag is written in it.
+test('a ring with a tag written in it is standard; a bare ring at a bubble’s size is standard too', () => {
   const tagged = at(R, 80, 200), bare = at(R, 220, 200);
   assert.equal(tagged.standard, true, JSON.stringify(tagged));
-  assert.equal(bare.standard, false, JSON.stringify(bare));
+  assert.equal(bare.standard, true, JSON.stringify(bare));
+});
+test('a bare ring far smaller than any bubble is no bubble', () => {
+  const ring = []; for (let k = 0; k < 24; k++) { const a0 = (k / 24) * 2 * Math.PI, a1 = ((k + 1) / 24) * 2 * Math.PI; ring.push(200 + 3 * Math.cos(a0), 100 + 3 * Math.sin(a0), 200 + 3 * Math.cos(a1), 100 + 3 * Math.sin(a1)); }
+  const r = judgeSplit([{ paths: [tick(ring)], closed: true }], SHAPE_LIBRARY, []);
+  assert.ok(r.length && r[0].standard !== true, JSON.stringify(r));
 });
 
 test('a dashed line is no shape', () => {
@@ -663,6 +670,16 @@ test('a Z mark where another line crosses the lead through it is still a mark: t
     { writing: tagWriting, lines: [tick([60, 89.2, 112, 89.2]), tick([112, 89.2, 170, 89.2])] });
   const s = widgetShape(r);
   assert.equal(s && s.verdict, 'standard', JSON.stringify(s));
+});
+// Owner, 2026-11-20 (a float switch's or ultrasonic's inner marks boxed red on their own): a shape lying wholly inside a
+// symbol found in another shape is part of that symbol: no box of its own.
+test('a shape inside a found symbol is not boxed on its own; one beside it still is', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const inner = { paths: [tick([104, 102, 106, 102]), tick([106, 102, 106, 104])] };
+  const beside = { paths: [tick([140, 102, 142, 102]), tick([142, 102, 142, 104])] };
+  const r = judgeSplit([{ paths: place(W, { x: 100, y: 100 }) }, inner, beside], SHAPE_LIBRARY, [['WIDGET', WIDGET_AT]]);
+  assert.ok(!r.some(x => x.box[0] >= 103 && x.box[2] <= 107), JSON.stringify(r.map(x => x.box)));
+  assert.ok(r.some(x => x.box[0] >= 139 && x.box[2] <= 143), JSON.stringify(r.map(x => x.box)));
 });
 test('the same lead ending on nothing stays the body ink', () => {
   const r = judgeSplit([{ paths: [...widgetStubs().slice(0, -1), ...lead] }], MARK_LIB, [['WIDGET', WIDGET_AT]]);

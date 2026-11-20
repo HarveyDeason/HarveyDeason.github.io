@@ -1544,6 +1544,7 @@ export const JUDGE_BAND = Object.freeze([0.6, 1.6]);   // the judge looks for sy
 export const SCALE_SYMBOLS_MIN = 5;  // fewer symbols than this and the sheet's size is taken as the legend's (1)
 export const LETTER_ROOM = 2;          // a lettered symbol's box holds at most this times its legend letters' share of writing
 export const PEEL_NEW = 0.5;     // a part peeled off a shape must lay this share of its template on ink no earlier part explains
+const bodyBoxes = new WeakMap();   // a judged shape -> the boxes of its found symbols (not operators)
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
 export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
 const LEAD_PIECES = 200;         // pieces followed along one lead, at most
@@ -2077,6 +2078,7 @@ export function judgeShapes(ctx) {
       if (key !== null && memo.has(key)) {
         const m = memo.get(key);
         out.push({ ...m, id: fi, box: [...m.box], symbols: [...m.symbols], reason: m.reason ? { ...m.reason } : null, closest: m.closest ? { ...m.closest } : null });
+        if (bodyBoxes.has(m)) bodyBoxes.set(out[out.length - 1], bodyBoxes.get(m));
         return;
       }
       const base = { id: fi, box: f.box.map(round3), standard: null, verdict: 'not-judged', reason: null, why: 'time', explained: 0, share: null,
@@ -2177,7 +2179,9 @@ export function judgeShapes(ctx) {
         ? writing.filter(b => inBox(f.box, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2)) : []);
 
       // A closed outline with writing in it and nothing found: a bubble matched to its outline.
-      if (!kept.length && f.closed && hasWriting(writing, f.box)) {
+      // An empty ring is a bubble too when it is a bubble's size on this sheet (owner, 2026-11-20; overrules 2026-11-17).
+      const ringWritten = f.closed && hasWriting(writing, f.box);
+      if (!kept.length && f.closed) {
         // On a printed sheet the letters are drawn as ink: a path lying wholly inside a writing box (grown 1 pt) is the tag, not the bubble.
         const letters = writing.filter(b => Array.isArray(b) && b.length === 4 && b.every(isNum)).map(b => [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1]);
         const bare = letters.length ? blank(fr.x0, fr.y0, fr.w, fr.h, PX) : full;
@@ -2186,7 +2190,8 @@ export function judgeShapes(ctx) {
             && !letters.some(w => q.b[0] >= w[0] && q.b[1] >= w[1] && q.b[2] <= w[2] && q.b[3] <= w[3])).map(q => q.p), {}, cfg);
         }
         const m = matchBubble(bubbles, f.box, { ink: bare, near: nearFull }, cfg);
-        if (m.best) { const h = { p: m.best.p, placement: m.best.placement, score: m.best.score }; kept.push({ h, op: false }); addMask(h, false); }
+        const sized = h => isNum(h.placement.k) && h.placement.k >= band.minScale && h.placement.k <= band.maxScale;
+        if (m.best) { const h = { p: m.best.p, placement: m.best.placement, score: m.best.score }; if (ringWritten || sized(h)) { kept.push({ h, op: false }); addMask(h, false); } }
       }
       // Not one outline, with writing in it (Sheet 1's INSTRUMENTATION DESIGNATION examples: bubbles drawn touching,
       // a rim mark beside one): each closed path holding writing is matched as a ring; a rim mark is peeled below.
@@ -2461,9 +2466,13 @@ export function judgeShapes(ctx) {
       const ORDER = { body: 0, symbol: 1, attachment: 2 };
       const parts = kept.map(k => ({ name: nameOf(k.h.p), role: k.role || (k.op ? 'attachment' : 'body') })).sort((a, b) => ORDER[a.role] - ORDER[b.role]);
       out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown, parts });
+      bodyBoxes.set(out[out.length - 1], kept.filter(k => !k.op).map(k => placedBox(k.h)));
       if (key !== null) memo.set(key, out[out.length - 1]);
     });
-    return out;
+    // A shape lying wholly inside a symbol found in another shape (a float switch's inner marks) is part of that
+    // symbol: no box of its own (owner, 2026-11-20).
+    const within = (b, B) => b[0] >= B[0] - 1 && b[1] >= B[1] - 1 && b[2] <= B[2] + 1 && b[3] <= B[3] + 1;
+    return out.filter(e => !out.some(o => o !== e && asArr(bodyBoxes.get(o)).some(B => within(e.box, B))));
   } catch {
     return [];
   }
