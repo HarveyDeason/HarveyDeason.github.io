@@ -347,3 +347,13 @@ demarcation arrows, H4 "HOLD 1", H5 vent).
 
 **Your own sheets:** `phase4-build/own-sheets-C-M.pdf`: C 101 green, 2 amber, 16 red of 119; M 41 green, 10 amber, 4 red
 of 55; no box outside the drawing area.
+
+## Follow-up (2026-11-20): signal-line marks on a contractor set
+
+On a new contractor set the signal lines from float switches carry SIGNAL - ELECTRIC marks at about half the legend's
+size, the line broken into a piece between each pair of marks, and in one place a tank wall crossing through a mark.
+Fixed test-first: line marks are matched from MARK_MIN (0.4) of the legend size; a lead's legs are its turns, not its
+pieces; a mark is matched on each line it touches in turn. On that set's sheet 4028 all four float switches turn green
+(40 / 11 / 12 green / amber / red to 44 / 7 / 12). Tuning answers unchanged (standard amber 3, green 40), H2-H5 64%,
+right flags 0 green, npm test 1262 (1260 pass, 0 fail). Left for later (owner's call): a lead starting at a part found
+only by the peel (a variable-speed motor's signal line) is not cut.

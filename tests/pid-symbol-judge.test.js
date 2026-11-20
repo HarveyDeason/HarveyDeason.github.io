@@ -640,6 +640,30 @@ test('a Z mark on the lead to the bubble goes with the lead, every stroke of it:
   const s = widgetShape(r);
   assert.equal(s && s.verdict, 'standard', JSON.stringify(s));
 });
+// Contractor set (2026-11-20): signal-line Z marks drawn at half the legend's size, and the lead broken into a piece
+// between every pair of marks. Line marks are matched from MARK_MIN of the legend size; a lead's legs are its turns.
+test('a lead carrying half-size Z marks is still a lead: the body standard', () => {
+  const zed = [tick([110.25, 91.05, 110.25, 89.25]), tick([110.25, 89.25, 113.65, 88.35]), tick([113.65, 88.35, 113.65, 90.1])];
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, ZED] };
+  const r = judgeSplit([{ paths: [...widgetStubs().slice(0, -1), ...lead, ...zed] }, bubbleGroup], lib, [['WIDGET', WIDGET_AT]], { writing: tagWriting });
+  const s = widgetShape(r);
+  assert.equal(s && s.verdict, 'standard', JSON.stringify(s));
+});
+test('a lead drawn as many short pieces in one straight line is one leg: the body standard', () => {
+  const pieces = []; for (let y = 100; y > 80; y -= 2.5) pieces.push(tick([112, y, 112, y - 2.5]));
+  const r = judgeSplit([{ paths: [...widgetStubs().slice(0, -1), ...pieces, tick([112, 80, 116, 80])] }, bubbleGroup], MARK_LIB, [['WIDGET', WIDGET_AT]], { writing: tagWriting });
+  const s = widgetShape(r);
+  assert.equal(s && s.verdict, 'standard', JSON.stringify(s));
+});
+test('a Z mark where another line crosses the lead through it is still a mark: the body standard', () => {
+  const zed = [tick([108.5, 92.4, 108.5, 88.8]), tick([108.5, 88.8, 115.3, 87]), tick([115.3, 87, 115.3, 90.5])];
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, ZED] };
+  // A long line (another shape's, as a tank wall) crossing the lead at the mark.
+  const r = judgeSplit([{ paths: [...widgetStubs().slice(0, -1), ...lead, ...zed] }, bubbleGroup], lib, [['WIDGET', WIDGET_AT]],
+    { writing: tagWriting, lines: [tick([60, 89.2, 112, 89.2]), tick([112, 89.2, 170, 89.2])] });
+  const s = widgetShape(r);
+  assert.equal(s && s.verdict, 'standard', JSON.stringify(s));
+});
 test('the same lead ending on nothing stays the body ink', () => {
   const r = judgeSplit([{ paths: [...widgetStubs().slice(0, -1), ...lead] }], MARK_LIB, [['WIDGET', WIDGET_AT]]);
   const s = widgetShape(r);

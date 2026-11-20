@@ -1545,6 +1545,8 @@ export const SCALE_SYMBOLS_MIN = 5;  // fewer symbols than this and the sheet's 
 export const LETTER_ROOM = 2;          // a lettered symbol's box holds at most this times its legend letters' share of writing
 export const PEEL_NEW = 0.5;     // a part peeled off a shape must lay this share of its template on ink no earlier part explains
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
+export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
+const LEAD_PIECES = 200;         // pieces followed along one lead, at most
 export const OP_ON_BODY = 0.25;  // an operator laying more of its linework than this inside a found body, along its pipe, lies across it
 const FILL_TWIN = 0.25;         // loops within this share of a filled loop's size are its twins, filled alike
 const FILL_DENSITY = 0.2;        // ink filling this share of a body's closed outline (inside its lines) is its fill (normally closed)
@@ -1844,22 +1846,29 @@ export function judgeShapes(ctx) {
         const touched = lines.filter(L => cl.some(i => touchesSeg(S[i], S[L])));
         if (!touched.length) continue;
         // The line the mark sits on, with the pieces it runs on into (a pipe cut at a junction beside the mark).
-        const on = [...new Set([...touched, ...touched.flatMap(T => endNear(T).filter(L => lineSet.has(L) && runsOn(L, T)))])];
+        const onAll = [...new Set([...touched, ...touched.flatMap(T => endNear(T).filter(L => lineSet.has(L) && runsOn(L, T)))])];
         const fr = frameAround(cb, markMax);
         if (!frameOk(fr)) continue;
-        const ink = inkOf(fr, [...cl, ...on]), mwin = { ink, near: dilate(ink, tolPx) }, clInk = inkOf(fr, cl);
-        const segs = segsOf(S, [...cl, ...on], 0.5), centre = centreOf(cb), radius = Math.hypot(cb[2] - cb[0], cb[3] - cb[1]) / 2 + 2;
+        const clInk = inkOf(fr, cl), centre = centreOf(cb), radius = Math.hypot(cb[2] - cb[0], cb[3] - cb[1]) / 2 + 2;
+        // A mark sits on one line: it is matched on each line it touches in turn (level, then upright), so a line crossing
+        // there (a tank wall across a signal line) is not read as part of it.
         let ok = false;
-        for (const p of marks) {
-          for (const pl of proposePlacements(p, segs, centre, { ...band, radius })) {
-            const sc = scorePlacement(p, pl, mwin, cfg);
-            if (!sc || sc.score < cfg.recognise) continue;
-            const h = { p, placement: pl, score: sc.score };
-            if (weakestLine(h, mwin, cfg) < LINE_MIN || coverage(clInk, templateIn(fr, h, cfg), []) < cfg.shapeExplained) continue;
-            ok = true;
-            break;
-          }
+        for (const on of [onAll.filter(i => level(S[i])), onAll.filter(i => !level(S[i]))].filter(g => g.length)) {
           if (ok) break;
+          const ink = inkOf(fr, [...cl, ...on]), mwin = { ink, near: dilate(ink, tolPx) };
+          const segs = segsOf(S, [...cl, ...on], 0.5);
+          for (const p of marks) {
+            // Line marks are drawn at any size along their line (a legend's line-type samples are drawn large): from MARK_MIN.
+            for (const pl of proposePlacements(p, segs, centre, { ...band, minScale: MARK_MIN * sizeScale, radius })) {
+              const sc = scorePlacement(p, pl, mwin, cfg);
+              if (!sc || sc.score < cfg.recognise) continue;
+              const h = { p, placement: pl, score: sc.score };
+              if (weakestLine(h, mwin, cfg) < LINE_MIN || coverage(clInk, templateIn(fr, h, cfg), []) < cfg.shapeExplained) continue;
+              ok = true;
+              break;
+            }
+            if (ok) break;
+          }
         }
         if (ok) for (const i of cl) found.add(i);
       }
@@ -2013,7 +2022,10 @@ export function judgeShapes(ctx) {
         if (onEdge(a) === onEdge(b)) continue;
         const run = [i0];
         let far = onEdge(a) ? b : a;
-        for (let leg = 0; leg < 6; leg++) {
+        // Up to 6 legs, a leg being a straight stretch: pieces in line with the one before (a lead broken at each of its
+        // marks) are one leg.
+        const dirOf = i => { const q = S[i], L = Math.hypot(q[2] - q[0], q[3] - q[1]) || 1; return [(q[2] - q[0]) / L, (q[3] - q[1]) / L]; };
+        for (let legs = 1, step = 0; legs <= 6 && step < LEAD_PIECES; step++) {
           if (onRing(far)) {
             // The marks on the lead go with it, every stroke of each (a Z's ticks touch only its own diagonal).
             const got = new Set(run);
@@ -2023,7 +2035,8 @@ export function judgeShapes(ctx) {
           const next = free.filter(j => !run.includes(j) && meets(j, far));
           const branch = free.filter(j => !run.includes(j) && !next.includes(j) && distToSeg(far, S[j]) <= 0.5);
           if (next.length !== 1 || branch.length) break;
-          const j = next[0];
+          const j = next[0], a = dirOf(run[run.length - 1]), b = dirOf(j);
+          if (Math.abs(a[0] * b[1] - a[1] * b[0]) > 0.05) legs++;   // a turn starts a new leg
           run.push(j);
           far = Math.hypot(S[j][0] - far[0], S[j][1] - far[1]) <= 0.5 ? [S[j][2], S[j][3]] : [S[j][0], S[j][1]];
         }
