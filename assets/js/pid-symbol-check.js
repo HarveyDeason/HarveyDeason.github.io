@@ -1409,6 +1409,7 @@ const PIPE_LONG = 1.2;      // no connection points: the long axis when one side
 const CUT_PARALLEL = 0.02;  // sin of the angle between a cut piece and the pipe line
 const CUT_OFF = 1;          // a cut piece lies within this of the pipe line, ends within this of the box edge and of the next piece
 const CUT_JOIN = 0.5;       // a piece not in line with the pipe within this of a piece's end makes a junction
+const END_GAP = 4;          // points: a short bar ending a pipe this close to another found symbol is its connection
 
 /**
  * Where a symbol's pipe runs through it, in the symbol's own frame:
@@ -1423,9 +1424,20 @@ export function pipeLines(prepared) {
     const side = [], end = [];   // y of points on the left or right edges; x of points on the top or bottom edges
     const sides = new Set(), ends = new Set();   // which side (left 0, right 1) and which end (top 0, bottom 1) they are on
     const segs = asArr(p.segs).filter(g => Array.isArray(g) && g.slice(0, 4).every(isNum));
+    // A bar straight across a long symbol, from one long side to the other (a gate's bar, a knife gate's blades), is no
+    // pipe: the pipe runs along the symbol's length (contractor set, 2026-11-20: a wedge gate's pipe was never cut).
+    const barAcross = g => {
+      const upright = w >= PIPE_LONG * h, level = h >= PIPE_LONG * w;
+      if (!upright && !level) return false;
+      const k = upright ? 0 : 1, o = 1 - k, span = upright ? h : w;   // k: the coordinate the bar stands at
+      if (Math.abs(g[2 + k] - g[k]) > PIPE_EDGE) return false;
+      let lo = Infinity, hi = -Infinity;
+      for (const q of segs) if (Math.abs(q[k] - g[k]) <= PIPE_EDGE && Math.abs(q[2 + k] - g[k]) <= PIPE_EDGE) { lo = Math.min(lo, q[o], q[2 + o]); hi = Math.max(hi, q[o], q[2 + o]); }
+      return lo <= PIPE_EDGE && hi >= span - PIPE_EDGE;
+    };
     for (const g of segs) {
       const dx = g[2] - g[0], dy = g[3] - g[1], len = Math.hypot(dx, dy);
-      if (!(len > 0)) continue;
+      if (!(len > 0) || barAcross(g)) continue;
       for (const [x, y] of [[g[0], g[1]], [g[2], g[3]]]) {
         const onSide = Math.abs(x) <= PIPE_EDGE || Math.abs(x - w) <= PIPE_EDGE, onEnd = Math.abs(y) <= PIPE_EDGE || Math.abs(y - h) <= PIPE_EDGE;
         if (onSide && onEnd) continue;   // a corner
@@ -1464,11 +1476,23 @@ export function pipeLines(prepared) {
  * symbol's own pipe: straight pieces on one of its pipe lines, outside its box,
  * starting at its box edge and running outward through collinear pieces to the
  * first junction (the piece before a junction is cut, what meets there stays).
+ * branches: indexes of other lines (not the shape's) that may meet a piece part way along it: such a piece is not cut
+ * (one pipe piece running on past a tee is not all this symbol's own).
  * Never throws: hostile input gives [].
  */
-export function cutPipe(S, pieces, hit, marks) {
+export function cutPipe(S, pieces, hit, marks, branches) {
   try {
     const mk = marks instanceof Set ? marks : new Set();
+    const br = Array.isArray(branches) ? branches.filter(j => Number.isInteger(j) && Array.isArray(S[j]) && S[j].slice(0, 4).every(isNum)) : [];
+    // A branch's end meeting piece i away from both of its ends: a tee part way along it.
+    const teeOn = i => { const q = S[i], a = [q[0], q[1]], b = [q[2], q[3]];
+      const len = Math.hypot(q[2] - q[0], q[3] - q[1]);
+      // A piece along the same line (the pipe drawn again, overlapping) is no branch.
+      const along = j => { const g = S[j], gl = Math.hypot(g[2] - g[0], g[3] - g[1]);
+        return gl > 0 && len > 0 && Math.abs((g[2] - g[0]) * (q[3] - q[1]) - (g[3] - g[1]) * (q[2] - q[0])) / (gl * len) < CUT_PARALLEL
+          && Math.abs((g[0] - a[0]) * (b[1] - a[1]) - (g[1] - a[1]) * (b[0] - a[0])) / len <= CUT_OFF; };
+      return br.some(j => j !== i && !along(j) && [[S[j][0], S[j][1]], [S[j][2], S[j][3]]].some(e => distToSeg(e, q) <= CUT_JOIN
+        && Math.hypot(e[0] - a[0], e[1] - a[1]) > CUT_JOIN && Math.hypot(e[0] - b[0], e[1] - b[1]) > CUT_JOIN)); };
     if (!Array.isArray(S) || !Array.isArray(pieces) || !isHit(hit)) return [];
     const pl = pipeLines(hit.p);
     if (!pl) return [];
@@ -1498,7 +1522,11 @@ export function cutPipe(S, pieces, hit, marks) {
       const queue = [];
       for (const i of line) {
         const q = S[i];
-        if (insideInset(q[0], q[1]) || insideInset(q[2], q[3])) continue;
+        const in0 = insideInset(q[0], q[1]), in1 = insideInset(q[2], q[3]);
+        // Pipe drawn on into the symbol (a union's own stub drawn with the pipe): one end inside, the other out past its box.
+        const beyond = (x, y) => !nearBox(x, y) && !insideInset(x, y);
+        if (in0 !== in1 && (in0 ? beyond(q[2], q[3]) : beyond(q[0], q[1]))) { queue.push([i, in0 ? [q[2], q[3]] : [q[0], q[1]]]); continue; }
+        if (in0 || in1) continue;
         const e0 = nearBox(q[0], q[1]), e1 = nearBox(q[2], q[3]);
         if (e0 === e1) continue;   // both ends on the box edge (along it) or neither
         queue.push([i, e0 ? [q[2], q[3]] : [q[0], q[1]]]);
@@ -1507,7 +1535,9 @@ export function cutPipe(S, pieces, hit, marks) {
       while (queue.length) {
         const [i, far] = queue.pop();
         if (seen.has(i)) continue;
-        seen.add(i); out.add(i);
+        seen.add(i);
+        if (teeOn(i)) continue;
+        out.add(i);
         if (isJunction(far[0], far[1], i)) continue;
         for (const j of line) {
           if (seen.has(j)) continue;
@@ -1543,6 +1573,7 @@ export const SIZE_TOL = 0.15;        // a body drawn more than this off the shee
 export const JUDGE_BAND = Object.freeze([0.6, 1.6]);   // the judge looks for symbols at this share of the sheet's size, to this much of it
 export const SCALE_SYMBOLS_MIN = 5;  // fewer symbols than this and the sheet's size is taken as the legend's (1)
 export const LETTER_ROOM = 2;          // a lettered symbol's box holds at most this times its legend letters' share of writing
+export const NEAR_RESCORE = 0.1;  // a sweep near miss scoring within this of recognise is scored again on its shape's own ink
 export const PEEL_NEW = 0.5;     // a part peeled off a shape must lay this share of its template on ink no earlier part explains
 const bodyBoxes = new WeakMap();   // a judged shape -> the boxes of its found symbols (not operators)
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
@@ -1934,6 +1965,17 @@ export function judgeShapes(ctx) {
       const off = q => Math.abs((q[0] - a[0]) * dy - (q[1] - a[1]) * dx) / L;
       return runPieces.some(i => { const q = S[i]; return off([q[0], q[1]]) <= 0.5 && off([q[2], q[3]]) <= 0.5; });
     };
+    // A connector lying on a found body's own pipe line runs on as its pipe (a gate piped to a reducer), never a stem.
+    const alongBodyPipe = (a, b, f) => f.spots.some(sp => {
+      const h = sp.hit, pl = !h.p.operator && pipeLines(h.p);
+      if (!pl) return false;
+      return [pl, ...(pl.also ? [pl.also] : [])].some(L => L.at.some(v => {
+        const p0 = L.axis === 'h' ? placePoint(h.placement, 0, v) : placePoint(h.placement, v, 0);
+        const p1 = L.axis === 'h' ? placePoint(h.placement, h.p.w, v) : placePoint(h.placement, v, h.p.h);
+        const dx = p1[0] - p0[0], dy = p1[1] - p0[1], len = Math.hypot(dx, dy);
+        return len > 0 && [a, b].every(q => Math.abs((q[0] - p0[0]) * dy - (q[1] - p0[1]) * dx) / len <= CUT_OFF);
+      }));
+    });
     const isBody = f => f.spots.some(sp => !sp.hit.p.operator);
     const merged2 = new Set();
     if (operators.length || asArr(split.lines).some(l => l && l.kind === 'connector')) {
@@ -1957,7 +1999,7 @@ export function judgeShapes(ctx) {
           const a = ends[0], b = ends.reduce((m, e) => (Math.hypot(e[0] - a[0], e[1] - a[1]) > Math.hypot(m[0] - a[0], m[1] - a[1]) ? e : m), a);
           const lo = ends.reduce((m, e) => (Math.hypot(e[0] - b[0], e[1] - b[1]) > Math.hypot(m[0] - b[0], m[1] - b[1]) ? e : m), b);
           const onBody = touching(lo, fi) || touching(b, fi);
-          if (!onBody || inLineWithPipe(lo, b)) continue;
+          if (!onBody || inLineWithPipe(lo, b) || alongBodyPipe(lo, b, f)) continue;
           for (const gi of cand) {
             const far = touching(lo, fi) ? b : lo;
             if (!touching(far, gi)) continue;
@@ -2044,14 +2086,41 @@ export function judgeShapes(ctx) {
       }
       return [];
     };
-    for (const f of judged) {
+    // A pipe ending in a short bar just short of another found symbol: the bar is that symbol's connection (owner,
+    // 2026-11-20: the small T under an air release valve), cut with the pipe. Short: at most half the body's short side.
+    const foundIn = judged.map(g => g.spots.filter(sp => !sp.hit.p.operator).map(sp => placedBox(sp.hit)));
+    const endBar = (f, fi, pipe, hit, cut) => {
+      const bb = placedBox(hit), most = Math.min(bb[2] - bb[0], bb[3] - bb[1]) / 2, got = [];
+      const nearBody = q => q[0] >= bb[0] - CUT_OFF && q[0] <= bb[2] + CUT_OFF && q[1] >= bb[1] - CUT_OFF && q[1] <= bb[3] + CUT_OFF;
+      const joins = (j, k) => distToSeg([S[j][0], S[j][1]], S[k]) <= CUT_JOIN || distToSeg([S[j][2], S[j][3]], S[k]) <= CUT_JOIN
+        || distToSeg([S[k][0], S[k][1]], S[j]) <= CUT_JOIN || distToSeg([S[k][2], S[k][3]], S[j]) <= CUT_JOIN;
+      for (const i of pipe) for (const E of [[S[i][0], S[i][1]], [S[i][2], S[i][3]]]) {
+        if (nearBody(E)) continue;
+        // What the pipe's far end runs into: the uncut pieces there and all they join.
+        const G = f.pieces.filter(j => !cut.has(j) && distToSeg(E, S[j]) <= CUT_JOIN);
+        if (!G.length) continue;
+        for (let k = 0; k < G.length; k++) for (const j of f.pieces) if (!cut.has(j) && !G.includes(j) && joins(j, G[k])) G.push(j);
+        const gb = boxOfPieces(S, G);
+        if (Math.max(gb[2] - gb[0], gb[3] - gb[1]) > most) continue;
+        // A symbol found in another shape stands within END_GAP of it, across the pipe's line.
+        const grown = [gb[0] - END_GAP, gb[1] - END_GAP, gb[2] + END_GAP, gb[3] + END_GAP];
+        const across = B => (B[0] <= E[0] && E[0] <= B[2]) || (B[1] <= E[1] && E[1] <= B[3]);
+        if (foundIn.some((boxes, gi) => gi !== fi && boxes.some(B => overlaps(B, grown, 0) && across(B)))) got.push(...G);
+      }
+      return got;
+    };
+    for (const [fi, f] of judged.entries()) {
       const cut = new Set();
       const bodies = f.spots.filter(sp => !sp.hit.p.operator && sp.hit.p.bubble !== true);
       const marked = marks.length && bodies.length ? markInk(f.pieces, [...f.pieces, ...linePieces]) : new Set();
       f.marked = marked;
       f.piped = new Set();
       for (const sp of bodies) {
-        const pipe = cutPipe(S, f.pieces, sp.hit, marked);
+        const fb = [f.box[0] - 2, f.box[1] - 2, f.box[2] + 2, f.box[3] + 2];
+        const branches = linePieces.filter(i => { const q = S[i]; return overlaps([Math.min(q[0], q[2]), Math.min(q[1], q[3]), Math.max(q[0], q[2]), Math.max(q[1], q[3])], fb, 0); });
+        const pipe = cutPipe(S, f.pieces, sp.hit, marked, branches);
+        for (const i of pipe) cut.add(i);
+        for (const i of endBar(f, fi, pipe, sp.hit, cut)) { cut.add(i); pipe.push(i); }
         if (pipe.length) f.piped.add(sp.hit);
         for (const i of pipe) cut.add(i);
         for (const i of leadOf(f.pieces.filter(j => !cut.has(j)), sp.hit, marked)) cut.add(i);
@@ -2204,6 +2273,20 @@ export function judgeShapes(ctx) {
           if (m.best) { const h = { p: m.best.p, placement: m.best.placement, score: m.best.score }; kept.push({ h, op: false }); addMask(h, false); }
         }
       }
+      // A body found, with bubbles drawn touching it (4023: a flowmeter and its tag bubbles, one shape): each closed outline
+      // of its own lying outside every found body is matched as a ring, held as above (writing in it, or a bubble's size).
+      if (kept.some(k => !k.op) && bubbles.length) {
+        const bodyBoxes = kept.filter(k => !k.op).map(k => placedBox(k.h));
+        const inside = (b, B) => b[0] >= B[0] - 1 && b[1] >= B[1] - 1 && b[2] <= B[2] + 1 && b[3] <= B[3] + 1;
+        for (const p of [...new Set(f.pieces.map(i => S[i][5]))].map(pi => paths[pi]).filter(p => p && isClosedPath(p))) {
+          const b = asArr(boxed.find(q => q.p === p) && boxed.find(q => q.p === p).b);
+          if (b.length !== 4 || bodyBoxes.some(B => inside(b, B) || inside(B, b))) continue;
+          const m = matchBubble(bubbles, b, win, cfg);
+          if (!m.best) continue;
+          const h = { p: m.best.p, placement: m.best.placement, score: m.best.score };
+          if (hasWriting(writing, b) || (isNum(h.placement.k) && h.placement.k >= band.minScale && h.placement.k <= band.maxScale)) { kept.push({ h, op: false }); addMask(h, false); }
+        }
+      }
       // Nothing found: a plain symbol matched to the whole shape (both ways at plainBack, nothing running on).
       let plainFound = null;
       if (!kept.length) {
@@ -2220,6 +2303,28 @@ export function judgeShapes(ctx) {
           if (!best || s.score > best.score) best = hit;
         };
         for (const r of rejected) if (r.rejectedFor === 'plain' && inShape(r) && !isOneLine(r.p) && !isLineWithHead(r.p) && !isAttachment(r.p)) tryHit({ p: placeable(r.p), placement: r.placement });
+        // The sweep's near misses, scored on all the ink in their frame (a lead's marks above a motor, a neighbour's edge),
+        // are scored again on this shape's own ink, held as a plain find is (contractor set, 2026-11-20).
+        // Its frame holds the shape and the placed symbol (a motor's shaft may stand off the shape, cut as a connector).
+        for (const h of nearList) {
+          if (!inShape(h) || h.score < cfg.recognise - NEAR_RESCORE || !h.p.checkable || h.p.bubble || h.p.operator || isOneLine(h.p) || isLineWithHead(h.p) || isAttachment(h.p)
+            || !isNum(h.placement.k) || h.placement.k < band.minScale || h.placement.k > band.maxScale) continue;
+          if (!writtenIn && asArr(asObj(h.p.symbol).letters).length) continue;
+          if (!lettersRoomOk(h.p, placedBox(h))) continue;
+          const pb = placedBox(h), fr2 = frameAround([Math.min(pb[0], f.box[0]), Math.min(pb[1], f.box[1]), Math.max(pb[2], f.box[2]), Math.max(pb[3], f.box[3])], 2);
+          if (!frameOk(fr2)) continue;
+          const full2 = fullOf(fr2), w2 = { ink: inkOf(fr2, f.pieces), near: dilate(full2, tolPx) }, p = placeable(h.p);
+          const sc = scorePlacement(p, h.placement, w2, cfg);
+          if (!sc || sc.score < cfg.recognise || sc.backward < cfg.plainBack) continue;
+          const hit = { p, placement: h.placement, score: sc.score };
+          if (weakestLine(hit, w2, cfg) < LINE_MIN) continue;
+          // Running on past a corner is judged on ink the symbol itself does not draw (as the peel judges it): a motor's
+          // own arrow line runs on through its arrowhead's corner.
+          const T2 = templateIn(fr2, hit, cfg), past = blank(fr2.x0, fr2.y0, fr2.w, fr2.h, PX);
+          for (let i = 0; i < past.data.length; i++) past.data[i] = full2.data[i] && !T2.data[i] ? 1 : 0;
+          if (runsOnPastCorner(hit, past, cfg)) continue;
+          if (!best || sc.score > best.score) best = hit;
+        }
         const segs = segsOf(S, f.pieces, minKey), centre = centreOf(f.box), reach = Math.hypot(f.box[2] - f.box[0], f.box[3] - f.box[1]) / 2 + 2;
         for (const p of plains) for (const pl of proposePlacements(p, segs, centre, { ...band, radius: reach })) tryHit({ p, placement: pl });
         if (best) { kept.push({ h: best, op: false }); addMask(best, true); plainFound = best; }
