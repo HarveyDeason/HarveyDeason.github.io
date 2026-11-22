@@ -262,3 +262,83 @@ test('a ring no bubble fits at its size, with a marked lead: the lead is not cut
   const s = at(r, 120, 106);
   assert.ok(s && s.box[1] < 99, 'the lead stays with the small ring: ' + JSON.stringify(r.shapes));
 });
+
+// ── Round 6: filled ball valves, electric signal lines, a chamber drawn to suit ──
+// SP66 52-V-0921 (owner 2026-11-22: "normally closed valves are standard, a variation of a standard valve"): a ball
+// valve drawn filled. As drawn, the fill is 1.08 pt filled strips across each triangle, each its own path; the shape's
+// own ink was drawn from pieces as lines, so the fill read as strip edges (19% of the outline's inside, under
+// FILL_DENSITY): not solid, left over -> amber "extra". Strips 3.5 pt wide here, so the edges alone are well under it.
+const BALLV = sym('c6', 'BALLV', 28, 14, [loop([[0, 0], [28, 14], [28, 0], [0, 14]]), circle(14, 7, 7.1)]);
+const runBall = paths => run(paths, { ...LIB, symbols: [...LIB.symbols, BALLV] });
+// Filled strips W6 pt wide across a triangle with its base upright at x = bx (y0 to y1) and its tip at (tx, ty), cut
+// parallel to its base, each one path of two triangles split by its diagonal.
+const W6 = 3.5;
+const strips = (bx, y0, y1, tx, ty) => { const out = [], dir = Math.sign(tx - bx), n = Math.abs(tx - bx), t = u => Math.abs(u - bx) / n;
+  for (let k = 0; k < n - 1e-9; k += W6) { const xa = bx + dir * k, xb = bx + dir * Math.min(k + W6, n);
+    const a0 = [xa, y0 + (ty - y0) * t(xa)], a1 = [xa, y1 + (ty - y1) * t(xa)], b0 = [xb, y0 + (ty - y0) * t(xb)], b1 = [xb, y1 + (ty - y1) * t(xb)];
+    out.push({ ...line([...a0, ...a1, ...a1, ...b0, ...b0, ...a0, ...a1, ...b0, ...b0, ...b1, ...b1, ...a1]), filled: true, stroked: true, width: 0 }); }
+  return out; };
+test('a ball valve drawn filled (normally closed), its fill strips of their own: standard', () => {
+  const r = runBall([line([40, 107, 100, 107]), line([128, 107, 190, 107]), ...place(BALLV, { x: 100, y: 100 }), ...strips(100, 100, 114, 114, 107), ...strips(128, 100, 114, 114, 107)]);
+  const s = at(r, 114, 107);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+});
+test('a GATE with only one of its two triangles filled by strips: not standard', () => {
+  const r = run([line([40, 107, 100, 107]), line([128, 107, 190, 107]), ...place(GATE, { x: 100, y: 100 }), ...strips(100, 100, 114, 114, 107)]);
+  const s = at(r, 114, 107);
+  assert.ok(s && s.verdict !== 'standard', JSON.stringify(s));
+});
+
+// 4024 / 4030 (owner 2026-11-22, "build it"): an electric signal line drawn as short pieces with a Z mark at each
+// joint, shorter than a long run, standing between two pipes or from a boundary to a bubble, its ends short of
+// what it serves. No symbol is found in it and the line is in the shape itself (it is no run), so the line-mark rule,
+// which only looked at linework, never took it: one red box per leg. Such a line with its marks is linework.
+// As drawn on 4024: pieces 14.16 pt long, a full-size Z (6.84 x 5.4 pt) at each joint. Horizontal: laid over (x, y) -> (y, x).
+const zLine = (x, y0, y1) => { const out = []; for (let y = y0; y < y1 - 1e-9; y += 14.16) { const j = Math.min(y + 14.16, y1); out.push(line([x, y, x, j]));
+  if (j < y1) out.push(line([x - 3.42, j - 5.4, x - 3.42, j - 1.83, x - 3.42, j - 1.83, x + 3.36, j, x + 3.36, j, x + 3.42, j, x + 3.42, j, x + 3.42, j - 3.54])); } return out; };
+const zLineH = (y, x0, x1) => zLine(y, x0, x1).map(p => ({ ...p, segs: p.segs.map((v, i, a) => (i % 2 === 0 ? a[i + 1] : a[i - 1])) }));
+// A thin symbol (the legend has symbols 4 pt across), so a shape as thin as a marked line is not dropped as too thin.
+const THIN = sym('c7', 'THIN', 30, 4, [loop([[0, 0], [30, 0], [30, 4], [0, 4]]), line([0, 2, 30, 2])]);
+const runZ = paths => C.checkSheet({ pageSize: [300, 300], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, writing: [],
+  library: { ...LIB, symbols: [...LIB.symbols, METERBOX, ZMARK, DIAMOND, THIN] }, lookups: {} });
+const redNear = (r, x, y) => r.shapes.find(s => s.standard === false && x >= s.box[0] - 1 && x <= s.box[2] + 1 && y >= s.box[1] - 1 && y <= s.box[3] + 1);
+test('a marked signal line standing alone between two pipes, short of both: linework, no red box', () => {
+  const r = runZ([line([20, 60, 280, 60]), line([20, 120, 280, 120]), ...zLine(120, 64, 113)]);
+  assert.ok(!redNear(r, 120, 90), JSON.stringify(r.shapes));
+});
+test('a marked signal line turning two corners (up, across, down to a bubble): linework, the bubble standard on its own', () => {
+  const r = runZ([line([20, 200, 110, 200]), ...zLine(100, 140, 196), ...zLineH(140, 100, 135), ...zLine(135, 140, 160), circle(135, 180, 20), line([115, 180, 155, 180])]);
+  assert.ok(!redNear(r, 100, 170), 'the long leg: ' + JSON.stringify(r.shapes));
+  assert.ok(!redNear(r, 118, 140), 'the top leg: ' + JSON.stringify(r.shapes));
+  const b = at(r, 135, 190);
+  assert.ok(b && b.verdict === 'standard', JSON.stringify(b));
+});
+test('a marked signal line with a small box hung on it: still a shape', () => {
+  const r = runZ([line([20, 60, 280, 60]), line([20, 120, 280, 120]), ...zLine(120, 64, 113), loop([[120, 86], [126, 86], [126, 92], [120, 92]])]);
+  assert.ok(redNear(r, 123, 89) || r.shapes.some(s => s.standard !== true && s.box[0] <= 121 && s.box[2] >= 125), JSON.stringify(r.shapes));
+});
+
+// 4021 #11 (owner 2026-11-22: a chamber / manhole, "much like the tanks they might be resized"): the legend's MANHOLE
+// (184 x 213 pt, over the size a symbol is swept at) drawn at 0.6 of it. Too big to be checkable, it was never tried
+// for the box fit: red. A legend symbol bigger than the checkable size is drawn to suit: box-fitted at any size, its
+// size not judged.
+const VAULT = sym('c8', 'VAULT', 180, 210, [loop([[0, 12], [70, 12], [70, 0], [110, 0], [110, 12], [180, 12], [180, 210], [0, 210]]),
+  loop([[10, 22], [170, 22], [170, 200], [10, 200]]), line([140, 190, 200, 190])], { });
+VAULT.w = 200;
+// A checkable symbol 110 pt long, so shapes up to ~150 pt are cut out of the sheet (the legend has symbols that big).
+const LONGBOX = sym('c9', 'LONGBOX', 110, 30, [loop([[0, 0], [110, 0], [110, 30], [0, 30]]), line([0, 0, 110, 30]), line([0, 30, 110, 0])]);
+const runVault = paths => C.checkSheet({ pageSize: [400, 400], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, writing: [],
+  library: { ...LIB, symbols: [...LIB.symbols, VAULT, LONGBOX] }, lookups: {} });
+test('a big legend structure (over the checkable size) drawn at 0.6 of it: found by its box, standard', () => {
+  const r = runVault(place(VAULT, { x: 100, y: 100, k: 0.6 }));
+  const s = at(r, 160, 170);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.deepEqual(s.parts.map(q => q.name), ['VAULT']);
+});
+test('a plain box the size of the structure drawn small is not taken for it', () => {
+  const r = runVault([loop([[100, 100], [208, 100], [208, 226], [100, 226]]), line([100, 100, 208, 226])]);
+  const s = at(r, 154, 163);
+  assert.ok(!s || !s.parts.some(q => q.name === 'VAULT'), JSON.stringify(s));
+});

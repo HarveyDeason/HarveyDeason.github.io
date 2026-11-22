@@ -310,6 +310,10 @@ function prepareOne(symbol, cfg) {
   else if (!out.bubble && (flags.simple === true || out.segs.length < cfg.simpleSegs || total < cfg.simpleLength || !out.keys.length)) out.why = 'simple';
   else if (wild || Math.max(out.w, out.h) > cfg.maxSize || Math.min(out.w, out.h) < cfg.minSize) out.why = 'size';
   out.checkable = !out.why;
+  // A legend structure (a tank, a chamber) bigger than any swept symbol is drawn to suit (owner, 2026-11-22: "much like
+  // the tanks they might be resized"): never swept, but box-fitted to a shape at whatever size it is drawn there.
+  out.toSuit = out.why === 'size' && !wild && !out.bubble && Math.min(out.w, out.h) >= cfg.minSize && flags.judgeOnly !== true
+    && !(typeof flags.lineMark === 'string' && flags.lineMark) && flags.operator !== true;
   // An operator (a handwheel, lever or actuator on another symbol's stem) is
   // never swept; the shape check places it beside a body, however plain.
   out.operator = flags.operator === true;
@@ -319,7 +323,7 @@ function prepareOne(symbol, cfg) {
     && (pieces <= 3 || out.segs.every(g => Math.min(Math.abs(g[2] - g[0]), Math.abs(g[3] - g[1])) <= 0.02 * g[4]));
   // Points about a point apart, for the quick look. Only for a symbol that
   // will be matched, whose segments are by now known to be few and short.
-  if (out.checkable || (out.operator && out.segs.length && !wild)) {
+  if (out.checkable || out.toSuit || (out.operator && out.segs.length && !wild)) {
     for (const g of out.segs) {
       const n = Math.max(1, Math.min(400, Math.round(g[4])));
       for (let i = 0; i <= n; i++) out.points.push(g[0] + (g[2] - g[0]) * i / n, g[1] + (g[3] - g[1]) * i / n);
@@ -1251,6 +1255,7 @@ const SHORT_SCORE = 0.8;      // a candidate scoring this, with a line under LIN
 const LOOSE_TRY = 40;         // placements scored in the loose search for a shape nothing explains
 
 const STRETCH_MAX = 1.5;      // a symbol may be fitted to a shape this much more one way than the other
+const TO_SUIT_MIN = 0.25;     // a structure drawn to suit (prepared.toSuit) is box-fitted down to this share of its legend size
 
 // The quick look for a stretched fit: about 30 of the symbol's points, stretched into the box at orientation o,
 // must land on the drawing's ink (grown by the tolerance) at the quick-look share. No bitmap is made.
@@ -1259,7 +1264,7 @@ function quickFit(prepared, o, box, near, cfg) {
   if (!pts.length || !(p.w > 0 && p.h > 0) || !(near && near.data)) return false;
   const turned = o % 2 === 1, bw = box[2] - box[0], bh = box[3] - box[1];
   const sx = (turned ? bh : bw) / p.w, sy = (turned ? bw : bh) / p.h;
-  if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || Math.min(sx, sy) < cfg.minScale / STRETCH_MAX || Math.max(sx, sy) > cfg.maxScale * STRETCH_MAX) return false;
+  if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || !scaleOk(p, sx, sy, cfg)) return false;
   const [a, b, c, d] = ORIENTATIONS[o];
   const at = (x, y) => [a * x * sx + c * y * sy, b * x * sx + d * y * sy];
   const cs = [at(0, 0), at(p.w, 0), at(0, p.h), at(p.w, p.h)];
@@ -1275,6 +1280,11 @@ function quickFit(prepared, o, box, near, cfg) {
   return n > 0 && on >= cfg.quickLook * n;
 }
 
+// A box fit's scales sx, sy within the size band (STRETCH_MAX beyond it either way); a structure drawn to suit at any
+// size down to TO_SUIT_MIN.
+const scaleOk = (p, sx, sy, b) => (p.toSuit === true ? Math.min(sx, sy) >= TO_SUIT_MIN
+  : Math.min(sx, sy) >= b.minScale / STRETCH_MAX && Math.max(sx, sy) <= b.maxScale * STRETCH_MAX);
+
 // A library symbol stretched to fill a box at orientation o (0-7): { p (prepared), placement }, or null when the
 // stretch is more than STRETCH_MAX one way than the other, or far outside the size band.
 function boxFit(prepared, o, box, band) {
@@ -1284,10 +1294,11 @@ function boxFit(prepared, o, box, band) {
   const sx = (turned ? bh : bw) / p.w, sy = (turned ? bw : bh) / p.h;
   // The size band is the judge's band at the sheet's own scale (a sheet printed at 43% fits at 43%).
   const cfg = settings(), b = band && isNum(band.minScale) && isNum(band.maxScale) ? band : cfg;
-  if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || Math.min(sx, sy) < b.minScale / STRETCH_MAX || Math.max(sx, sy) > b.maxScale * STRETCH_MAX) return null;
+  if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || !scaleOk(p, sx, sy, b)) return null;
   const scaled = { ...sym, w: p.w * sx, h: p.h * sy, flags: { ...asObj(sym.flags), simple: false, stretch: false, manual: false },
     paths: asArr(sym.paths).map(q => ({ ...q, segs: asArr(q.segs).map((v, i) => (i % 2 === 0 ? v * sx : v * sy)) })) };
-  const prep = placeable(prepareOne(scaled, cfg));
+  const prep = placeable(prepareOne(scaled, p.toSuit === true ? { ...cfg, maxSize: Infinity } : cfg));
+  if (p.toSuit === true) prep.toSuit = true;
   const base = { o, k: 1, tx: 0, ty: 0 };
   const c = [[0, 0], [prep.w, 0], [0, prep.h], [prep.w, prep.h]].map(([x, y]) => placePoint(base, x, y));
   const tx = box[0] - Math.min(...c.map(q => q[0])), ty = box[1] - Math.min(...c.map(q => q[1]));
@@ -1870,7 +1881,7 @@ export function judgeShapes(ctx) {
     const smallAttachment = p => isAttachment(p) && (p.why === 'simple' || plainShape(p));
     const looseable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator && !isOneLine(p) && !isLineWithHead(p) && !smallAttachment(p));
     // Every symbol a shape may be fitted to at its own proportions (bubbles are matched by their outline).
-    const fittable = prepared.filter(p => p && p.checkable && !p.bubble && !p.operator && asArr(p.points).length && !isOneLine(p) && !isLineWithHead(p) && !smallAttachment(p));
+    const fittable = prepared.filter(p => p && (p.checkable || p.toSuit) && !p.bubble && !p.operator && asArr(p.points).length && !isOneLine(p) && !isLineWithHead(p) && !smallAttachment(p));
     // Touching standard symbols that may be peeled off a shape: a full match on their own ink; small plain ones are attachments only.
     const peelable = fittable.filter(p => p.why !== 'simple' && !isAttachment(p));
     const nearList = asArr(c.near).filter(isHit), rejected = asArr(c.rejected).filter(isHit);
@@ -1939,6 +1950,7 @@ export function judgeShapes(ctx) {
         }
         if (ok) for (const i of cl) found.add(i);
       }
+      found.lines = lineSet;   // the straight pieces taken as the line the marks sit on
       return found;
     };
     // The writing a lettered symbol's box may hold: no more than LETTER_ROOM times the share of the box its own
@@ -2285,6 +2297,13 @@ export function judgeShapes(ctx) {
           const m = markInk(f.pieces, near);
           if (m.size && f.pieces.every(i => m.has(i))) { out.push({ ...base, verdict: 'line-mark', why: null, lineMark: true }); return; }
         }
+        // A marked line shorter than a long run (4024, 4030: an electric signal line, a Z at each joint, between two
+        // pipes or from a boundary to a bubble) is no run, so the line is in the shape itself: a shape, not closed, that is
+        // only straight line and the marks on it is part of that line too.
+        if (!f.closed) {
+          const m = markInk(f.pieces, [...f.pieces, ...near]);
+          if (m.size && f.pieces.every(i => m.has(i) || m.lines.has(i))) { out.push({ ...base, verdict: 'line-mark', why: null, lineMark: true }); return; }
+        }
       }
       const body = f.spots.some(sp => !sp.hit.p.operator);
       const g = 2 + (body && attachments.length ? Math.max(opReach, attReach) + 2 : 0);
@@ -2308,14 +2327,31 @@ export function judgeShapes(ctx) {
       };
       // A body drawn normally closed (Sheet 1's combination examples): ink filling its closed outlines is its fill, when
       // every large outline is filled (one triangle of two filled is not in the legend).
+      // The shape's own ink with its filled paths solid: a fill drawn as strips of its own (SP66) is read as solid ink
+      // here, not as the strips' edges (own draws every piece as a line).
+      let ownSolid = null;
+      const solidOwn = () => {
+        if (ownSolid) return ownSolid;
+        if (!piecesOfPath) { piecesOfPath = new Map(); S.forEach((q, i) => { const k = q[5]; if (!piecesOfPath.has(k)) piecesOfPath.set(k, []); piecesOfPath.get(k).push(i); }); }
+        const mine = new Set(f.pieces), fills = [];
+        for (const pi of new Set(f.pieces.map(i => S[i][5]))) {
+          const q = paths[pi];
+          if (q && q.filled === true && asArr(piecesOfPath.get(pi)).every(i => mine.has(i))) fills.push({ ...q, stroked: false });
+        }
+        ownSolid = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
+        ownSolid.data.set(own.data);
+        drawInto(ownSolid, fills, {}, cfg);
+        return ownSolid;
+      };
       const fillLoops = (h, T) => {
         const loops = asArr(h.p.loops);
         if (!loops.length) return;
+        const solid = solidOwn();
         const got = loops.map(lp => {
           const F = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
           drawInto(F, [{ ...lp, filled: true, stroked: false }], { transform: (x, y) => placePoint(h.placement, x, y), scale: h.placement.k }, cfg);
           let n = 0, on = 0;
-          for (let i = 0; i < F.data.length; i++) if (F.data[i] && !T.data[i]) { n++; if (own.data[i]) on++; }
+          for (let i = 0; i < F.data.length; i++) if (F.data[i] && !T.data[i]) { n++; if (solid.data[i]) on++; }
           return { F, n, dense: n >= 8 && on >= FILL_DENSITY * n };
         });
         // A loop the size of a filled one (its twin: a valve's other triangle) must be filled too; a loop of another size
@@ -2691,7 +2727,7 @@ export function judgeShapes(ctx) {
       }
       // The three verdicts. why and standard keep their old meaning for the old readers; verdict and reason say how far off.
       const shown = closest ? { name: nameOf(closest.h.p), tagId: str(asObj(closest.h.p.symbol).tagId), score: round3(closest.h.score), explained: round3(closest.e) } : null;
-      const v = shapeVerdict({ bodies: kept.filter(k => !k.op).map(k => ({ name: nameOf(k.h.p), size: hitSize(k.h) })), explained, sizeScale, shapeExplained: cfg.shapeExplained,
+      const v = shapeVerdict({ bodies: kept.filter(k => !k.op).map(k => ({ name: nameOf(k.h.p), size: k.h.p.toSuit === true ? null : hitSize(k.h) })), explained, sizeScale, shapeExplained: cfg.shapeExplained,
         closest: shown ? { ...shown, oneLine: isOneLine(closest.h.p) || isLineWithHead(closest.h.p), bubble: closest.h.p.bubble === true } : null });
       const ORDER = { body: 0, symbol: 1, attachment: 2 };
       const parts = kept.map(k => ({ name: nameOf(k.h.p), role: k.role || (k.op ? 'attachment' : 'body') })).sort((a, b) => ORDER[a.role] - ORDER[b.role]);
