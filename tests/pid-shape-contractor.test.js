@@ -116,3 +116,65 @@ test('cutPipe: a second piece drawn along the same pipe, overlapping it, is no b
   const S = [seg(60, 107, 100, 107), seg(40, 107, 80, 107)];
   assert.deepEqual(C.cutPipe(S, [0], hitAt(GATE, 100, 100), new Set(), [1]), [0]);
 });
+
+// ── Round 4 (2026-11-22): vessel heads and flow arrows are linework (splitter) ──
+import * as R from '../assets/js/pid-sheet-read.js';
+import { LIBRARY } from './fixtures/symbol-check-sheet.js';
+const OPT = { minSide: 6, maxSide: 60, longRun: 40 };
+const WID = LIBRARY.symbols.find(s => s.name === 'WIDGET');
+const kinds = (r, from) => { let at0 = 0; const out = []; for (const p of r.__paths) { const n = p.segs.length / 4; if (from.includes(p)) for (let k = 0; k < n; k++) out.push((r.lines.find(l => l.pieces.includes(at0 + k)) || {}).kind || null); at0 += n; } return out; };
+const split = paths => ({ ...R.sheetShapes(paths, OPT), __paths: paths });
+// A tank's dished head: one open path of 16 chords from the top of one side wall over to the other.
+const arcPath = (cx, cy, a, b) => { const segs = []; for (let k = 0; k < 16; k++) { const t0 = Math.PI * (1 + k / 16), t1 = Math.PI * (1 + (k + 1) / 16); segs.push(cx + a * Math.cos(t0), cy + b * Math.sin(t0), cx + a * Math.cos(t1), cy + b * Math.sin(t1)); } return line(segs); };
+// A flow arrow (as contractors draw it): two filled halves in one path, and its outline. Tip at (tx, ty).
+const flow = (tx, ty, d, opts = {}) => {
+  const [ux, uy] = { r: [1, 0], l: [-1, 0], u: [0, -1], d: [0, 1] }[d], L = opts.len || 14.16, H = opts.half || 3.54;
+  const M = [tx - L * ux, ty - L * uy], A = [M[0] - H * uy, M[1] + H * ux], B = [M[0] + H * uy, M[1] - H * ux], T = [tx, ty];
+  const fill = { segs: [...A, ...T, ...T, ...M, ...M, ...A, ...M, ...T, ...T, ...B, ...B, ...M], width: 0, stroked: false, filled: opts.open ? false : true, grey: 0 };
+  return opts.open ? [loop([A, T, B])] : [fill, { ...loop([A, T, B]), width: 0 }];
+};
+
+test('a tank head: a smooth one-way curve carrying on from both side walls is linework; a nozzle on it is its own shape', () => {
+  const head = arcPath(162, 100, 62, 41), walls = [line([100, 100, 100, 300]), line([224, 100, 224, 300])];
+  const nozzle = loop([[158, 51], [166, 51], [166, 59.1], [158, 59.1]]);
+  const r = split([...walls, head, { ...head }, nozzle]);
+  assert.ok(kinds(r, [head]).every(k => k === 'run'), 'every chord of the head is line: ' + kinds(r, [head]));
+  assert.ok(r.shapes.every(s => s.box[2] - s.box[0] <= 12), 'no chunk of the head is a shape: ' + JSON.stringify(r.shapes.map(s => s.box)));
+});
+test('a curve with only one end on a wall is no tank head: it is not taken as linework', () => {
+  const head = arcPath(162, 100, 62, 41), wall = line([100, 100, 100, 300]);
+  const nozzle = loop([[158, 51], [166, 51], [166, 59.1], [158, 59.1]]);
+  const r = split([wall, head, nozzle]);
+  assert.ok(kinds(r, [head]).some(k => k !== 'run'), 'the curve stays: ' + kinds(r, [head]));
+});
+test('two flow arrows meeting tip to tip at a tee are linework, no shape', () => {
+  const r = split([line([0, 100, 85.84, 100]), ...flow(100, 100, 'r'), line([100, 100, 200, 100]), ...flow(100, 100, 'u'), line([100, 114.16, 100, 214.16])]);
+  assert.deepEqual(r.shapes.map(s => s.box), []);
+});
+test('a flow arrow at a pipe corner: the pipe turning at its tip is pipe, no shape', () => {
+  const r = split([line([0, 100, 85.84, 100]), ...flow(100, 100, 'r'), line([100, 100, 100, 130])]);
+  assert.deepEqual(r.shapes.map(s => s.box), []);
+});
+test('a flow arrow drawn in a signal line type (like ticks centred on its outline) is linework, no shape', () => {
+  const tick = (cx, cy) => line([cx - 0.855, cy + 3.405, cx + 0.855, cy - 3.405]);
+  const r = split([line([0, 100, 85.84, 100]), ...flow(100, 100, 'r'), tick(92.92, 98.23), tick(92.92, 101.77), tick(99.8, 100)]);
+  assert.deepEqual(r.shapes.map(s => s.box), []);
+});
+test('a flow arrow piped 9 pt to a WIDGET: the arrow and the pipe come off, the WIDGET is a shape on its own', () => {
+  const r = split([line([0, 100, 85.84, 100]), ...flow(100, 100, 'r'), line([100, 100, 109, 100]), ...place(WID, { x: 109, y: 94 })]);
+  assert.equal(r.shapes.length, 1);
+  assert.ok(r.shapes[0].box[0] >= 108.5, 'the WIDGET alone: ' + JSON.stringify(r.shapes[0].box));
+});
+test('a filled bowtie (near equal-sided triangles tip to tip) is no pair of flow arrows: it stays a shape', () => {
+  const r = split([line([0, 100, 86, 100]), ...flow(100, 100, 'r', { len: 14, half: 7 }), ...flow(100, 100, 'l', { len: 14, half: 7 }), line([114, 100, 200, 100])]);
+  assert.equal(r.shapes.length, 1);
+});
+test('an open slim triangle with a bar at its tip (a check valve) stays a shape', () => {
+  const r = split([line([0, 100, 85.84, 100]), ...flow(100, 100, 'r', { open: true }), line([100, 94, 100, 106]), line([100, 100, 200, 100])]);
+  assert.equal(r.shapes.length, 1);
+});
+test('a flow arrow inside a box with its line to the box edge stays part of the box', () => {
+  const r = split([loop([[85, 85], [115, 85], [115, 115], [85, 115]]), ...flow(110, 100, 'r'), line([85, 100, 95.84, 100])]);
+  assert.equal(r.shapes.length, 1);
+  assert.ok(r.shapes[0].box[0] <= 85.5 && r.shapes[0].box[2] >= 114.5);
+});

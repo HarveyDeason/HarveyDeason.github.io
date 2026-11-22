@@ -765,6 +765,36 @@ export function sheetShapes(paths, options) {
     const piecesAt = (pt, ci) => atEnd(pt, ci, SHAPE_JOIN);
     const asNewLine = (ch, k) => { asLine(ch, k); lines.push({ kind: k, pieces: ch.m.slice().sort((p, q) => p - q) }); };
 
+    // A tank's head (owner, 2026-11-22: vessel linework is not judged): one open path of gently turning pieces, one way
+    // round (no S) through at least 60 degrees, each end carrying on from the end of a run (its side walls), is linework.
+    // A rounded pipe bend between two runs is too. Its twin (a path drawn twice) is taken the same way.
+    {
+      const byPath = new Map();
+      for (let i = 0; i < n; i++) { const k = S[i][5]; if (!byPath.has(k)) byPath.set(k, []); byPath.get(k).push(i); }
+      for (const m of byPath.values()) {
+        if (m.length < 4) continue;
+        let ok = true;
+        for (let k = 1; k < m.length && ok; k++) ok = Math.hypot(S[m[k]][0] - S[m[k - 1]][2], S[m[k]][1] - S[m[k - 1]][3]) < 0.05 && sinBetween(units[m[k]], units[m[k - 1]]) <= SMOOTH_TURN;
+        if (!ok) continue;
+        const b = boxOfSegs(S, m);
+        if (Math.hypot(S[m[0]][0] - S[m[m.length - 1]][2], S[m[0]][1] - S[m[m.length - 1]][3]) < 0.05) continue;
+        // One way round (no S), turning in all through at least 60 degrees.
+        let pos = 0, neg = 0, turn = 0;
+        for (let k = 1; k < m.length; k++) {
+          const a = S[m[k - 1]], c = S[m[k]], ax = a[2] - a[0], ay = a[3] - a[1], cx = c[2] - c[0], cy = c[3] - c[1];
+          const cr = ax * cy - ay * cx, ang = Math.atan2(cr, ax * cx + ay * cy);
+          if (Math.abs(ang) < 1e-3) continue;
+          if (ang > 0) pos++; else neg++;
+          turn += ang;
+        }
+        if ((pos && neg) || Math.abs(turn) < Math.PI / 3) continue;
+        // Each end carries on from the end of a run, turning gently.
+        const endRun = (pt, i) => adj[i].some(j => kind[j] === 'run' && (Math.hypot(S[j][0] - pt[0], S[j][1] - pt[1]) <= SHAPE_JOIN || Math.hypot(S[j][2] - pt[0], S[j][3] - pt[1]) <= SHAPE_JOIN) && sinBetween(units[i], units[j]) <= SMOOTH_TURN);
+        const f = S[m[0]], l = S[m[m.length - 1]];
+        if (!endRun([f[0], f[1]], m[0]) || !endRun([l[2], l[3]], m[m.length - 1])) continue;
+        for (const i of m) if (chainOf[i] >= 0 && !chains[chainOf[i]].line) asNewLine(chains[chainOf[i]], 'run');
+      }
+    }
     // Hatch: HATCH_MIN or more like-sized short chains, each from one line to
     // a parallel one (any length): the strokes are hatch, the two lines run.
     // The pieces at each end the stroke crosses (not parallel to it); the pair taken is two parallel lines of different families.
@@ -989,6 +1019,90 @@ export function sheetShapes(paths, options) {
     const inClosed = new Set();
     for (const cp of closedPaths) for (let k = cp.from; k < cp.to; k++) inClosed.add(k);
     const regrouped = new WeakSet();
+    // Flow arrows (round 4, 2026-11-22): a filled slim triangle FLOW_MIN to ARROW_MAX long standing free in a group is
+    // linework, with its outline, like marks centred on its outline (a signal line's type drawn round it) and the straight
+    // pipe leaving its tip or base middle (a tee or a corner at the arrow). Not when it lies inside another closed outline
+    // of the group, or when what is left touching it is a shape (more than one straight line, at least minSide). What is
+    // left is grouped again, once.
+    const arrowPeeled = new WeakSet();
+    const FLOW_MIN = 13, NEAR = 0.6;   // points: a flow arrow is drawn 14.6 long; a lead's arrowhead is smaller
+    const corners3 = pts => {
+      let A = pts[0], B = pts[0], d = -1;
+      for (const p of pts) for (const q of pts) { const e = Math.hypot(p[0] - q[0], p[1] - q[1]); if (e > d) { d = e; A = p; B = q; } }
+      const u = [(B[0] - A[0]) / d, (B[1] - A[1]) / d];
+      let C = A, h = -1;
+      for (const p of pts) { const e = ptLine(p[0], p[1], [A[0], A[1]], u); if (e > h) { h = e; C = p; } }
+      return [A, B, C];
+    };
+    const flowArrowPeel = g => {
+      const inG = new Set(g), byPath = new Map();
+      for (const i of g.slice().sort((p, q) => p - q)) { const k = S[i][5]; if (!byPath.has(k)) byPath.set(k, []); byPath.get(k).push(i); }
+      const cands = [];
+      for (const [pk, m] of byPath) {
+        const p = paths[pk];
+        const isClosed = closedPaths.some(cp => cp.from === m[0] && cp.to - cp.from === m.length);
+        if (!(p && p.filled) && !isClosed) continue;
+        const pts = m.flatMap(i => [[S[i][0], S[i][1]], [S[i][2], S[i][3]]]);
+        if (hullCorners(pts) !== 3) continue;
+        const c = corners3(pts), sides = [[c[1], c[2]], [c[0], c[2]], [c[0], c[1]]].map(([a, b]) => Math.hypot(a[0] - b[0], a[1] - b[1]));
+        const L = Math.max(...sides);
+        if (L < FLOW_MIN || L > ARROW_MAX || Math.min(...sides) > 0.6 * L) continue;   // slim, as a flow arrow is drawn (a valve's triangle is near equal-sided)
+        const k = sides.indexOf(Math.min(...sides)), tip = c[k], base = sides.map((_, q) => q).filter(q => q !== k).map(q => c[q]);
+        cands.push({ m, filled: !!(p && p.filled), box: boxOfSegs(S, m), tip, mid: [(base[0][0] + base[1][0]) / 2, (base[0][1] + base[1][1]) / 2], edges: [[...c[0], ...c[1]], [...c[1], ...c[2]], [...c[2], ...c[0]]] });
+      }
+      if (!cands.length) return null;
+      // Copies of one triangle (outline, fill halves) are one arrow.
+      const uf = makeFind(cands.length);
+      for (let a = 0; a < cands.length; a++) for (let b = a + 1; b < cands.length; b++) {
+        const A = cands[a].box, B = cands[b].box, w = Math.min(A[2], B[2]) - Math.max(A[0], B[0]), h = Math.min(A[3], B[3]) - Math.max(A[1], B[1]);
+        if (w > 0 && h > 0 && w * h >= 0.5 * Math.min((A[2] - A[0]) * (A[3] - A[1]), (B[2] - B[0]) * (B[3] - B[1]))) uf.union(a, b);
+      }
+      const unitsBy = new Map();
+      cands.forEach((c, a) => { const r = uf.find(a); if (!unitsBy.has(r)) unitsBy.set(r, { ...c, m: [] }); const u = unitsBy.get(r); u.m.push(...c.m); u.filled = u.filled || c.filled; });
+      const arrowsIn = [...unitsBy.values()].filter(u => u.filled);   // a flow arrow is filled (a check valve's open triangle is not)
+      if (!arrowsIn.length) return null;
+      // Not inside another closed outline of the group (a pump's ring, a box): a symbol's own arrow.
+      const tri = new Set(arrowsIn.flatMap(u => u.m));
+      for (const cp of closedPaths) {
+        if (!inG.has(cp.from) || tri.has(cp.from)) continue;
+        if (arrowsIn.some(u => u.box[0] >= cp.box[0] - NEAR && u.box[2] <= cp.box[2] + NEAR && u.box[1] >= cp.box[1] - NEAR && u.box[3] <= cp.box[3] + NEAR)) return null;
+      }
+      const arrow = new Set(tri);
+      const onEdge = (x, y, u) => u.edges.some(e => ptSeg(x, y, e) <= NEAR);
+      for (const u of arrowsIn) {
+        const marks = [];
+        for (const i of g) {
+          if (arrow.has(i)) continue;
+          const q = S[i];
+          if (onEdge(q[0], q[1], u) && onEdge(q[2], q[3], u)) { arrow.add(i); continue; }   // its outline, drawn in pieces
+          if (q[4] <= ARROW_MAX / 2 && onEdge((q[0] + q[2]) / 2, (q[1] + q[3]) / 2, u)) marks.push(i);
+        }
+        if (marks.length >= 2) {
+          const med = marks.map(i => S[i][4]).sort((a, b) => a - b)[Math.floor(marks.length / 2)];
+          if (marks.every(i => Math.abs(S[i][4] - med) <= 0.15 * med)) for (const i of marks) arrow.add(i);
+        }
+      }
+      // Pipe: a straight chain with an end on an arrow's tip or base middle, or running through both.
+      const axis = arrowsIn.flatMap(u => [u.tip, u.mid]), pipe = new Set();
+      for (const ci of new Set(g.map(i => chainOf[i]))) {
+        if (ci < 0 || chains[ci].line) continue;
+        const ch = chains[ci], mm = ch.m.filter(i => !arrow.has(i));   // an arrow's own middle line may lie on the pipe's line
+        if (!mm.length || mm.some(i => !inG.has(i))) continue;
+        let lo = null, hi = null, tlo = Infinity, thi = -Infinity;
+        for (const i of mm) for (const e of [0, 2]) { const t = S[i][e] * ch.u[0] + S[i][e + 1] * ch.u[1]; if (t < tlo) { tlo = t; lo = [S[i][e], S[i][e + 1]]; } if (t > thi) { thi = t; hi = [S[i][e], S[i][e + 1]]; } }
+        const atAxis = [lo, hi].some(e => axis.some(a => Math.hypot(e[0] - a[0], e[1] - a[1]) <= NEAR));
+        const through = arrowsIn.some(u => [u.tip, u.mid].every(a => mm.some(i => ptSeg(a[0], a[1], S[i]) <= NEAR)));
+        if (atAxis || through) for (const i of mm) pipe.add(i);
+      }
+      // Free-standing: what is left touching an arrow is no symbol (smaller than any, or one straight line: a bar it points at).
+      const left = g.filter(i => !arrow.has(i) && !pipe.has(i));
+      for (const sub of components(left, new Set([...arrow, ...pipe])).list) {
+        if (!sub.some(i => adj[i].some(j => arrow.has(j)))) continue;
+        const sb = boxOfSegs(S, sub), oneLine = chainOf[sub[0]] >= 0 && sub.every(i => chainOf[i] === chainOf[sub[0]]);
+        if (longSide(sb) >= o.minSide && !oneLine) return null;
+      }
+      return { arrow: [...arrow], pipe: [...pipe], rest: g.filter(i => !arrow.has(i) && !pipe.has(i)) };
+    };
     for (const g of groups) {
       if (chainOf[g[0]] >= 0 && g.every(i => chainOf[i] === chainOf[g[0]])) {
         for (const i of g) kind[i] = 'run';
@@ -1025,6 +1139,16 @@ export function sheetShapes(paths, options) {
             for (const ci of longs) { for (const i of chains[ci].m) kind[i] = 'run'; lines.push({ kind: 'run', pieces: chains[ci].m.slice().sort((p, q) => p - q) }); }
             continue;
           }
+        }
+      }
+      if (!arrowPeeled.has(g)) {
+        const peel = flowArrowPeel(g);
+        if (peel) {
+          for (const i of peel.arrow) kind[i] = 'arrow';
+          lines.push({ kind: 'arrow', pieces: peel.arrow.slice().sort((p, q) => p - q) });
+          if (peel.pipe.length) { for (const i of peel.pipe) kind[i] = 'run'; lines.push({ kind: 'run', pieces: peel.pipe.slice().sort((p, q) => p - q) }); }
+          if (peel.rest.length) for (const sub of components(peel.rest, new Set()).list) { arrowPeeled.add(sub); groups.push(sub); }
+          continue;
         }
       }
       if (label(g, box)) continue;
