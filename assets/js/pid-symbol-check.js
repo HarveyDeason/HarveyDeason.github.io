@@ -1324,6 +1324,40 @@ export function outlineBox(S, pieces) {
   }
 }
 
+/**
+ * The closed loops among a shape's pieces: what outlineBox keeps (free ends stripped, copies dropped), split into
+ * pieces joined end to piece. Returns arrays of piece indexes; [] when there are none or too many pieces.
+ */
+export function outlineLoops(S, pieces) {
+  try {
+    const ob = outlineBox(S, pieces);
+    if (!ob) return [];
+    let live = [...new Set(pieces.filter(i => Number.isInteger(i) && Array.isArray(S[i]) && S[i].slice(0, 4).every(isNum)))];
+    const near2 = (x0, y0, x1, y1) => Math.hypot(x0 - x1, y0 - y1) <= OUTLINE_JOIN;
+    const same = (a, b) => (near2(a[0], a[1], b[0], b[1]) && near2(a[2], a[3], b[2], b[3])) || (near2(a[0], a[1], b[2], b[3]) && near2(a[2], a[3], b[0], b[1]));
+    live = live.filter((i, n) => !live.slice(0, n).some(j => same(S[i], S[j])));
+    const joined = (pt, self, set) => set.some(j => j !== self && distToSeg(pt, S[j]) <= OUTLINE_JOIN);
+    for (let pass = 0; pass < OUTLINE_MAX; pass++) {
+      const keep = live.filter(i => { const q = S[i]; return joined([q[0], q[1]], i, live) && joined([q[2], q[3]], i, live); });
+      if (keep.length === live.length) break;
+      live = keep;
+    }
+    const touch = (i, j) => distToSeg([S[i][0], S[i][1]], S[j]) <= OUTLINE_JOIN || distToSeg([S[i][2], S[i][3]], S[j]) <= OUTLINE_JOIN
+      || distToSeg([S[j][0], S[j][1]], S[i]) <= OUTLINE_JOIN || distToSeg([S[j][2], S[j][3]], S[i]) <= OUTLINE_JOIN;
+    const out = [], seen = new Set();
+    for (const i0 of live) {
+      if (seen.has(i0)) continue;
+      const m = [i0];
+      seen.add(i0);
+      for (let k = 0; k < m.length; k++) for (const j of live) if (!seen.has(j) && touch(m[k], j)) { seen.add(j); m.push(j); }
+      out.push(m);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 // Whether segments a and b ([x0, y0, x1, y1, ...]) cross each other.
 function segsCross(a, b) {
   const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
@@ -1579,6 +1613,7 @@ const bodyBoxes = new WeakMap();   // a judged shape -> the boxes of its found s
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
 export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
 const LEAD_PIECES = 200;         // pieces followed along one lead, at most
+const LEAD_RING = 6;             // points: a ring no bigger than this that a marker's lead runs through goes with the lead
 export const OP_ON_BODY = 0.25;  // an operator laying more of its linework than this inside a found body, along its pipe, lies across it
 const FILL_TWIN = 0.25;         // loops within this share of a filled loop's size are its twins, filled alike
 const FILL_DENSITY = 0.2;        // ink filling this share of a body's closed outline (inside its lines) is its fill (normally closed)
@@ -1978,6 +2013,21 @@ export function judgeShapes(ctx) {
     });
     const isBody = f => f.spots.some(sp => !sp.hit.p.operator);
     const merged2 = new Set();
+    // An empty closed outline a bubble fits at a bubble's size on this sheet is a bubble (owner, 2026-11-20), never an
+    // operator on a stem (D18197: the lower of two stacked bubbles standing on a flowmeter).
+    const ringMemo = new Map();
+    const bubbleRing = gi => {
+      if (!ringMemo.has(gi)) {
+        const g = finals[gi], fr = frameAround(g.box, 2);
+        let yes = false;
+        if (bubbles.length && frameOk(fr)) {
+          const m = matchBubble(bubbles, g.box, { ink: inkOf(fr, g.pieces), near: dilate(fullOf(fr), tolPx) }, cfg);
+          yes = !!m.best && isNum(m.best.k) && m.best.k >= band.minScale && m.best.k <= band.maxScale;
+        }
+        ringMemo.set(gi, yes);
+      }
+      return ringMemo.get(gi);
+    };
     if (operators.length || asArr(split.lines).some(l => l && l.kind === 'connector')) {
       const connectors = asArr(split.lines).filter(l => l && l.kind === 'connector').map(l => asArr(l.pieces).filter(i => Array.isArray(S[i])));
       finals.forEach((f, fi) => {
@@ -2004,7 +2054,7 @@ export function judgeShapes(ctx) {
             const far = touching(lo, fi) ? b : lo;
             if (!touching(far, gi)) continue;
             const g = finals[gi];
-            if (g.closed && hasWriting(writing, g.box)) continue;
+            if (g.closed && (hasWriting(writing, g.box) || bubbleRing(gi))) continue;
             take.add(gi); stems.push(...c);
           }
         }
@@ -2109,6 +2159,78 @@ export function judgeShapes(ctx) {
       }
       return got;
     };
+    // A marker's leader (contractor set, 2026-11-22): in a shape with no body found, a closed loop bigger than any line
+    // mark that a bubble fits at a bubble's size, or a judge-only symbol of Sheet 1 fits (a TIE-IN POINT NUMBER MARKER),
+    // is a marker. A straight lead from its rim outward, carrying only line marks and small rings it runs through (a
+    // demarcation's dot, a TIE-IN POINT at its foot), is linework when nothing else is left besides the marker.
+    // Returns { cut, closed } or null.
+    const markerSyms = fittable.filter(p => p.judgeOnly === true);
+    const sideOf = b => Math.max(b[2] - b[0], b[3] - b[1]);
+    const markerLead = f => {
+      if (f.pieces.length > OUTLINE_MAX || clock() > deadline) return null;
+      const loops = outlineLoops(S, f.pieces).map(m => ({ m, b: boxOfPieces(S, m) })).filter(L => sideOf(L.b) > markMax);
+      if (!loops.length) return null;
+      const within = (B, i) => { const q = S[i]; return Math.min(q[0], q[2]) >= B[0] - OUTLINE_JOIN && Math.max(q[0], q[2]) <= B[2] + OUTLINE_JOIN && Math.min(q[1], q[3]) >= B[1] - OUTLINE_JOIN && Math.max(q[1], q[3]) <= B[3] + OUTLINE_JOIN; };
+      const isMarker = L => {
+        const fr = frameAround(L.b, 2);
+        if (!frameOk(fr)) return false;
+        const own = f.pieces.filter(i => within(L.b, i)), win = { ink: inkOf(fr, own), near: dilate(fullOf(fr), tolPx) };
+        const m = bubbles.length ? matchBubble(bubbles, L.b, win, cfg) : null;
+        if (m && m.best && isNum(m.best.k) && m.best.k >= band.minScale && m.best.k <= band.maxScale) return true;
+        for (const p of markerSyms) for (let o = 0; o < 8; o++) {
+          if (!quickFit(p, o, L.b, win.near, fitBand)) continue;
+          const got = boxFit(p, o, L.b, fitBand), sc = got && scorePlacement(got.p, got.placement, win, cfg);
+          if (sc && sc.score >= cfg.recognise) return true;
+        }
+        return false;
+      };
+      const markers = loops.filter(isMarker);
+      if (!markers.length) return null;
+      const inMarker = i => markers.some(L => within(L.b, i));
+      const others = f.pieces.filter(i => !inMarker(i));
+      if (!others.length) return null;
+      const meets = (pt, q) => Math.hypot(q[0] - pt[0], q[1] - pt[1]) <= OUTLINE_JOIN || Math.hypot(q[2] - pt[0], q[3] - pt[1]) <= OUTLINE_JOIN;
+      const dirOf = q => { const L = Math.hypot(q[2] - q[0], q[3] - q[1]) || 1; return [(q[2] - q[0]) / L, (q[3] - q[1]) / L]; };
+      const inLine = (a, b) => { const u = dirOf(a), v = dirOf(b); return Math.abs(u[0] * v[1] - u[1] * v[0]) <= 0.02; };
+      const lead = new Set();
+      for (const L of markers) for (const i0 of others) {
+        if (lead.has(i0)) continue;
+        const q = S[i0], a = [q[0], q[1]], b = [q[2], q[3]];
+        const onRim = pt => L.m.some(j => distToSeg(pt, S[j]) <= OUTLINE_JOIN), out = pt => !inBox(L.b, pt[0], pt[1]);
+        let far = null;
+        if (onRim(a) && out(b)) far = b; else if (onRim(b) && out(a)) far = a;
+        if (!far) continue;
+        const run = [i0];
+        for (let step = 0; step < LEAD_PIECES; step++) {
+          const next = others.filter(j => !run.includes(j) && meets(far, S[j]) && inLine(S[j], q));
+          if (!next.length) break;
+          const j = next[0];
+          run.push(j);
+          far = Math.hypot(S[j][0] - far[0], S[j][1] - far[1]) <= OUTLINE_JOIN ? [S[j][2], S[j][3]] : [S[j][0], S[j][1]];
+        }
+        for (const j of run) lead.add(j);
+      }
+      if (!lead.size) return null;
+      // What touches the lead: line marks on it, or small rings it runs through. Anything else keeps the lead.
+      const leadArr = [...lead], rest = others.filter(i => !lead.has(i));
+      const marked = marks.length ? markInk(rest, leadArr) : new Set();
+      const ringOn = cl => {
+        const cb = boxOfPieces(S, cl);
+        if (sideOf(cb) > LEAD_RING) return false;
+        const c = centreOf(cb);
+        return leadArr.some(i => distToSeg(c, S[i]) <= 1);
+      };
+      const cut = new Set(leadArr), seen = new Set();
+      for (const i0 of rest) {
+        if (seen.has(i0)) continue;
+        const cl = [i0];
+        seen.add(i0);
+        for (let k = 0; k < cl.length; k++) for (const j of rest) if (!seen.has(j) && touchesSeg(S[cl[k]], S[j])) { seen.add(j); cl.push(j); }
+        if (cl.every(i => marked.has(i)) || ringOn(cl)) for (const i of cl) cut.add(i);
+        else return null;
+      }
+      return { cut, closed: markers.length === 1 && f.pieces.every(i => cut.has(i) || within(markers[0].b, i)) };
+    };
     for (const [fi, f] of judged.entries()) {
       const cut = new Set();
       const bodies = f.spots.filter(sp => !sp.hit.p.operator && sp.hit.p.bubble !== true);
@@ -2125,12 +2247,15 @@ export function judgeShapes(ctx) {
         for (const i of pipe) cut.add(i);
         for (const i of leadOf(f.pieces.filter(j => !cut.has(j)), sp.hit, marked)) cut.add(i);
       }
+      const lead = bodies.length ? null : markerLead(f);
+      if (lead) for (const i of lead.cut) cut.add(i);
       if (!cut.size) continue;
       const rest = f.pieces.filter(i => !cut.has(i));
       if (!rest.length) continue;
       f.whole = f.pieces;   // with its pipe: the ink an attachment may lie on
       f.pieces = rest;
       f.box = boxOfPieces(S, rest);
+      if (lead && lead.closed) f.closed = true;
     }
 
     const out = [];

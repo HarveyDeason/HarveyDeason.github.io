@@ -178,3 +178,87 @@ test('a flow arrow inside a box with its line to the box edge stays part of the 
   assert.equal(r.shapes.length, 1);
   assert.ok(r.shapes[0].box[0] <= 85.5 && r.shapes[0].box[2] >= 114.5);
 });
+
+// ── Round 5 (2026-11-22): stacked instrument bubbles are two shapes (splitter) ──
+// D18197: two 42.5 pt bubbles drawn one on top of the other, touching at one point, no writing read in them (the
+// sheet's text is flattened). The owner: each is a standard bubble, boxed on its own. A rotary lobe pump's lobes (equal
+// circles touching, a line from the pump's ring to their touching point) and a side channel blower's ports (small circles on a big ring) stay one.
+const circle = (cx, cy, r) => loop(Array.from({ length: 32 }, (_, i) => [cx + r * Math.cos(Math.PI * i / 16), cy + r * Math.sin(Math.PI * i / 16)]));
+const OPT5 = { minSide: 6, maxSide: 100, longRun: 120 };
+const shapesIn = (paths, opt = OPT5) => R.sheetShapes(paths, opt).shapes;
+test('two equal rings stacked, touching at one point (one with a bar across): two shapes', () => {
+  const sh = shapesIn([circle(120, 80, 20), line([100, 80, 140, 80]), circle(120, 120, 20)]);
+  assert.equal(sh.length, 2, JSON.stringify(sh.map(s => s.box)));
+  assert.deepEqual(sh.map(s => Math.round(s.box[1])).sort((a, b) => a - b), [60, 100]);
+});
+test('two equal rings touching inside a bigger ring, a line from its edge to their touching point (a rotary lobe pump): one shape', () => {
+  const sh = shapesIn([circle(120, 100, 40), circle(120, 85, 15), circle(120, 115, 15), line([80, 100, 120, 100])]);
+  assert.equal(sh.length, 1, JSON.stringify(sh.map(s => s.box)));
+});
+test('a small ring touching a big ring (a side channel blower port) stays one shape', () => {
+  const sh = shapesIn([circle(120, 100, 30), circle(120, 138, 8)]);
+  assert.equal(sh.length, 1, JSON.stringify(sh.map(s => s.box)));
+});
+test('two stacked RING bubbles, no writing, one with a bar: each found and standard on its own', () => {
+  const r = run([circle(120, 80, 20), line([100, 80, 140, 80]), circle(120, 120, 20)]);
+  const top = at(r, 120, 70), bot = at(r, 120, 130);
+  assert.ok(top && bot && top !== bot, 'two shapes: ' + JSON.stringify(r.shapes.map(s => s.box)));
+  assert.equal(top.verdict, 'standard', JSON.stringify(top));
+  assert.equal(bot.verdict, 'standard', JSON.stringify(bot));
+  const r2 = runRead([circle(120, 80, 20), line([100, 80, 140, 80]), circle(120, 120, 20)]);
+  assert.deepEqual([at(r2, 120, 70), at(r2, 120, 130)].map(s => s && s.verdict), ['standard', 'standard'], 'no writing read: ' + JSON.stringify(r2.shapes));
+});
+// D18197: the lower bubble of a stack stands on a flowmeter by a 12 pt stem. With no writing read in it, the empty
+// bubble was joined to the flowmeter as its operator (a stem connector to a neighbour with nothing found in it). An
+// empty ring of a bubble's size is a bubble (owner, 2026-11-20): never an operator.
+// The reader hands an empty writing list when it reads no words (as on the flattened sheet): an unwritten ring gets no
+// bubble spot in the sweep.
+// METERBOX: a 50 x 24 box with a diagonal, swept at its own size (as a flowmeter on the sheet).
+const METERBOX = sym('c5', 'METERBOX', 50, 24, [loop([[0, 0], [50, 0], [50, 24], [0, 24]]), line([0, 24, 50, 0])]);
+const runRead = paths => C.checkSheet({ pageSize: [300, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, writing: [],
+  library: { ...LIB, symbols: [...LIB.symbols, METERBOX] }, lookups: {} });
+test('an empty bubble-sized ring on a 10 pt stem on the top edge of a bigger METERBOX, no writing read: two shapes, both standard', () => {
+  const r = runRead([circle(125, 96, 20), line([125, 116, 125, 126]), ...place(METERBOX, { x: 100, y: 126 })]);
+  const ring = at(r, 125, 86), body = at(r, 125, 140);
+  assert.ok(ring && body && ring !== body, 'two shapes: ' + JSON.stringify(r.shapes.map(s => [s.box, s.verdict])));
+  assert.equal(ring.verdict, 'standard', JSON.stringify(ring));
+  assert.equal(body.verdict, 'standard', JSON.stringify(body));
+});
+
+// ── Round 5: a marker's leader to its pipe is linework (judge) ──
+// D18197: a bubble's own signal line runs up from its rim to a pipe, a Z mark (SIGNAL - ELECTRIC at half size) at
+// every joint. TP points (4024, M, H4): a TIE-IN POINT NUMBER MARKER with a straight stem from a corner down to the
+// pipe, a small TIE-IN POINT circle at its foot and the demarcation's dot on it halfway. As drawn: the lead stops
+// short of its pipe (4023), the pipe is broken where the small circle sits (4024). With no body found, the lead
+// and what sits on it (line marks, small rings it passes through) are cut, and the marker is judged on its own.
+const ZMARK = { id: 'lm9', name: 'SIGNAL - ZED', legendName: 'SIGNAL - ZED', group: 'LINE TYPES', tagId: '', sheet: '1', w: 7.4, h: 6.84, letters: [], aliases: [], notes: [],
+  flags: { simple: false, stretch: false, manual: false, unmatched: false, judgeOnly: true, lineMark: 'signal' },
+  paths: [{ segs: [6.4, 0, 2.8, 0, 2.8, 0, 1, 6.8, 1, 6.8, 4.5, 6.8], width: 0.5, stroked: true, filled: false, grey: 0 }, { segs: [0, 3.5, 7.4, 3.5], width: 0.5, stroked: true, filled: false, grey: 0 }] };
+const DIAMOND = { id: 'tp9', name: 'DIAMOND MARKER', legendName: 'DIAMOND MARKER', group: 'TIE-INS', tagId: '', sheet: '1', w: 42.5, h: 42.5, letters: [], aliases: [], notes: [],
+  flags: { simple: false, stretch: false, manual: false, unmatched: false, judgeOnly: true },
+  paths: [loop([[21.25, 0], [42.5, 21.25], [21.25, 42.5], [0, 21.25]]), line([0, 21.25, 42.5, 21.25])] };
+const runLead = paths => C.checkSheet({ pageSize: [300, 300], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, writing: [],
+  library: { ...LIB, symbols: [...LIB.symbols, METERBOX, ZMARK, DIAMOND] }, lookups: {} });
+// A vertical lead at x from y0 down to y1 (y0 < y1), one piece per 7 pt, a half-size Z at each joint.
+const zLead = (x, y0, y1) => { const out = []; for (let y = y0; y < y1; y += 7) { const j = Math.min(y + 7, y1); out.push(line([x, y, x, j]));
+  if (j < y1) out.push(line([x - 1.74, j - 2.7, x - 1.74, j - 0.9, x - 1.74, j - 0.9, x + 1.68, j, x + 1.68, j, x + 1.71, j, x + 1.71, j, x + 1.71, j - 1.74])); } return out; };
+test('a bubble with its marked signal lead up to a pipe, no writing read: the bubble standard, boxed on its own', () => {
+  const r = runLead([line([20, 82, 280, 82]), ...zLead(120, 85, 100), circle(120, 120, 20), line([100, 120, 140, 120])]);
+  const s = at(r, 120, 130);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.ok(s.box[1] >= 99, 'the lead is not boxed: ' + JSON.stringify(s.box));
+});
+test('a TP marker on a stem to its pipe, a dot on the stem and a small ring at its foot: the marker standard', () => {
+  const dot = { ...circle(121.25, 150, 1.4), filled: true };
+  const r = runLead([line([20, 158, 119.5, 158]), line([123, 158, 280, 158]), ...place(DIAMOND, { x: 100, y: 100 }), line([121.25, 142.5, 121.25, 158]), dot, circle(121.25, 158, 1.8)]);
+  const s = at(r, 121, 121);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.deepEqual(s.parts.map(q => q.name), ['DIAMOND MARKER']);
+});
+test('a ring no bubble fits at its size, with a marked lead: the lead is not cut off it', () => {
+  const r = runLead([line([20, 82, 280, 82]), ...zLead(120, 85, 100), circle(120, 106, 6)]);
+  const s = at(r, 120, 106);
+  assert.ok(s && s.box[1] < 99, 'the lead stays with the small ring: ' + JSON.stringify(r.shapes));
+});

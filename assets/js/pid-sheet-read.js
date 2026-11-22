@@ -520,6 +520,7 @@ const NOT_PARALLEL = 0.2;       // sin of the angle a stub or hatch stroke must 
 const SHAPE_COORD = 15000;      // points; beyond any sheet
 const SHAPE_BUDGET = 4e6, SHAPE_CELL_SCAN = 256, CONNECT_MAX = 300;
 const SHAPE_INK_GREY = 175;     // as CHECK_DEFAULTS.inkGrey
+const TWIN_PIECES = 12;         // a closed path of at least this many pieces, all on one circle, is a ring (twin rings)
 
 const EMPTY_SHAPES = () => ({ shapes: [], lines: [], segments: [] });
 const boxOk = b => Array.isArray(b) && b.length === 4 && b.every(isNum);
@@ -860,7 +861,30 @@ export function sheetShapes(paths, options) {
     // Inside: both ends within the box (grown by J), the middle clear of its edge (a bar across a ring is inside; a symbol touching its edge is not).
     const insideBox = (b, s) => Math.min(s[0], s[2]) >= b[0] - J && Math.max(s[0], s[2]) <= b[2] + J && Math.min(s[1], s[3]) >= b[1] - J && Math.max(s[1], s[3]) <= b[3] + J
       && inBoxPt([b[0] + J, b[1] + J, b[2] - J, b[3] - J], (s[0] + s[2]) / 2, (s[1] + s[3]) / 2);
+    // Twin rings: two closed circles of one size touching at one point (instrument bubbles stacked one on another,
+    // writing or none) are two shapes; what touches both (a line to a pump's lobes' touching point) still joins them.
+    const roundOf = new Int32Array(n).fill(-1), rounds = [], twins = new Set();
+    for (const cp of closedPaths) {
+      const b = cp.box, w = b[2] - b[0], h = b[3] - b[1];
+      if (cp.to - cp.from < TWIN_PIECES || Math.abs(w - h) > RING_FIT * w) continue;
+      const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = (w + h) / 4;
+      let round = true;
+      for (let k = cp.from; k < cp.to && round; k++) round = Math.abs(Math.hypot(S[k][0] - cx, S[k][1] - cy) - r) <= RING_FIT * r;
+      if (!round) continue;
+      for (let k = cp.from; k < cp.to; k++) roundOf[k] = rounds.length;
+      rounds.push({ cx, cy, r });
+    }
+    if (rounds.length > 1) {
+      const order = rounds.map((_, a) => a).sort((a, b) => rounds[a].cx - rounds[b].cx);
+      for (let p = 0; p < order.length; p++) for (let q = p + 1; q < order.length; q++) {
+        const A = rounds[order[p]], B = rounds[order[q]];
+        if (B.cx - A.cx > A.r + B.r + SHAPE_JOIN) break;
+        if (Math.abs(A.r - B.r) > RING_FIT * Math.max(A.r, B.r)) continue;
+        if (Math.abs(Math.hypot(A.cx - B.cx, A.cy - B.cy) - A.r - B.r) <= SHAPE_JOIN) twins.add(Math.min(order[p], order[q]) + ':' + Math.max(order[p], order[q]));
+      }
+    }
     const mayJoin = (i, j) => {
+      if (twins.size && roundOf[i] >= 0 && roundOf[j] >= 0 && twins.has(Math.min(roundOf[i], roundOf[j]) + ':' + Math.max(roundOf[i], roundOf[j]))) return false;
       const oi = outlineOf[i], oj = outlineOf[j];
       if (oi === oj) return true;
       return !(oi >= 0 && !insideBox(outlines[oi], S[j])) && !(oj >= 0 && !insideBox(outlines[oj], S[i]));
