@@ -1040,8 +1040,29 @@ export function sheetShapes(paths, options) {
     // A group that is one straight chain is a short run; the rest, in the size band, are shapes.
     const shapes = [];
     // Pieces of closed outlines (a valve's triangles, a pump's ring): never taken out as pipework.
-    const inClosed = new Set();
-    for (const cp of closedPaths) for (let k = cp.from; k < cp.to; k++) inClosed.add(k);
+    const inClosed = new Set(), closedOf = new Map();
+    closedPaths.forEach((cp, ci) => { for (let k = cp.from; k < cp.to; k++) { inClosed.add(k); closedOf.set(k, ci); } });
+    // Open lines of a group from a closed outline back to that same outline (a chamber's lid and cover drawn apart from
+    // its walls, 4021): each connected run of them whose free ends all sit on one closed path is part of that outline.
+    const lidsOf = g => {
+      const open = g.filter(i => !inClosed.has(i)), openSet = new Set(open), out = new Set(), seen = new Set();
+      for (const s0 of open) {
+        if (seen.has(s0)) continue;
+        const m = [s0]; seen.add(s0);
+        for (let q = 0; q < m.length; q++) for (const j of adj[m[q]]) if (openSet.has(j) && !seen.has(j)) { seen.add(j); m.push(j); }
+        const on = new Set();
+        let free = 0, ok = true;
+        for (const i of m) for (const e of [[S[i][0], S[i][1]], [S[i][2], S[i][3]]]) {
+          if (m.some(j => j !== i && ptSeg(e[0], e[1], S[j]) <= SHAPE_JOIN)) continue;
+          free++;
+          const at = adj[i].filter(j => inClosed.has(j) && ptSeg(e[0], e[1], S[j]) <= SHAPE_JOIN).map(j => closedOf.get(j));
+          if (!at.length) { ok = false; break; }
+          for (const c of at) on.add(c);
+        }
+        if (ok && free >= 2 && on.size === 1) for (const i of m) out.add(i);
+      }
+      return out;
+    };
     const regrouped = new WeakSet();
     // Flow arrows (round 4, 2026-11-22): a filled slim triangle FLOW_MIN to ARROW_MAX long standing free in a group is
     // linework, with its outline, like marks centred on its outline (a signal line's type drawn round it) and the straight
@@ -1183,7 +1204,8 @@ export function sheetShapes(paths, options) {
       // A group bigger than any symbol (symbols joined by bent pipework: a dosing pump set) gives up its open straight
       // pieces at least minSide long, its pipework, and what is left is grouped again (owner, 2026-11-20). Once only.
       if (side > o.maxSide && !regrouped.has(g)) {
-        const pipe = g.filter(i => !inClosed.has(i) && S[i][4] >= o.minSide);
+        const lids = lidsOf(g);
+        const pipe = g.filter(i => !inClosed.has(i) && !lids.has(i) && S[i][4] >= o.minSide);
         if (pipe.length && pipe.length < g.length) {
           for (const i of pipe) kind[i] = 'run';
           lines.push({ kind: 'run', pieces: pipe.slice().sort((p, q) => p - q) });

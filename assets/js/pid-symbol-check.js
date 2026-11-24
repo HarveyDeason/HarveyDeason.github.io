@@ -1256,18 +1256,24 @@ const LOOSE_TRY = 40;         // placements scored in the loose search for a sha
 
 const STRETCH_MAX = 1.5;      // a symbol may be fitted to a shape this much more one way than the other
 const TO_SUIT_MIN = 0.25;     // a structure drawn to suit (prepared.toSuit) is box-fitted down to this share of its legend size
+const TO_SUIT_FRAME = 0.5;    // its walls frame it when they cover this share of its legend box each way
+const TO_SUIT_SIDE = 60;      // points (at the sheet's symbol size): a shape a structure is fitted to is at least this long
 
 // The quick look for a stretched fit: about 30 of the symbol's points, stretched into the box at orientation o,
 // must land on the drawing's ink (grown by the tolerance) at the quick-look share. No bitmap is made.
-function quickFit(prepared, o, box, near, cfg) {
-  const p = asObj(prepared), pts = asArr(p.points);
-  if (!pts.length || !(p.w > 0 && p.h > 0) || !(near && near.data)) return false;
+function quickFit(prepared, o, box, near, cfg, whole = false) {
+  const p = asObj(prepared);
+  if (!(p.w > 0 && p.h > 0) || !(near && near.data)) return false;
+  const frame = whole ? null : fitFrame(p), fr = frame || [0, 0, p.w, p.h], pw = fr[2] - fr[0], ph = fr[3] - fr[1];
   const turned = o % 2 === 1, bw = box[2] - box[0], bh = box[3] - box[1];
-  const sx = (turned ? bh : bw) / p.w, sy = (turned ? bw : bh) / p.h;
+  const sx = (turned ? bh : bw) / pw, sy = (turned ? bw : bh) / ph;
   if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || !scaleOk(p, sx, sy, cfg)) return false;
+  // A structure drawn to suit: its points within its walls, shifted to them (worked out once).
+  const pts = frame ? framedPoints(p, frame) : asArr(p.points);
+  if (!pts.length) return false;
   const [a, b, c, d] = ORIENTATIONS[o];
   const at = (x, y) => [a * x * sx + c * y * sy, b * x * sx + d * y * sy];
-  const cs = [at(0, 0), at(p.w, 0), at(0, p.h), at(p.w, p.h)];
+  const cs = [at(0, 0), at(pw, 0), at(0, ph), at(pw, ph)];
   const tx = box[0] - Math.min(...cs.map(q => q[0])), ty = box[1] - Math.min(...cs.map(q => q[1]));
   const step = 2 * Math.max(1, Math.floor(pts.length / 2 / 30));
   let on = 0, n = 0;
@@ -1280,6 +1286,28 @@ function quickFit(prepared, o, box, near, cfg) {
   return n > 0 && on >= cfg.quickLook * n;
 }
 
+// The box a structure drawn to suit is fitted by: its walls (its outline, lines with a free end left out), not its whole legend box (a MANHOLE's
+// outlet runs out past its walls, and on a sheet that outlet is often pipework of its own; whole: the symbol's own box,
+// for one drawn with its outlet). Null for any other symbol.
+const frames = new WeakMap();
+const fitFrame = p => {
+  if (p.toSuit !== true) return null;
+  if (frames.has(p)) return frames.get(p);
+  // A frame of most of the structure only (a LAGOON's closed part is a small piece of it: no frame, its whole box).
+  const segs = asArr(p.segs), b = segs.length ? outlineBox(segs, segs.map((_, i) => i)) : null;
+  const out = b && b[2] - b[0] >= TO_SUIT_FRAME * p.w && b[3] - b[1] >= TO_SUIT_FRAME * p.h ? b : null;
+  frames.set(p, out);
+  return out;
+};
+const framed = new WeakMap();
+const framedPoints = (p, fr) => {
+  if (framed.has(p)) return framed.get(p);
+  const out = [], P = asArr(p.points);
+  for (let i = 0; i + 1 < P.length; i += 2) { const x = P[i], y = P[i + 1];
+    if (x >= fr[0] - 0.5 && x <= fr[2] + 0.5 && y >= fr[1] - 0.5 && y <= fr[3] + 0.5) out.push(x - fr[0], y - fr[1]); }
+  framed.set(p, out);
+  return out;
+};
 // A box fit's scales sx, sy within the size band (STRETCH_MAX beyond it either way); a structure drawn to suit at any
 // size down to TO_SUIT_MIN.
 const scaleOk = (p, sx, sy, b) => (p.toSuit === true ? Math.min(sx, sy) >= TO_SUIT_MIN
@@ -1287,16 +1315,20 @@ const scaleOk = (p, sx, sy, b) => (p.toSuit === true ? Math.min(sx, sy) >= TO_SU
 
 // A library symbol stretched to fill a box at orientation o (0-7): { p (prepared), placement }, or null when the
 // stretch is more than STRETCH_MAX one way than the other, or far outside the size band.
-function boxFit(prepared, o, box, band) {
+function boxFit(prepared, o, box, band, whole = false) {
   const p = asObj(prepared), sym = asObj(p.symbol);
   if (!(isNum(p.w) && isNum(p.h) && p.w > 0 && p.h > 0)) return null;
+  // A structure drawn to suit is fitted by its walls: only its paths within them, shifted to them.
+  const fr = (!whole && fitFrame(p)) || [0, 0, p.w, p.h], pw = fr[2] - fr[0], ph = fr[3] - fr[1];
+  const within = q => { const g = asArr(q.segs); for (let i = 0; i + 1 < g.length; i += 2) if (g[i] < fr[0] - 0.5 || g[i] > fr[2] + 0.5 || g[i + 1] < fr[1] - 0.5 || g[i + 1] > fr[3] + 0.5) return false; return true; };
   const turned = o % 2 === 1, bw = box[2] - box[0], bh = box[3] - box[1];
-  const sx = (turned ? bh : bw) / p.w, sy = (turned ? bw : bh) / p.h;
+  const sx = (turned ? bh : bw) / pw, sy = (turned ? bw : bh) / ph;
   // The size band is the judge's band at the sheet's own scale (a sheet printed at 43% fits at 43%).
   const cfg = settings(), b = band && isNum(band.minScale) && isNum(band.maxScale) ? band : cfg;
   if (!(sx > 0 && sy > 0) || Math.max(sx, sy) / Math.min(sx, sy) > STRETCH_MAX || !scaleOk(p, sx, sy, b)) return null;
-  const scaled = { ...sym, w: p.w * sx, h: p.h * sy, flags: { ...asObj(sym.flags), simple: false, stretch: false, manual: false },
-    paths: asArr(sym.paths).map(q => ({ ...q, segs: asArr(q.segs).map((v, i) => (i % 2 === 0 ? v * sx : v * sy)) })) };
+  const scaled = { ...sym, w: pw * sx, h: ph * sy, flags: { ...asObj(sym.flags), simple: false, stretch: false, manual: false },
+    paths: asArr(sym.paths).filter(q => fr[0] === 0 && fr[1] === 0 && fr[2] === p.w && fr[3] === p.h || within(q))
+      .map(q => ({ ...q, segs: asArr(q.segs).map((v, i) => (i % 2 === 0 ? (v - fr[0]) * sx : (v - fr[1]) * sy)) })) };
   const prep = placeable(prepareOne(scaled, p.toSuit === true ? { ...cfg, maxSize: Infinity } : cfg));
   if (p.toSuit === true) prep.toSuit = true;
   const base = { o, k: 1, tx: 0, ty: 0 };
@@ -1480,6 +1512,20 @@ export function pipeLines(prepared) {
       for (const q of segs) if (Math.abs(q[k] - g[k]) <= PIPE_EDGE && Math.abs(q[2 + k] - g[k]) <= PIPE_EDGE) { lo = Math.min(lo, q[o], q[2 + o]); hi = Math.max(hi, q[o], q[2 + o]); }
       return lo <= PIPE_EDGE && hi >= span - PIPE_EDGE;
     };
+    // A body under a part standing clear of it (a bowtie under a T, a dome; owner, 2026-11-24: such valves were "extra"):
+    // both sides (k 0) or both ends (k 1) are drawn as lines of one span stopping short of the box. The pipe runs through
+    // the middle of that span; the body's corners there are no connections.
+    for (const k of [0, 1]) {
+      const v = k === 0 ? w : h, o = 1 - k, size = k === 0 ? h : w;
+      if (v < PIPE_LONG * size) continue;   // the pipe runs along the symbol's length
+      const span = e => { const L = segs.filter(g => Math.abs(g[k] - e) <= PIPE_EDGE && Math.abs(g[2 + k] - e) <= PIPE_EDGE);
+        return L.length ? [Math.min(...L.map(q => Math.min(q[o], q[2 + o]))), Math.max(...L.map(q => Math.max(q[o], q[2 + o])))] : null; };
+      const a = span(0), b = span(v);
+      if (!a || !b || Math.abs(a[0] - b[0]) > PIPE_EDGE || Math.abs(a[1] - b[1]) > PIPE_EDGE) continue;
+      if (a[0] <= PIPE_EDGE && a[1] >= size - PIPE_EDGE) continue;   // the whole height: nothing stands clear
+      if (a[1] - a[0] < size / 2) continue;
+      return { axis: k === 0 ? 'h' : 'v', at: [round3((a[0] + a[1] + b[0] + b[1]) / 4)] };
+    }
     for (const g of segs) {
       const dx = g[2] - g[0], dy = g[3] - g[1], len = Math.hypot(dx, dy);
       if (!(len > 0) || barAcross(g)) continue;
@@ -2527,23 +2573,31 @@ export function judgeShapes(ctx) {
         // The shape's box, and the box of its closed outline when a stem or a stub runs off it (item 4: a lettered
         // box with a stem up to its bubble was fitted to the box of the stem as well).
         const boxes = [f.box], ob = outlineBox(S, f.pieces);
-        if (ob && ob.some((v, i) => Math.abs(v - f.box[i]) > 0.5)) boxes.push(ob);
+        const addBox = B => { if (B && B.every(isNum) && boxes.every(A => A.some((v, i) => Math.abs(v - B[i]) > 0.5))) boxes.push(B); };
+        addBox(ob);
+        // And without the flow arrowheads touching it from outside (4021: arrows on the pipes into a chamber's wall).
+        const fSet = new Set(f.pieces), inArrow = new Set(arrowUnits.filter(u => u.every(i => fSet.has(i))).flat());
+        const unarrowed = inArrow.size ? f.pieces.filter(i => !inArrow.has(i)) : [];
+        if (unarrowed.length) { addBox(boxOfPieces(S, unarrowed)); addBox(outlineBox(S, unarrowed)); }
         const writtenIn = boxes.map(B => hasWriting(writing, B));
         for (const p of fittable) for (let bi = 0; bi < boxes.length; bi++) {
           const B = boxes[bi];
           // Symbols holding letters need writing in the shape.
           if (!writtenIn[bi] && asArr(asObj(p.symbol).letters).length) continue;
           if (!lettersRoomOk(p, B)) continue;
-          for (let o = 0; o < 8; o++) {
+          // A structure is fitted only to a shape the size of one (lr26: a LAGOON was fitted to flow arrowheads).
+          if (p.toSuit === true && Math.max(B[2] - B[0], B[3] - B[1]) < TO_SUIT_SIDE * sizeScale) continue;
+          for (const whole of p.toSuit === true ? [false, true] : [true]) for (let o = 0; o < 8; o++) {
             const bw = bareWin();
-            if (!quickFit(p, o, B, bw.near, fitBand)) continue;
-            const got = boxFit(p, o, B, fitBand);
+            if (!quickFit(p, o, B, bw.near, fitBand, whole)) continue;
+            const got = boxFit(p, o, B, fitBand, whole);
             if (!got) continue;
             const sc = scorePlacement(got.p, got.placement, bw, cfg);
             if (!sc || sc.score < cfg.recognise) continue;
             const hit = { p: got.p, placement: got.placement, score: sc.score };
             if (weakestLine(hit, bw, cfg) < LINE_MIN) continue;
-            if (plainShape(got.p) && (sc.backward < cfg.plainBack || runsOnPastCorner(hit, full, cfg))) continue;
+            // A structure drawn to suit has pipes into its walls at any point: only its backward share is held.
+            if (plainShape(got.p) && (sc.backward < cfg.plainBack || (got.p.toSuit !== true && runsOnPastCorner(hit, full, cfg)))) continue;
             // Fits tied on score (a box fits every box symbol alike) go to a lettered symbol: it is here only when its
             // shape holds writing.
             hit.lettered = asArr(asObj(p.symbol).letters).length > 0;

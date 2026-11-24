@@ -342,3 +342,51 @@ test('a plain box the size of the structure drawn small is not taken for it', ()
   const s = at(r, 154, 163);
   assert.ok(!s || !s.parts.some(q => q.name === 'VAULT'), JSON.stringify(s));
 });
+
+// ── Round 6b (owner 2026-11-24): valves with a T on the stem or a dome on top flagged "extra linework" ──
+// The T (IN-LINE (SIMPLE SCREWDOWN)) or the dome (DIAPHRAGM) stands above the bowtie, so the symbol's box is taller than
+// the bowtie: the bowtie's top corners are on the box's sides but not at its corners, and were read as where the pipe
+// comes in. The pipe line went along the bowtie's top edge, so the valve's own stub of pipe (to a tee, to a bubble)
+// was never cut: amber "extra". A point where a line lying along the box's side ends is the outline's corner.
+const SCREW = sym('c10', 'SCREW', 28, 21, [loop([[0, 7], [0, 21], [14, 14]]), loop([[28, 7], [28, 21], [14, 14]]), line([14, 14, 14, 0]), line([7, 0, 21, 0])]);
+const runScrew = paths => run(paths, { ...LIB, symbols: [...LIB.symbols, SCREW] });
+test('pipeLines: a bowtie with a T above it has its pipe through the bowtie middle, not along its top', () => {
+  assert.deepEqual(C.pipeLines(prepOf(SCREW, { ...LIB, symbols: [SCREW] })), { axis: 'h', at: [14] });
+});
+test('a valve with a T on its stem and a 12 pt stub of its pipe to a tee: the stub is its pipe, standard', () => {
+  const r = runScrew([line([20, 114, 100, 114]), ...place(SCREW, { x: 100, y: 100 }), line([128, 114, 140, 114]), line([140, 20, 140, 230])]);
+  const s = at(r, 114, 114);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+});
+
+// 4021 #11: a chamber drawn as one closed U of wall with its lid as open lines (a raised cover notch in the middle)
+// from one wall top to the other, its outlet pipe out through a wall: one group bigger than any symbol. Such a group
+// gives up its open straight pieces as pipework, and the lid went with them. Open lines from a closed outline back to
+// that same outline are part of it; the outlet still comes off.
+const chamber = (x, y) => [loop([[x, y + 5], [x, y + 100], [x + 80, y + 100], [x + 80, y + 5], [x + 76, y + 5], [x + 76, y + 96], [x + 4, y + 96], [x + 4, y + 5]]),
+  line([x + 4, y + 5, x + 30, y + 5]), line([x + 30, y + 5, x + 30, y, x + 30, y, x + 50, y, x + 50, y, x + 50, y + 5]), line([x + 50, y + 5, x + 76, y + 5])];
+test('a chamber bigger than any symbol with its lid as open lines between its walls: the lid stays with it, the outlet comes off', () => {
+  const r = R.sheetShapes([...chamber(100, 100), line([170, 190, 220, 190])], { minSide: 6, maxSide: 110, longRun: 150 });
+  const sh = r.shapes.filter(s => s.box[0] < 180 && s.box[2] > 100 && s.box[1] < 200 && s.box[3] > 100);
+  assert.equal(sh.length, 1, JSON.stringify(sh.map(s => s.box)));
+  assert.ok(sh[0].box[1] <= 100.5, 'the lid and its cover are in the shape: ' + JSON.stringify(sh[0].box));
+  assert.ok(sh[0].box[2] <= 180.5, 'the outlet is not: ' + JSON.stringify(sh[0].box));
+});
+// As on 4021: the outlet is pipework of its own (not in the shape), and a flow arrow's head touches a wall from outside.
+// The structure is fitted by its walls (its closed outline), not its whole legend box, and the box without arrowheads.
+test('a structure drawn small without its outlet, a flow arrowhead at its wall: found by its walls, standard', () => {
+  const k = 0.6, v = place(VAULT, { x: 100, y: 100, k }).slice(0, 2);
+  const r = runVault([...v, line([60, 160, 86, 160]), { ...loop([[86, 156.5], [100, 160], [86, 163.5]]), filled: true }]);
+  const s = at(r, 160, 170);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.deepEqual(s.parts.map(q => q.name), ['VAULT']);
+});
+// H1 / H3 (lr26): a long thin structure (LAGOON-like: its closed outline only a small part of it) was fitted to flow
+// arrowheads by that part. A structure is fitted only to a shape the size of a structure, by a frame of most of it.
+const POND = sym('c11', 'POND', 240, 50, [line([0, 20, 30, 20]), loop([[30, 20], [40, 50], [50, 20]]), line([50, 20, 240, 20]), line([60, 30, 230, 30])]);
+test('a long structure whose closed part is small is not fitted to a small triangle', () => {
+  const r = run([loop([[100, 100], [110, 130], [120, 100]]), line([100, 100, 95, 100])], { ...LIB, symbols: [...LIB.symbols, POND] });
+  assert.ok(!r.shapes.some(s => s.parts && s.parts.some(q => q.name === 'POND')), JSON.stringify(r.shapes));
+});
