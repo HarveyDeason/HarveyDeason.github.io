@@ -37,10 +37,18 @@ export function notReadable(status) {
 const isTransform = t => Array.isArray(t) && t.length === 6 && t.every(isNum);
 const isSize = s => Array.isArray(s) && s.length === 2 && s.every(x => isNum(x) && x > 0);
 
+/** The most sheets a run works on at once. More than this only fills the memory with drawings. */
+export const MAX_LANES = 8;
+
 /**
- * Run the check on each sheet in turn. `signal.stopped` is set by the caller
- * (the Stop button); the sheet in progress when it lands, and every later
- * sheet, is listed as stopped. Resolves, never rejects.
+ * Run the check on each sheet. `signal.stopped` is set by the caller
+ * (the Stop button); the sheets in progress when it lands, and every later
+ * sheet, are listed as stopped. Resolves, never rejects.
+ *
+ * `lanes` (a whole number, 1 to MAX_LANES; anything else means 1) is how many
+ * sheets are worked on at once. Each lane takes the next sheet when it is free,
+ * and the outcomes come back in the order the sheets were given, whichever
+ * finished first, with the same content as a run one sheet at a time.
  */
 export async function runReport(opts) {
   const o = obj(opts);
@@ -54,11 +62,13 @@ export async function runReport(opts) {
   const progress = p => { if (onProgress) { try { onProgress(p); } catch { /* the screen is not the run */ } } };
   const sheets = o.sheets.map(s => { const x = obj(s); return { drawing: str(x.drawing), rev: str(x.rev), family: str(x.family) }; });
   const of = sheets.length;
-  const outcomes = [];
-  let stopped = false;
+  const outcomes = new Array(of);
+  let stopped = false, completed = 0;
   const isStopped = () => stopped || signal.stopped === true;
+  const asked = o.lanes;
+  const lanes = Number.isInteger(asked) && asked >= 1 ? Math.min(asked, MAX_LANES, of || 1) : 1;
 
-  for (let i = 0; i < of; i++) {
+  const runOne = async i => {
     const sheet = sheets[i];
     const t0 = now();
     const out = { ...sheet, status: 'not-checked', reason: '', precheck: '', pages: 0, pageSize: null, viewportTransform: null, result: null, ms: 0 };
@@ -66,24 +76,25 @@ export async function runReport(opts) {
       if (reason === REASONS.stopped) stopped = true;
       out.reason = reason;
       out.ms = Math.max(0, now() - t0);
-      outcomes.push(out);
+      outcomes[i] = out;
+      completed++;
     };
-    if (isStopped()) { finish(REASONS.stopped); continue; }
-    progress({ sheet: i + 1, of, drawing: sheet.drawing, done: null, total: null });
+    if (isStopped()) { finish(REASONS.stopped); return; }
+    progress({ sheet: i + 1, of, drawing: sheet.drawing, done: null, total: null, lanes, completed });
 
     let bytes = null;
     try { bytes = deps.loadPdf ? await deps.loadPdf(sheet.drawing, sheet.rev) : null; } catch { bytes = null; }
-    if (isStopped()) { finish(REASONS.stopped); continue; }
-    if (!bytes || !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))) { finish(REASONS.noPdf); continue; }
+    if (isStopped()) { finish(REASONS.stopped); return; }
+    if (!bytes || !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))) { finish(REASONS.noPdf); return; }
 
     let pre = null;
     try { pre = deps.precheck ? await deps.precheck(sheet.drawing, sheet.rev, bytes) : null; } catch { pre = null; }
-    if (isStopped()) { finish(REASONS.stopped); continue; }
+    if (isStopped()) { finish(REASONS.stopped); return; }
     const status = pre && typeof pre === 'object' && has(STATUS_LABELS, pre.status) ? pre.status : '';
-    if (!status) { finish(REASONS.precheckFailed); continue; }
+    if (!status) { finish(REASONS.precheckFailed); return; }
     out.precheck = status;
-    if (status === 'scanned') { finish(REASONS.scanned); continue; }
-    if (status !== 'readable' && status !== 'comments' && status !== 'printed') { finish(notReadable(status)); continue; }
+    if (status === 'scanned') { finish(REASONS.scanned); return; }
+    if (status !== 'readable' && status !== 'comments' && status !== 'printed') { finish(notReadable(status)); return; }
     const tags = (Array.isArray(pre.tags) ? pre.tags : []).filter(t => t && typeof t === 'object')
       .map(t => ({ tag: str(t.tag), fc: str(t.fc) })).filter(t => t.tag);
 
@@ -91,9 +102,9 @@ export async function runReport(opts) {
     try {
       // The status tells the check where the words are: the text layer, or the comments.
       r = deps.check ? await deps.check(bytes, tags, (done, total, stage) => progress({ sheet: i + 1, of, drawing: sheet.drawing,
-        done: count(done), total: count(total), stage: str(stage) }), status) : null;
+        done: count(done), total: count(total), stage: str(stage), lanes, completed }), status) : null;
     } catch { r = null; }
-    if (isStopped() || (r && r.stopped === true)) { finish(REASONS.stopped); continue; }
+    if (isStopped() || (r && r.stopped === true)) { finish(REASONS.stopped); return; }
     const res = r && typeof r === 'object' ? r.result : null;
     if (res && typeof res === 'object' && res.ok === true && Array.isArray(res.verdicts)) {
       out.status = 'checked';
@@ -102,10 +113,14 @@ export async function runReport(opts) {
       out.pages = count(r.pages);
       out.pageSize = isSize(r.pageSize) ? r.pageSize.slice() : null;
       finish('');
-      continue;
+      return;
     }
     finish(REASONS.failed);
-  }
+  };
+
+  let next = 0;
+  const lane = async () => { for (let i = next++; i < of; i = next++) await runOne(i); };
+  await Promise.all(Array.from({ length: lanes }, lane));
   return { outcomes, stopped, ms: Math.max(0, now() - started) };
 }
 
@@ -159,6 +174,12 @@ export function reachHtml(opts) {
 /** Which sheet, which tag: plain text, for the tool to set as text. */
 export function progressText(p) {
   const o = obj(p);
+  if (count(o.lanes) > 1) {
+    return 'Checking ' + count(o.lanes) + ' sheets at a time: ' + count(o.completed) + ' of ' + count(o.of) + ' done, now ' + str(o.drawing) + ', '
+      + (o.done === null || o.done === undefined ? 'reading the drawing…'
+        : o.stage === 'sweep' ? 'looking for symbols, row ' + count(o.done) + ' of ' + count(o.total) + '…'
+          : 'tag ' + count(o.done) + ' of ' + count(o.total) + '…');
+  }
   return 'Checking sheet ' + count(o.sheet) + ' of ' + count(o.of) + ': ' + str(o.drawing) + ', '
     + (o.done === null || o.done === undefined ? 'reading the drawing…'
       : o.stage === 'sweep' ? 'looking for symbols, row ' + count(o.done) + ' of ' + count(o.total) + '…'

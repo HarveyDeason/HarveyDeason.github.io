@@ -31,7 +31,7 @@ self.onmessage = ev => {
       letters = { removed: s.removed, rows: s.rows };
     }
     const result = checkSheet({ paths, textItems, viewportTransform: d.viewportTransform, tags: d.words === 'printed' ? [] : d.tags, pageSize: d.pageSize, writing,
-      library: d.library, lookups: d.lookups,
+      library: d.library, lookups: d.lookups, options: d.options && typeof d.options === 'object' ? d.options : undefined,
       onProgress: (done, total, stage) => self.postMessage({ type: 'progress', done, total, stage }) });
     result.words = d.words === 'printed' || d.words === 'comments' ? d.words : 'text';
     if (letters) result.letters = letters;

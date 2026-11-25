@@ -17,3 +17,19 @@ test('worker: a printed sheet is checked with no tags, so no tag verdict can ari
   assert.equal(text.verdicts.length, 1);   // the same tag on a text sheet still gets its verdict
   delete globalThis.self;
 });
+
+test('worker: options in the message reach the check; none, or rubbish, change nothing', async () => {
+  const posted = [];
+  globalThis.self = { postMessage: m => posted.push(m), onmessage: null };
+  await import('../assets/js/pid-symbol-check-worker.js?options');
+  const base = { fnArray: [], argsArray: [], OPS: {}, viewportTransform: [1, 0, 0, 1, 0, 0], words: 'text', tags: [{ tag: '21-W-1001', fc: 'W' }],
+    pageSize: [400, 300], library: LIBRARY, lookups: LOOKUPS, textItems: [] };
+  self.onmessage({ data: base });
+  self.onmessage({ data: { ...base, options: 'x' } });
+  self.onmessage({ data: { ...base, options: { sweep: false } } });
+  const [plain, rubbish, noSweep] = posted.filter(m => m.type === 'result').map(m => m.result);
+  assert.ok(Array.isArray(plain.shapes), 'the sweep and shape reading run by default');
+  assert.ok(Array.isArray(rubbish.shapes), 'an options value that is not an object is ignored');
+  assert.equal(noSweep.shapes, undefined, 'options.sweep false reaches the check');
+  delete globalThis.self;
+});

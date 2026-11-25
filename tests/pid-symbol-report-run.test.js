@@ -234,3 +234,75 @@ test('runReport keeps the shapes and the operators mark in each outcome', async 
   assert.deepEqual(out.outcomes[0].result.shapes, shaped.shapes);
   assert.equal(out.outcomes[0].result.operatorsMarked, false);
 });
+
+// ---- several sheets at once (lanes) -------------------------------------------------------------------------------
+const MANY = Array.from({ length: 9 }, (_, i) => ({ drawing: 'INV-' + String(i + 1).padStart(4, '0'), rev: 'C01', family: '' }));
+const later = ms => new Promise(r => setTimeout(r, ms));
+const strip = outcomes => outcomes.map(o => ({ ...o, ms: 0 }));
+
+test('runReport: with lanes the sheets are checked several at a time, and the outcomes stay in the order given', async () => {
+  let live = 0, peak = 0;
+  const { deps } = fakeDeps({
+    // the early sheets are the slow ones, so a run that finished in order of completion would come out shuffled
+    check: async (bytes, tags, onTags) => { live++; peak = Math.max(peak, live); await later(40 - 4 * peak); live--; return { result: RESULT, viewportTransform: VT, pages: 1, pageSize: [500, 400] }; },
+  });
+  const out = await R.runReport({ sheets: MANY, deps, signal: { stopped: false }, lanes: 3 });
+  assert.equal(peak, 3);
+  assert.deepEqual(out.outcomes.map(o => o.drawing), MANY.map(s => s.drawing));
+  assert.ok(out.outcomes.every(o => o.status === 'checked'));
+  assert.equal(out.stopped, false);
+});
+
+test('runReport: the outcomes are the same whatever the number of lanes', async () => {
+  const mixed = fakeDeps({ loadPdf: async (d) => (d === 'INV-0004' ? null : new Uint8Array([1])), precheck: async (d) => (d === 'INV-0006' ? { status: 'none', tags: [] } : { status: 'readable', tags: [{ tag: '21-W-1001', fc: 'W' }] }) }).deps;
+  const one = await R.runReport({ sheets: MANY, deps: mixed, signal: { stopped: false } });
+  for (const lanes of [2, 4, 50]) {
+    const many = await R.runReport({ sheets: MANY, deps: mixed, signal: { stopped: false }, lanes });
+    assert.deepEqual(strip(many.outcomes), strip(one.outcomes), 'lanes ' + lanes);
+  }
+});
+
+test('runReport: lanes that make no sense mean one at a time', async () => {
+  for (const lanes of [0, -2, NaN, 'x', null, undefined, 1.5]) {
+    let live = 0, peak = 0;
+    const { deps } = fakeDeps({ check: async () => { live++; peak = Math.max(peak, live); await later(2); live--; return { result: RESULT, viewportTransform: VT, pages: 1, pageSize: [500, 400] }; } });
+    const out = await R.runReport({ sheets: MANY.slice(0, 4), deps, signal: { stopped: false }, lanes });
+    assert.equal(peak, 1, String(lanes));
+    assert.equal(out.outcomes.length, 4);
+  }
+});
+
+test('runReport: Stop with lanes lists every sheet not yet finished as stopped and starts no more', async () => {
+  const signal = { stopped: false };
+  let started = 0;
+  const { deps } = fakeDeps({
+    check: async () => {
+      started++;
+      if (started === 3) { signal.stopped = true; return { stopped: true }; }
+      await later(20);
+      return signal.stopped ? { stopped: true } : { result: RESULT, viewportTransform: VT, pages: 1, pageSize: [500, 400] };
+    },
+  });
+  const out = await R.runReport({ sheets: MANY, deps, signal, lanes: 3 });
+  assert.equal(out.stopped, true);
+  assert.equal(out.outcomes.length, MANY.length);
+  assert.ok(started <= 5, 'started ' + started);
+  for (const o of out.outcomes) assert.ok(o.status === 'checked' || o.reason === R.REASONS.stopped, o.drawing + ' ' + o.reason);
+  assert.ok(out.outcomes.slice(5).every(o => o.reason === R.REASONS.stopped));
+});
+
+test('runReport: progress with lanes says how many are done and how many run at once', async () => {
+  const seen = [];
+  const { deps } = fakeDeps();
+  await R.runReport({ sheets: MANY.slice(0, 4), deps, signal: { stopped: false }, lanes: 2, onProgress: p => seen.push(p) });
+  assert.ok(seen.every(p => p.of === 4 && p.lanes === 2));
+  assert.ok(Math.max(...seen.map(p => p.completed)) <= 3);   // the last sheet finishes after its own last message
+  assert.ok(seen.some(p => p.completed >= 1));
+  const alone = [];
+  await R.runReport({ sheets: MANY.slice(0, 2), deps, signal: { stopped: false }, onProgress: p => alone.push(p) });
+  assert.ok(alone.every(p => p.lanes === 1));
+  const words = R.progressText({ sheet: 3, of: 9, drawing: 'INV-0003', done: 2, total: 5, lanes: 3, completed: 2 });
+  assert.match(words, /3 sheets at a time/);
+  assert.match(words, /2 of 9/);
+  assert.equal(R.progressText({ sheet: 3, of: 9, drawing: 'INV-0003', done: 2, total: 5 }), 'Checking sheet 3 of 9: INV-0003, tag 2 of 5…');
+});

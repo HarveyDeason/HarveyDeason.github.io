@@ -173,10 +173,24 @@ function strokeLine(b, x0, y0, x1, y1, r) {
   }
   const ax = x0 + dx * t0, ay = y0 + dy * t0, bx = x0 + dx * t1, by = y0 + dy * t1;
   const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) * 2));
+  const w = b.w, data = b.data, yMax = b.h - 1, xMax = w - 1;
+  // A level or upright line: the stamps are half a pixel apart or less, so every pixel along it is stamped; the union is a bar.
+  if (ay === by || ax === bx) {
+    // The first and last stamp are worked out by the very expression the stamps use, so an end on a pixel edge falls as it always did.
+    const fx0 = Math.floor(ax + (bx - ax) * 0 / n), fx1 = Math.floor(ax + (bx - ax) * n / n), fy0 = Math.floor(ay + (by - ay) * 0 / n), fy1 = Math.floor(ay + (by - ay) * n / n);
+    const cx0 = fx0 < fx1 ? fx0 : fx1, cx1 = fx0 < fx1 ? fx1 : fx0, cy0 = fy0 < fy1 ? fy0 : fy1, cy1 = fy0 < fy1 ? fy1 : fy0;
+    const xa = cx0 - r < 0 ? 0 : cx0 - r, xb = cx1 + r > xMax ? xMax : cx1 + r, ya = cy0 - r < 0 ? 0 : cy0 - r, yb = cy1 + r > yMax ? yMax : cy1 + r;
+    for (let y = ya; y <= yb; y++) { const row = y * w; for (let x = xa; x <= xb; x++) data[row + x] = 1; }
+    return;
+  }
+  let lastX = NaN, lastY = NaN;
   for (let i = 0; i <= n; i++) {
     const cx = Math.floor(ax + (bx - ax) * i / n), cy = Math.floor(ay + (by - ay) * i / n);
-    for (let y = Math.max(0, cy - r); y <= Math.min(b.h - 1, cy + r); y++) {
-      for (let x = Math.max(0, cx - r); x <= Math.min(b.w - 1, cx + r); x++) b.data[y * b.w + x] = 1;
+    if (cx === lastX && cy === lastY) continue;   // the same square as the last stamp: nothing new to draw
+    lastX = cx; lastY = cy;
+    const xa = cx - r < 0 ? 0 : cx - r, xb = cx + r > xMax ? xMax : cx + r;
+    for (let y = cy - r < 0 ? 0 : cy - r, ye = cy + r > yMax ? yMax : cy + r; y <= ye; y++) {
+      for (let x = xa, row = y * w; x <= xb; x++) data[row + x] = 1;
     }
   }
 }
@@ -184,19 +198,27 @@ function strokeLine(b, x0, y0, x1, y1, r) {
 function drawInto(b, paths, o, cfg) {
   const S = b.pxPerPt;
   const tf = typeof o.transform === 'function' ? o.transform : null;
+  // o.place: a placement applied here as placePoint applies it, without making an array for every point.
+  const pl = isPlacement(o.place) ? o.place : null;
+  const [oa, ob, oc, od] = pl ? ORIENTATIONS[pl.o] : [1, 0, 0, 1];
   const scale = isNum(o.scale) && o.scale > 0 ? o.scale : 1;
   const loops = o.fillLoops instanceof Set ? o.fillLoops : null;
+  const bx0 = b.x0, by0 = b.y0;
   for (const p of asArr(paths)) {
     if (!p || typeof p !== 'object' || !Array.isArray(p.segs)) continue;
     const grey = isNum(p.grey) ? p.grey : 0;
     const white = grey >= cfg.whiteGrey, ink = grey < cfg.inkGrey;
     if (!white && !ink) continue;
-    const px = [];
-    for (let i = 0; i + 3 < p.segs.length; i += 4) {
-      let a = [p.segs[i], p.segs[i + 1]], c = [p.segs[i + 2], p.segs[i + 3]];
-      if (tf) { a = tf(a[0], a[1]); c = tf(c[0], c[1]); }
-      const q = [(a[0] - b.x0) * S, (a[1] - b.y0) * S, (c[0] - b.x0) * S, (c[1] - b.y0) * S];
-      if (q.every(isNum)) px.push(q[0], q[1], q[2], q[3]);
+    const px = [], sg = p.segs;
+    for (let i = 0; i + 3 < sg.length; i += 4) {
+      let ax = sg[i], ay = sg[i + 1], cx = sg[i + 2], cy = sg[i + 3];
+      if (pl) {
+        const x0 = pl.k * (oa * ax + oc * ay) + pl.tx, y0 = pl.k * (ob * ax + od * ay) + pl.ty;
+        const x1 = pl.k * (oa * cx + oc * cy) + pl.tx, y1 = pl.k * (ob * cx + od * cy) + pl.ty;
+        ax = x0; ay = y0; cx = x1; cy = y1;
+      } else if (tf) { const a = tf(ax, ay), c = tf(cx, cy); ax = a[0]; ay = a[1]; cx = c[0]; cy = c[1]; }
+      const q0 = (ax - bx0) * S, q1 = (ay - by0) * S, q2 = (cx - bx0) * S, q3 = (cy - by0) * S;
+      if (isNum(q0) && isNum(q1) && isNum(q2) && isNum(q3)) px.push(q0, q1, q2, q3);
     }
     if (!px.length) continue;
     const filled = p.filled === true;
@@ -240,14 +262,53 @@ export function dilate(bitmap, r) {
     return blank(0, 0, 0, 0, CHECK_DEFAULTS.pxPerPt);
   }
   const n = Math.max(0, Math.min(64, Math.round(isNum(r) ? r : 0)));
-  const { w, h, data } = b, across = new Uint8Array(w * h), out = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (!data[y * w + x]) continue;
-    for (let k = Math.max(0, x - n); k <= Math.min(w - 1, x + n); k++) across[y * w + k] = 1;
+  const { w, h, data } = b, total = w * h, across = new Uint8Array(total), out = new Uint8Array(total);
+  // Same answer as growing each ink pixel into a square, but the work follows the ink: empty stretches are skipped
+  // four pixels at a time, a run of ink is grown once, and only the span of a row that holds ink is copied down.
+  const words = total >= 4 && data.byteOffset % 4 === 0 ? new Uint32Array(data.buffer, data.byteOffset, total >> 2) : null;
+  const rowLo = new Int32Array(h).fill(-1), rowHi = new Int32Array(h);
+  // Which 64-pixel blocks of each row hold grown ink: the copy down then touches only those, not the whole span of a row.
+  const wide = (w & 3) === 0 && total >= 4, nb = (w + 63) >> 6, blocks = wide ? new Uint8Array(h * nb) : null;
+  let y = 0, rowStart = 0, rowEnd = w, until = -1;
+  for (let i = 0; i < total;) {
+    if (words !== null && (i & 3) === 0 && i + 4 <= total && words[i >> 2] === 0) { i += 4; continue; }
+    if (data[i] === 0) { i++; continue; }
+    while (i >= rowEnd) { rowStart = rowEnd; rowEnd += w; y++; }
+    // A run of ink along the row is grown once, from n before its first pixel to n after its last.
+    let j = i;
+    while (j + 1 < rowEnd && data[j + 1] !== 0) j++;
+    let from = i - n < rowStart ? rowStart : i - n;
+    const to = j + n >= rowEnd ? rowEnd - 1 : j + n;
+    if (from <= until) from = until + 1;
+    for (let k = from; k <= to; k++) across[k] = 1;
+    if (to > until) until = to;
+    if (rowLo[y] < 0) rowLo[y] = from - rowStart;
+    rowHi[y] = to - rowStart;
+    if (blocks !== null && from <= to) for (let bk = (from - rowStart) >> 6, bz = (to - rowStart) >> 6; bk <= bz; bk++) blocks[y * nb + bk] = 1;
+    i = j + 1;
   }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (!across[y * w + x]) continue;
-    for (let k = Math.max(0, y - n); k <= Math.min(h - 1, y + n); k++) out[k * w + x] = 1;
+  // across and out hold only 0 and 1, so OR-ing four pixels at a time gives the same bytes as setting them one by one.
+  const across32 = wide ? new Uint32Array(across.buffer) : null, out32 = wide ? new Uint32Array(out.buffer) : null, w4 = w >> 2;
+  for (let r0 = 0; r0 < h; r0++) {
+    const lo = rowLo[r0];
+    if (lo < 0) continue;
+    const hi = rowHi[r0], src = r0 * w, last = r0 + n < h ? r0 + n : h - 1;
+    if (wide) {
+      const first = r0 - n < 0 ? 0 : r0 - n, rowW = r0 * w4;
+      for (let bk = lo >> 6, bz = hi >> 6; bk <= bz; bk++) {
+        if (blocks[r0 * nb + bk] === 0) continue;
+        const a = rowW + bk * 16, z = a + 15 < rowW + w4 - 1 ? a + 15 : rowW + w4 - 1;
+        for (let k = first; k <= last; k++) {
+          const shift = (k - r0) * w4;
+          for (let q = a; q <= z; q++) out32[q + shift] |= across32[q];
+        }
+      }
+    } else {
+      for (let k = r0 - n < 0 ? 0 : r0 - n; k <= last; k++) {
+        const dst = k * w;
+        for (let x = lo; x <= hi; x++) if (across[src + x] !== 0) out[dst + x] = 1;
+      }
+    }
   }
   return { x0: b.x0, y0: b.y0, w, h, pxPerPt: b.pxPerPt, data: out };
 }
@@ -373,6 +434,42 @@ export function drawingSegments(paths, options) {
   return out;
 }
 
+const SEG_CELL = 100;   // points: the side of one cell of the segment index
+
+/**
+ * A lookup for "the segments whose midpoint is within `reach` of a centre": near(centre, reach) gives exactly what
+ * segments.filter(g => Math.hypot(midX - centre[0], midY - centre[1]) <= reach) gives, in the same order, but looks
+ * only at the cells round the centre instead of every segment on the sheet. Built once per sheet.
+ */
+export function segmentIndex(segments) {
+  const list = asArr(segments), cells = new Map();
+  const mid = list.map(g => (Array.isArray(g) ? [(g[0] + g[2]) / 2, (g[1] + g[3]) / 2] : [NaN, NaN]));
+  const key = (i, j) => i * 100003 + j;
+  mid.forEach((m, n) => {
+    if (!isNum(m[0]) || !isNum(m[1])) return;
+    const k = key(Math.floor(m[0] / SEG_CELL), Math.floor(m[1] / SEG_CELL));
+    const cell = cells.get(k);
+    if (cell) cell.push(n); else cells.set(k, [n]);
+  });
+  return (centre, reach) => {
+    const c = asArr(centre);
+    const cx = c[0], cy = c[1];
+    const exact = n => Math.hypot(mid[n][0] - cx, mid[n][1] - cy) <= reach;
+    // A centre or reach that is not a number, or one so wide that most of the sheet is in it: look at every segment.
+    const span = isNum(reach) && isNum(cx) && isNum(cy) ? Math.floor((2 * reach) / SEG_CELL) + 3 : Infinity;
+    if (!(span * span < cells.size * 2 + 64)) { const all = []; for (let n = 0; n < list.length; n++) if (exact(n)) all.push(list[n]); return all; }
+    const i0 = Math.floor((cx - reach) / SEG_CELL) - 1, i1 = Math.floor((cx + reach) / SEG_CELL) + 1;
+    const j0 = Math.floor((cy - reach) / SEG_CELL) - 1, j1 = Math.floor((cy + reach) / SEG_CELL) + 1;
+    const found = [];
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const cell = cells.get(key(i, j));
+      if (cell) for (const n of cell) if (exact(n)) found.push(n);
+    }
+    found.sort((a, b) => a - b);
+    return found.map(n => list[n]);
+  };
+}
+
 const isPlacement = p => !!p && typeof p === 'object' && Number.isInteger(p.o) && p.o >= 0 && p.o < 8 && isNum(p.k) && p.k > 0 && isNum(p.tx) && isNum(p.ty);
 
 /** Where a placement puts a symbol's point. */
@@ -393,21 +490,31 @@ export function proposePlacements(prepared, segments, centre, options) {
     const cfg = settings(options), p = asObj(prepared), c = asArr(centre);
     if (p.checkable !== true || !isNum(c[0]) || !isNum(c[1])) return out;
     const seen = new Set(), reach = cfg.radius + 40;
+    const segs = asArr(segments), c0 = c[0], c1 = c[1];
     for (const key of asArr(p.keys)) {
       const kx = key[2] - key[0], ky = key[3] - key[1], mx = (key[0] + key[2]) / 2, my = (key[1] + key[3]) / 2;
-      for (const g of asArr(segments)) {
-        if (!Array.isArray(g) || !g.slice(0, 5).every(isNum)) continue;
+      // Per key, once: where the key's direction goes in each of the eight orientations, and the angle allowance's scale.
+      const vxs = [], vys = [];
+      for (let o = 0; o < 8; o++) { const [a, b, cc, d] = ORIENTATIONS[o]; vxs.push(a * kx + cc * ky); vys.push(b * kx + d * ky); }
+      const allow = cfg.angleTol * key[4];
+      for (let gi = 0; gi < segs.length; gi++) {
+        const g = segs[gi];
+        // Not a segment: not an array, or one of its first five numbers is not a finite number (a short array passes, as before).
+        if (!Array.isArray(g) || !(g.length > 0 ? isNum(g[0]) : true) || !(g.length > 1 ? isNum(g[1]) : true) || !(g.length > 2 ? isNum(g[2]) : true)
+          || !(g.length > 3 ? isNum(g[3]) : true) || !(g.length > 4 ? isNum(g[4]) : true)) continue;
         const k = g[4] / key[4];
         if (k < cfg.minScale || k > cfg.maxScale) continue;
         const gx = (g[0] + g[2]) / 2, gy = (g[1] + g[3]) / 2;
-        if (Math.hypot(gx - c[0], gy - c[1]) > reach) continue;
+        // hypot is never less than either side, so a segment further than the reach in x or y alone is out without it.
+        const ddx = gx - c0, ddy = gy - c1;
+        if (ddx > reach || -ddx > reach || ddy > reach || -ddy > reach || Math.hypot(ddx, ddy) > reach) continue;
+        const gdy = g[3] - g[1], gdx = g[2] - g[0], lim = allow * g[4];
         for (let o = 0; o < 8; o++) {
+          if (Math.abs(vxs[o] * gdy - vys[o] * gdx) > lim) continue;
           const [a, b, cc, d] = ORIENTATIONS[o];
-          const vx = a * kx + cc * ky, vy = b * kx + d * ky;
-          if (Math.abs(vx * (g[3] - g[1]) - vy * (g[2] - g[0])) > cfg.angleTol * key[4] * g[4]) continue;
           const tx = gx - k * (a * mx + cc * my), ty = gy - k * (b * mx + d * my);
           const cx = k * (a * p.w / 2 + cc * p.h / 2) + tx, cy = k * (b * p.w / 2 + d * p.h / 2) + ty;
-          if (Math.hypot(cx - c[0], cy - c[1]) > cfg.radius) continue;
+          if (Math.hypot(cx - c0, cy - c1) > cfg.radius) continue;
           const id = o + ':' + Math.round(tx * 4) + ':' + Math.round(ty * 4) + ':' + Math.round(k * 50);
           if (seen.has(id)) continue;
           seen.add(id);
@@ -474,16 +581,18 @@ export function scorePlacement(prepared, placement, window, options) {
     const D = asObj(win.ink), N = asObj(win.near);
     if (p.checkable !== true || !isPlacement(placement) || !(D.data instanceof Uint8Array) || !(N.data instanceof Uint8Array) || !D.w || !D.h) return null;
     const S = D.pxPerPt, W = D.w, H = D.h;
+    // The placement as numbers, applied exactly as placePoint applies it, with no array made for each point.
+    const [oa, ob, oc, od] = ORIENTATIONS[placement.o], pk = placement.k, ptx = placement.tx, pty = placement.ty;
     const tf = (x, y) => placePoint(placement, x, y);
 
     // 1. Quick look: a sample of the symbol's points must land on drawing ink.
-    const pts = p.points, step = 2 * Math.max(1, Math.floor(pts.length / 2 / 30));
+    const pts = p.points, step = 2 * Math.max(1, Math.floor(pts.length / 2 / 30)), dx0 = D.x0, dy0 = D.y0, nd = N.data;
     let on = 0, n = 0;
     for (let i = 0; i + 1 < pts.length; i += step) {
-      const q = tf(pts[i], pts[i + 1]);
-      const X = Math.floor((q[0] - D.x0) * S), Y = Math.floor((q[1] - D.y0) * S);
+      const px0 = pts[i], py0 = pts[i + 1];
+      const X = Math.floor((pk * (oa * px0 + oc * py0) + ptx - dx0) * S), Y = Math.floor((pk * (ob * px0 + od * py0) + pty - dy0) * S);
       n++;
-      if (X >= 0 && Y >= 0 && X < W && Y < H && N.data[Y * W + X]) on++;
+      if (X >= 0 && Y >= 0 && X < W && Y < H && nd[Y * W + X]) on++;
     }
     if (!n || on < cfg.quickLook * n) return null;
 
@@ -499,7 +608,7 @@ export function scorePlacement(prepared, placement, window, options) {
     let fillLoops = null;
     if (cfg.twin && p.loops.length) {
       const bare = blank(fx, fy, tw, th, S);
-      drawInto(bare, p.symbol.paths, { transform: tf, scale: placement.k }, cfg);
+      drawInto(bare, p.symbol.paths, { place: placement, scale: placement.k }, cfg);
       for (const lp of p.loops) {
         const probe = blank(fx, fy, tw, th, S), px = [];
         for (let i = 0; i + 1 < lp.segs.length; i += 2) { const q = tf(lp.segs[i], lp.segs[i + 1]); px.push((q[0] - fx) * S, (q[1] - fy) * S); }
@@ -515,7 +624,7 @@ export function scorePlacement(prepared, placement, window, options) {
 
     // 4. Template, and the same grown by the ink tolerance.
     const T = blank(fx, fy, tw, th, S);
-    drawInto(T, p.symbol.paths, { transform: tf, scale: placement.k, fillLoops }, cfg);
+    drawInto(T, p.symbol.paths, { place: placement, scale: placement.k, fillLoops }, cfg);
     const Tn = dilate(T, Math.round(cfg.inkTol * S));
 
     // 5. Score.
@@ -617,6 +726,14 @@ export function findOutline(paths, tagBox, options) {
   }
 }
 
+// The settings with the relaxed quick look, one per settings object (settings() reads a new object afresh each time).
+const LOOSE_SEEN = new WeakMap();
+function looseLook(cfg) {
+  let got = LOOSE_SEEN.get(cfg);
+  if (!got) { got = settings({ ...cfg, quickLook: NEAR_MISS_LOOK }); LOOSE_SEEN.set(cfg, got); }
+  return got;
+}
+
 /**
  * Lay each bubble's ring on an outline and score it two ways. A bubble whose
  * width-to-height does not fit the outline's is not tried: a ring is not a
@@ -644,7 +761,7 @@ export function matchBubble(bubbles, outline, window, options) {
       const s = scorePlacement(p, pl, window, cfg);
       if (s && s.score >= cfg.recognise) scored.push({ p, score: s.score, k, box: s.box, placement: pl });
       else {
-        const loose = s || scorePlacement(p, pl, window, { ...cfg, quickLook: NEAR_MISS_LOOK });
+        const loose = s || scorePlacement(p, pl, window, looseLook(cfg));
         if (loose && (!near || loose.score > near.score)) near = { symbol: nameOf(p), score: round3(loose.score) };
       }
     }
@@ -1106,6 +1223,7 @@ export function runsOnPastCorner(hit, ink, options) {
 // segments: { cfg, prepared, paths, boxed, segments, pageSize, onProgress, deadline }.
 function sweep(ctx) {
   const { cfg, prepared, boxed, segments } = ctx;
+  const nearSegs = typeof ctx.nearSegs === 'function' ? ctx.nearSegs : segmentIndex(segments);
   const progress = typeof ctx.onProgress === 'function' ? ctx.onProgress : null;
   const deadline = isNum(ctx.deadline) ? ctx.deadline : Infinity;
   const ps = asArr(ctx.pageSize);
@@ -1180,13 +1298,16 @@ function sweep(ctx) {
       if (late()) { out.timedOut = true; break; }
       const c = [x, ys[r]];
       if (inBox(skipped, c[0], c[1])) continue;
-      const nearby = segments.filter(g => Math.hypot((g[0] + g[2]) / 2 - c[0], (g[1] + g[3]) / 2 - c[1]) <= reach);
+      const nearby = nearSegs(c, reach);
       if (!nearby.length) continue;
-      const win = windowFrom(boxed, c, cfg);
+      // The window (the drawing round this centre, drawn and grown) is made when the first placement needs it:
+      // a centre where nothing is proposed never pays for it.
+      let winMade = null;
       for (const p of checkable) {
         if (late()) { out.timedOut = true; break; }
         const done = tried.get(p);
         for (const pl of proposePlacements(p, nearby, c, cfg)) {
+          const win = winMade || (winMade = windowFrom(boxed, c, cfg));
           const id = pl.o + ':' + Math.round(pl.tx * 4) + ':' + Math.round(pl.ty * 4) + ':' + Math.round(pl.k * 50);
           if (done.has(id)) continue;
           const s = scorePlacement(p, pl, win, cfg);
@@ -1440,13 +1561,21 @@ function templateIn(frame, h, cfg) {
 // Ink pixels of `own` (outside `skip` boxes) on `mask`, over all of them.
 function coverage(own, mask, skip) {
   let n = 0, on = 0;
-  const S = own.pxPerPt;
-  for (let y = 0; y < own.h; y++) for (let x = 0; x < own.w; x++) {
-    const i = y * own.w + x;
-    if (!own.data[i]) continue;
-    if (skip.length) { const px = own.x0 + (x + 0.5) / S, py = own.y0 + (y + 0.5) / S; if (skip.some(b => inBox(b, px, py))) continue; }
-    n++;
-    if (mask.data[i]) on++;
+  const S = own.pxPerPt, w = own.w, h = own.h, od = own.data, md = mask.data, ns = skip.length, ox = own.x0, oy = own.y0;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const i = row + x;
+      if (!od[i]) continue;
+      if (ns) {
+        const px = ox + (x + 0.5) / S, py = oy + (y + 0.5) / S;
+        let inSkip = false;
+        for (let k = 0; k < ns; k++) if (inBox(skip[k], px, py)) { inSkip = true; break; }
+        if (inSkip) continue;
+      }
+      n++;
+      if (md[i]) on++;
+    }
   }
   return n ? on / n : 1;
 }
@@ -2700,8 +2829,12 @@ export function judgeShapes(ctx) {
           const newInk = (p, pl) => {
             const pts = asArr(p.points), n = Math.floor(pts.length / 2), need = PEEL_NEW * n;
             let on = 0;
+            // pl is a placement the sweep made: its numbers are applied as placePoint applies them, without an array per point.
+            const [oa, ob, oc, od] = ORIENTATIONS[pl.o], pk = pl.k, ptx = pl.tx, pty = pl.ty, lm = leftNear, lw = lm.w, lh = lm.h, ld = lm.data, lx = lm.x0, ly = lm.y0, lp = lm.pxPerPt;
             for (let i = 0, k = 0; i + 1 < pts.length; i += 2, k++) {
-              if (at(leftNear, placePoint(pl, pts[i], pts[i + 1]))) on++;
+              const qx = pk * (oa * pts[i] + oc * pts[i + 1]) + ptx, qy = pk * (ob * pts[i] + od * pts[i + 1]) + pty;
+              const X = Math.floor((qx - lx) * lp), Y = Math.floor((qy - ly) * lp);
+              if (X >= 0 && Y >= 0 && X < lw && Y < lh && ld[Y * lw + X] !== 0) on++;
               else if (on + (n - k - 1) < need) return 0;   // the rest cannot reach PEEL_NEW
             }
             return n && on >= need ? on : 0;
@@ -2932,6 +3065,7 @@ function checkSheetAt(input) {
     const bubbles = prepared.filter(p => p.checkable && p.bubble);
     const boxed = boxesOf(inp.paths);
     const segments = drawingSegments(inp.paths, cfg);
+    const nearSegs = segmentIndex(segments);   // the segments round a centre, found without reading every segment on the sheet
     const placed = tagPlaces(inp.textItems, tags, inp.viewportTransform);
     const vt = isMatrix(inp.viewportTransform) ? inp.viewportTransform : IDENTITY;
     let words = [];
@@ -2984,7 +3118,7 @@ function checkSheetAt(input) {
           if (clock() - started > cfg.timeLimitMs) { late[ti] = true; break; }
           const c = centreOf(place.box);
           const win = windowFrom(boxed, c, cfg);
-          const nearby = segments.filter(g => Math.hypot((g[0] + g[2]) / 2 - c[0], (g[1] + g[3]) / 2 - c[1]) <= reach);
+          const nearby = nearSegs(c, reach);
           const mine = new Map();   // spot -> nearest distance from this place
           for (const p of checkable) {
             const props = proposePlacements(p, nearby, c, cfg);
@@ -3052,7 +3186,7 @@ function checkSheetAt(input) {
         if (clock() - started > cfg.timeLimitMs) break;
         const c = centreOf(place.box);
         const win = windowFrom(boxed, c, cfg);
-        const nearby = segments.filter(g => Math.hypot((g[0] + g[2]) / 2 - c[0], (g[1] + g[3]) / 2 - c[1]) <= reach);
+        const nearby = nearSegs(c, reach);
         for (const p of symbols) {
           for (const pl of proposePlacements(p, nearby, c, cfg)) {
             // A symbol that has already answered another tag is not this tag's near miss.
@@ -3077,7 +3211,7 @@ function checkSheetAt(input) {
     // stand as they are; each claims the swept symbol that shares its ink.
     let symbols = [], skipped = null, sweptLate = false, shapes, operatorsMarked, drawingAreaOut, sizeScaleOut, readFrom = 'paths', lineCapped, sizeScale = 1, lineMarks = 0;
     if (asObj(inp.options).sweep !== false) {
-      const sw = sweep({ cfg, prepared, paths: inp.paths, boxed, segments, pageSize: inp.pageSize,
+      const sw = sweep({ cfg, prepared, paths: inp.paths, boxed, segments, nearSegs, pageSize: inp.pageSize,
         onProgress: progress, deadline: started + cfg.timeLimitMs, raw: true, writing: writingBoxes(words, inp.writing) });
       skipped = sw.skipped; sweptLate = sw.timedOut;
       const taggedHits = [];
