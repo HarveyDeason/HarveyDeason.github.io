@@ -732,3 +732,28 @@ test('an operator beside a small body with no pipe drawn is still placed', () =>
   const s = judgeOne(paths, OPERATOR_LIBRARY, [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]]);
   assert.equal(s && s.operator && s.operator.name, 'HANDLE', JSON.stringify(s));
 });
+
+// SP66 (owner, 2026-11-25): two valves in a row, each with its actuator standing beside it as a shape of its own. A body
+// took the actuator that suited the legend best among its neighbours, not its own: each valve's box then ran across the
+// other's actuator, and the two boxes overlapped. An actuator belongs to the nearer body, whatever order the shapes come in.
+// NOTE: a guard only. No invented drawing reproduced the real tie (two actuator placements scoring alike, the far one tried
+// first); the real sheet did, and its before/after verdicts are what proved the fix (see the commit message).
+import { HANDLE } from './fixtures/symbol-check-sheet.js';
+test('two bodies in a row, each with an actuator of its own cut off: each box holds its own actuator only', () => {
+  const W = SHAPE_LIBRARY.symbols.find(s => s.name === 'WIDGET');
+  const at = x => ({ o: 0, k: 1, tx: x, ty: 100 });
+  // Bodies at x 100 and 150 (24 wide); each actuator 5 pt above its own body, 33 pt from the other. The first actuator is
+  // drawn half a point off.
+  const g = { B1: { paths: place(W, { x: 100, y: 100 }) }, H1: { paths: place(HANDLE, { x: 107.5, y: 87 }) }, B2: { paths: place(W, { x: 150, y: 100 }) }, H2: { paths: place(HANDLE, { x: 157, y: 87 }) } };
+  const orders = [['B1', 'H1', 'B2', 'H2'], ['H2', 'B2', 'H1', 'B1'], ['H2', 'H1', 'B2', 'B1'], ['B2', 'H2', 'B1', 'H1'], ['H1', 'H2', 'B1', 'B2'], ['B1', 'B2', 'H1', 'H2'], ['H2', 'H1', 'B1', 'B2'], ['B2', 'B1', 'H2', 'H1']];
+  for (const order of orders) {
+    const shapes = judgeSplit(order.map(k => g[k]), OPERATOR_LIBRARY, [['WIDGET', at(100)], ['WIDGET', at(150)]]);
+    const note = order.join(',') + ': ' + JSON.stringify(shapes.map(s => [s.box, s.verdict]));
+    assert.equal(shapes.length, 2, note);
+    for (const s of shapes) {
+      assert.equal(s.verdict, 'standard', note);
+      assert.ok(s.box[2] - s.box[0] <= 25, 'one body wide: ' + note);
+      assert.ok(s.parts.some(p => p.role === 'attachment'), note);
+    }
+  }
+});

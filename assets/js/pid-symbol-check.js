@@ -1800,6 +1800,7 @@ export const PEEL_MAX = 8;       // parts peeled off one shape, at most
 export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
 const LEAD_PIECES = 200;         // pieces followed along one lead, at most
 const LEAD_RING = 6;             // points: a ring no bigger than this that a marker's lead runs through goes with the lead
+export const OP_TIE = 0.005;     // operator placements whose scores differ by less than this fit alike: the one nearest its body is taken
 export const OP_ON_BODY = 0.25;  // an operator laying more of its linework than this inside a found body, along its pipe, lies across it
 const FILL_TWIN = 0.25;         // loops within this share of a filled loop's size are its twins, filled alike
 const FILL_DENSITY = 0.2;        // ink filling this share of a body's closed outline (inside its lines) is its fill (normally closed)
@@ -2150,10 +2151,12 @@ export function judgeShapes(ctx) {
     let piecesOfPath = null;   // path index -> its pieces, read once when first needed
     const linesIn = fr => linePieces.filter(i => { const q = S[i]; return inBox([fr.x0, fr.y0, fr.x0 + fr.w / PX, fr.y0 + fr.h / PX], (q[0] + q[2]) / 2, (q[1] + q[3]) / 2); });
     // The best legend operator laid on the ink `left` (what the bodies leave unexplained), within reach of a body.
+    // Of operator placements that fit alike (scores within OP_TIE), the one standing nearest its body is the body's: two valves in a
+    // row, each with an actuator beside it, would else each take the other's when the far one happens to score a hair higher (SP66).
     const bestOperator = (fr, left, nearFull, pieces, bodyHits) => {
       const opWin = { ink: left, near: nearFull };
       const segs = segsOf(S, [...pieces, ...linesIn(fr)], minKey);
-      let best = null;
+      let best = null, bestGap = Infinity;
       for (const h of bodyHits) {
         const bb = placedBox(h), centre = centreOf(bb), reach = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]) / 2 + opReach;
         for (const p of operators) {
@@ -2162,7 +2165,8 @@ export function judgeShapes(ctx) {
             if (!sc || sc.score < cfg.recognise) continue;
             const hit = { p, placement: pl, score: sc.score };
             if (weakestLine(hit, opWin, cfg) < LINE_MIN) continue;
-            if (!best || sc.score > best.score) best = hit;
+            const ob = placedBox(hit), gap = Math.max(ob[0] - bb[2], bb[0] - ob[2], ob[1] - bb[3], bb[1] - ob[3], 0);
+            if (!best || sc.score > best.score + OP_TIE || (sc.score >= best.score - OP_TIE && gap < bestGap - 0.5)) { best = hit; bestGap = gap; }
           }
         }
       }

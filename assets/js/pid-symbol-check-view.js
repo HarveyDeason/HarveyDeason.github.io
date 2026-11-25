@@ -311,7 +311,26 @@ const MARGIN = 3; // pixels
 export function boxRects(result, scale) {
   if (!usable(result) || !isNum(scale) || scale <= 0) return [];
   const out = [];
+  const judged = shapesOf(result);
+  // A symbol with its operator (a valve with its actuator) is one symbol: one box for the whole, coloured by the verdict of the
+  // whole (owner, 2026-11-25). A tag whose symbol sits inside such a whole, and is right (OK, or only off size), is not boxed again
+  // round its body: the whole carries the tag. A wrong family is never folded away.
+  const wholeOf = v => {
+    const b = isBox(v.box) ? v.box : null, k = kindOf(v);
+    if (!b || !judged || (k !== 'ok' && k !== 'off-size')) return -1;
+    return judged.findIndex(s => asArr(s.parts).some(p => p && p.role === 'attachment') && asArr(s.parts).some(p => p && p.role !== 'attachment')
+      && b[0] >= s.box[0] - 2 && b[1] >= s.box[1] - 2 && b[2] <= s.box[2] + 2 && b[3] <= s.box[3] + 2);
+  };
+  const folded = new Map();   // shape index -> the tag verdicts its box carries
   for (const { v, i } of verdictsOf(result)) {
+    const n = wholeOf(v);
+    if (n < 0) continue;
+    if (!folded.has(n)) folded.set(n, []);
+    folded.get(n).push({ v, i });
+  }
+  const foldedIn = new Set([...folded.values()].flat().map(x => x.i));
+  for (const { v, i } of verdictsOf(result)) {
+    if (foldedIn.has(i)) continue;
     const b = isBox(v.box) ? v.box : isBox(v.tagBox) ? v.tagBox : null;
     if (!b) continue;
     const kind = kindOf(v);
@@ -321,7 +340,6 @@ export function boxRects(result, scale) {
   }
   const rect = b => ({ left: b[0] * scale - MARGIN, top: b[1] * scale - MARGIN,
     width: (b[2] - b[0]) * scale + 2 * MARGIN, height: (b[3] - b[1]) * scale + 2 * MARGIN });
-  const judged = shapesOf(result);
   asArr(symbolsOf(result)).forEach((s, n) => {
     if (judged || !untagged(s) || !isBox(s.box)) return;   // once shapes were judged, the shapes are boxed instead
     out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' + (s.plain === true ? ' Plain shape: check by eye.' : '') });
@@ -330,8 +348,11 @@ export function boxRects(result, scale) {
   let amber = 0;
   (judged || []).forEach((s, n) => {
     const v = verdictOf(s);
-    if (v === 'standard') out.push({ sh: n, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' });
-    else if (v === 'not-standard') out.push({ sh: n, ...(newStyle ? { num: ++amber } : {}), kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + (newStyle ? amberText(s) : shapeWhy(s) + '. ' + closestText(s)) + '.' });
+    const tags = asArr(folded.get(n));   // tags whose symbols this whole holds: the first one's row jumps here
+    const tagged = tags.length ? ' Tag ' + tags.map(x => str(x.v.tag)).filter(Boolean).join(', ') + '.' : '';
+    const jump = tags.length ? { i: tags[0].i } : {};
+    if (v === 'standard') out.push({ sh: n, ...jump, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' + tagged });
+    else if (v === 'not-standard') out.push({ sh: n, ...jump, ...(newStyle ? { num: ++amber } : {}), kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + (newStyle ? amberText(s) : shapeWhy(s) + '. ' + closestText(s)) + '.' + tagged });
     else if (v === 'not-identified') out.push({ sh: n, kind: 'not-identified', ...rect(s.box), title: 'Not identified: check by eye.' });
     else if (v === 'not-judged') out.push({ sh: n, kind: 'not-judged', ...rect(s.box), title: 'Not judged: time limit.' });
   });
