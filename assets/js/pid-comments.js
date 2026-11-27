@@ -436,3 +436,31 @@ export function sameRegisterContent(disk, memory) {
     return false;
   }
 }
+
+// Which parts of the register differ between what is on disk and what this session would save. The register's source of truth is the
+// revision history, the deletions and the families; the tags and the drawing list are WORKED OUT from the history every time it is
+// loaded, so a different order or an older way of writing them says nothing about whether anything changed. A save is skipped when
+// only derived parts differ (or nothing does): the file is left as it is. Families are compared by meaning (id as text, a missing
+// updatedAt as empty, any order), so a register written by an older version is not rewritten for how it spelt them.
+// Returns { source, derived, other }: lists of the sections that differ. Unusable input differs in everything.
+const REGISTER_SOURCE = ['revHistory', 'deletions', 'famDeletions', 'families'];
+const REGISTER_DERIVED = ['tags', 'drawings'];
+function normFamilies(list) {
+  return (Array.isArray(list) ? list : []).filter(f => f && typeof f === 'object')
+    .map(f => ({ id: String(f.id), name: f.name, patterns: Array.isArray(f.patterns) ? f.patterns : [], updatedAt: f.updatedAt || '' }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+export function registerDiff(disk, memory) {
+  try {
+    const ok = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (!ok(disk) || !ok(memory)) return { source: ['unusable'], derived: [], other: [] };
+    const part = (v, k) => (k === 'families' ? normFamilies(v[k]) : v[k] === undefined ? (k === 'tags' ? [] : {}) : v[k]);
+    const differs = k => canonicalJson(part(disk, k)) !== canonicalJson(part(memory, k));
+    const known = new Set([...REGISTER_SOURCE, ...REGISTER_DERIVED, 'savedAt']);
+    const keys = [...new Set([...Object.keys(disk), ...Object.keys(memory)])].filter(k => !known.has(k));
+    return { source: REGISTER_SOURCE.filter(differs), derived: REGISTER_DERIVED.filter(differs),
+      other: keys.filter(k => canonicalJson(disk[k]) !== canonicalJson(memory[k])).sort() };
+  } catch {
+    return { source: ['unusable'], derived: [], other: [] };
+  }
+}
