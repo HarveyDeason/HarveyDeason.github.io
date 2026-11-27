@@ -896,7 +896,7 @@ function describe_drives() {
     const shapes = judgeSplit([{ paths: place(SHAPE_LIBRARY.symbols.find(s => s.name === 'WIDGET'), { x: 100, y: 100 }) }, motorAt(103, 86)], lib, [['WIDGET', WIDGET_AT]]);
     assert.equal(shapes.length, 1, JSON.stringify(shapes.map(s => [s.box, s.verdict])));
     assert.equal(shapes[0].verdict, 'standard', JSON.stringify(shapes[0]));
-    assert.deepEqual(shapes[0].parts.map(p => p.name + ':' + p.role).sort(), ['ELECTRIC MOTOR:symbol', 'WIDGET:body']);
+    assert.deepEqual(shapes[0].parts.map(p => p.name + ':' + p.role).sort(), ['ELECTRIC MOTOR:attachment', 'WIDGET:body']);
   });
   test('a motor found on its own is still a symbol of its own, standard, and is not taken by a body far from it', () => {
     const W = SHAPE_LIBRARY.symbols.find(s => s.name === 'WIDGET');
@@ -927,4 +927,23 @@ test('a body drawn as pale as the line (a whole ghosted symbol) is not told from
   const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
   const s = judgeOne([...place(W, { x: 100, y: 100 }).map(p => ({ ...p, grey: 128 })), { ...tick([100, 100, 70, 130]), grey: 128 }], SHAPE_LIBRARY, at);
   assert.notEqual(s.verdict, 'standard', JSON.stringify(s));
+});
+
+// 4030 (2026-11-27): a peristaltic pump with its motor drawn on it was amber "extra": the motor (a box with bars) and its shaft were ink
+// no part of the pump's symbol. A drive on a body's own shape is an attachment of it, as a drive standing apart is joined to it.
+test('a body with its drive on the same shape: standard, the drive named as an attachment', () => {
+  const ln = segs => ({ segs, width: 0.7, stroked: true, filled: false, grey: 0 });
+  const MOTOR = { id: 'em2', name: 'ELECTRIC MOTOR', legendName: 'ELECTRIC MOTOR', group: 'DRIVES', tagId: 'M', sheet: '1', w: 18, h: 14, letters: [], aliases: [], notes: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false },
+    paths: [ln([2, 0, 16, 0, 16, 0, 16, 10, 16, 10, 2, 10, 2, 10, 2, 0]), ln([0, 3, 18, 3]), ln([0, 7, 18, 7]), ln([9, 10, 9, 14])] };
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, MOTOR] };
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  // drawn 1.35 times the legend's size (a drive is often drawn larger than the legend's): a standard symbol peeled off would be size-judged
+  const k = 1.35, mx = (x, y) => [101 + x * k, 81 + y * k];
+  const seg = (a, b) => [...mx(...a), ...mx(...b)];
+  const motor = [ln([...seg([2, 0], [16, 0]), ...seg([16, 0], [16, 10]), ...seg([16, 10], [2, 10]), ...seg([2, 10], [2, 0])]), ln(seg([0, 3], [18, 3])), ln(seg([0, 7], [18, 7])), ln(seg([9, 10], [9, 14]))];
+  const s = judgeOne([...place(W, { x: 100, y: 100 }), ...motor], lib, at);
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.deepEqual(s.parts.map(p => p.name).sort(), ['ELECTRIC MOTOR', 'WIDGET']);
 });

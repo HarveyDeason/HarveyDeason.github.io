@@ -403,3 +403,36 @@ test('a reducer on a pipe stub off a pipe, and a check valve 20 pt along the pip
     assert.ok(inner.some(x => near(x.box, [95, 100, 115, 120])) && inner.some(x => near(x.box, [180, 143, 194, 157])), JSON.stringify(inner.map(x => x.box)));
   }
 });
+
+// 4030 (2026-11-27): two FLEXIBLE HOSEs joined by a pipe drawn as a curve were one shape, so neither was judged on its own ("not 2 in one
+// box"). A straight chain on the ends of which two shapes stand is a connector; so is a smooth open curve between two shapes.
+const bend = (p0, p1, p2, p3, n = 12) => {
+  const at = t => { const u = 1 - t; return [u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0], u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]]; };
+  const segs = []; for (let k = 0; k < n; k++) segs.push(...at(k / n), ...at((k + 1) / n));
+  return line(segs);
+};
+test('two WIDGETs joined by a smooth curve: two shapes, the curve a connector line', () => {
+  const curve = bend([124, 106], [140, 106], [140, 131], [130, 131]);
+  const paths = [...place(W, { x: 100, y: 100 }), curve, ...place(W, { x: 130, y: 125 })];
+  const r = R.sheetShapes(paths, OPT);
+  assert.equal(r.shapes.length, 2, JSON.stringify(r.shapes.map(s => s.box)));
+  assert.ok(r.shapes.some(s => near(s.box, [100, 100, 124, 112])) && r.shapes.some(s => near(s.box, [130, 125, 154, 137])), JSON.stringify(r.shapes.map(s => s.box)));
+  assert.ok(indexesOf(paths, [curve]).every(i => kindOf(r, i) === 'connector'));
+});
+test('a curve with one free end is not a connector: it stays with the shape it leaves', () => {
+  const curve = bend([124, 106], [140, 106], [140, 131], [135, 140]);
+  const r = R.sheetShapes([...place(W, { x: 100, y: 100 }), curve], OPT);
+  assert.equal(r.shapes.length, 1);
+});
+test('a curve with both ends on the same shape is no connector', () => {
+  const curve = bend([124, 106], [124, 140], [100, 140], [100, 106]);
+  const r = R.sheetShapes([...place(W, { x: 100, y: 100 }), curve], OPT);
+  assert.equal(r.shapes.length, 1);
+});
+test('an arc standing between two others and carrying on from each smoothly (a wavy hose) is no connector: nothing is cut out of the wave', () => {
+  const arc = (cx, up, n = 10) => { const r = 6, segs = []; for (let k = 0; k < n; k++) { const a0 = Math.PI * (up ? 1 - k / n : 1 + k / n), a1 = Math.PI * (up ? 1 - (k + 1) / n : 1 + (k + 1) / n);
+    segs.push(cx + r * Math.cos(a0), 100 - r * Math.sin(a0), cx + r * Math.cos(a1), 100 - r * Math.sin(a1)); } return line(segs); };
+  const paths = [arc(106, true), arc(118, false), arc(130, true)];   // three semicircles, each leaving the last upright
+  const r = R.sheetShapes(paths, { ...OPT, minSide: 6 });
+  assert.ok(paths.every(p => indexesOf(paths, [p]).every(i => kindOf(r, i) !== 'connector')), JSON.stringify(r.lines.map(l => l.kind)));
+});
