@@ -279,7 +279,7 @@ test('workbookRows: an old result with no shapes gives the rows of before with t
 test('buildReportModel: flagged shapes become numbered amber rows, with their boxes', () => {
   const s = model({ outcomes: [shapedSheet], stopped: false, ms: 1 }).sheets[0];
   assert.equal(s.shapeRows.length, 2);
-  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 2]);   // symbols first: the tags carry no boxes on the drawing
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 3]);   // symbols first; group numbers (GADGET 1, the standard WIDGET + HANDLE 2); a shape with no symbol follows them
   assert.deepEqual(s.shapeRows.map(r => r.kind), ['not-standard', 'not-standard']);
   assert.equal(s.shapeRows[0].label, 'Not to standard');
   assert.equal(s.shapeRows[0].detail, 'ink left over; closest: GADGET 97%');
@@ -296,7 +296,7 @@ test('buildReportModel, symbols first: a shape line, named standard boxes, flagg
   assert.equal(s.shapeLine, '1 standard symbol · 2 not to standard · 1 not judged (time limit)');
   assert.deepEqual(s.standardRows.map(r => r.name), ['WIDGET + HANDLE']);
   assert.deepEqual(s.standardRows[0].userRect, M.toUserRect([100, 98, 124, 112], VT, 3));
-  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 2]);
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 3]);   // as above: group numbers, then the shape with no symbol
   assert.equal(M.PRINT_COLOURS.standard, '#2E7D32');
   const old = model({ outcomes: [withSymbols], stopped: false, ms: 1 }).sheets[0];
   assert.equal(old.layout, 'tags');
@@ -379,4 +379,59 @@ test('buildReportModel: a standard shape with parts is named by its parts', () =
   assert.deepEqual(s.standardRows.map(r => r.name), ['WIDGET + HANDLE + FLANGE ×2']);
   const w = M.workbookRows(model({ outcomes: [{ ...checked, result: { ...SHAPED_RESULT, shapes } }], stopped: false, ms: 1 }));
   assert.ok(w.symbols.rows.some(x => x[3] === 'WIDGET + HANDLE + FLANGE ×2'), JSON.stringify(w.symbols.rows.map(x => x[3])));
+});
+
+// ── Groups (2026-11-27): shapes with the same symbol, verdict and fault share one number ──
+const ball = (box, extra) => ({ box, id: 0, standard: false, why: null, symbols: [], operator: null, closest: { name: 'BALL', score: 0.97 }, parts: [{ name: 'BALL', role: 'body' }], ...extra });
+const OVERLAY = { name: 'BALL', symbol: [[0, 0, 1, 1]], unmatched: [], drawn: [[0, 1, 1, 0]], placedBox: [0, 0, 1, 1], expected: [17, 8.5] };
+const GROUPED_RESULT = { ...VERDICT_RESULT, shapes: [
+  ball([100, 100, 118, 109], { verdict: 'not-standard', reason: { kind: 'size', name: 'BALL', pct: 75 }, overlay: OVERLAY }),
+  ball([200, 100, 218, 109], { verdict: 'not-standard', reason: { kind: 'size', name: 'BALL', pct: 76 } }),
+  ball([300, 100, 318, 109], { verdict: 'standard', standard: true, reason: null }),
+  { id: 3, box: [400, 100, 420, 120], verdict: 'not-identified', standard: false, reason: null, symbols: [], operator: null, closest: null },
+] };
+const groupedSheet = o => model({ outcomes: [{ ...checked, result: o || GROUPED_RESULT }], stopped: false, ms: 1 }).sheets[0];
+
+test('buildReportModel, groups: the same symbol and fault is one numbered group, amber before standard', () => {
+  const s = groupedSheet();
+  assert.deepEqual(s.groups.map(g => [g.no, g.name, g.verdict, g.kind, g.count]), [[1, 'BALL', 'not-standard', 'size', 2], [2, 'BALL', 'standard', null, 1]]);
+  assert.deepEqual(s.groups[0].example.userRect, M.toUserRect([100, 100, 118, 109], VT, 3));
+  // The overlay is handed on in the page's own user space, like the rectangles.
+  const pt = (x, y) => M.toUserRect([x, y, x, y], VT, 0).slice(0, 2);
+  assert.deepEqual(s.groups[0].example.overlay, { ...OVERLAY, symbol: [[...pt(0, 0), ...pt(1, 1)]], unmatched: [], drawn: [[...pt(0, 1), ...pt(1, 0)]], placedBox: M.toUserRect(OVERLAY.placedBox, VT, 0) });
+  assert.equal(s.groups[1].example, null);
+});
+
+test('buildReportModel, groups: every box row carries its group number; red boxes carry none', () => {
+  const s = groupedSheet();
+  assert.deepEqual(s.shapeRows.map(r => r.no), [1, 1]);
+  assert.deepEqual(s.standardRows.map(r => r.no), [2]);
+  assert.equal(s.redRows.length, 1);
+  assert.ok(s.redRows.every(r => !('no' in r)));
+});
+
+test('buildReportModel, groups: an old result with no overlay still groups, its example has none', () => {
+  const s = groupedSheet({ ...GROUPED_RESULT, shapes: GROUPED_RESULT.shapes.map(({ overlay, ...x }) => x) });
+  assert.equal(s.groups[0].count, 2);
+  assert.equal(s.groups[0].example.overlay, undefined);
+});
+
+test('buildReportModel, groups: a sheet with no matched shapes has no groups', () => {
+  assert.deepEqual(groupedSheet({ ...GROUPED_RESULT, shapes: [GROUPED_RESULT.shapes[3]] }).groups, []);
+  assert.deepEqual(model({ outcomes: [withSymbols], stopped: false, ms: 1 }).sheets[0].groups, []);   // a result from before the shapes
+});
+
+test('buildReportModel, groups: a group says what is wrong in words; several size faults say "about"', () => {
+  const s = groupedSheet();
+  assert.equal(s.groups[0].text, 'BALL drawn at about 75% of standard size');
+  assert.equal(s.groups[1].text, '');
+  const one = groupedSheet({ ...GROUPED_RESULT, shapes: [GROUPED_RESULT.shapes[0], GROUPED_RESULT.shapes[2]] });
+  assert.equal(one.groups[0].text, 'BALL drawn at 75% of standard size');
+});
+
+test('toUserSegs: segments through the inverse viewport transform, a bad one dropped, never throws', () => {
+  const pt = (x, y) => M.toUserRect([x, y, x, y], VT, 0).slice(0, 2);
+  assert.deepEqual(M.toUserSegs([[1, 2, 3, 4], [1, 2, 'x', 4], null], VT), [[...pt(1, 2), ...pt(3, 4)]]);
+  assert.deepEqual(M.toUserSegs([[1, 2, 3, 4]], null), []);
+  assert.deepEqual(M.toUserSegs('nope', VT), []);
 });

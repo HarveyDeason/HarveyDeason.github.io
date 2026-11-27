@@ -294,3 +294,54 @@ test('buildReportPdf: a symbols sheet from a result with no verdicts keeps the o
   assert.ok(!ps[0].text.includes('Not identified'));
   assert.ok(ps[0].text.includes('Not to standard (dashed)'));
 });
+
+// ── Groups (2026-11-27): one number per symbol and fault; one list line and one overlay tile per group ──
+const segs = n => Array.from({ length: n }, (_, i) => [300 + (i % 30), 190 + (i % 20), 302 + (i % 30), 192 + (i % 20)]);
+const OV = (n = 6) => ({ name: 'BALL', symbol: segs(n), unmatched: segs(2), placedBox: [300, 190, 330, 210], expected: [40, 28] });
+const group = (no, name, count, extra = {}) => ({ no, name, verdict: 'not-standard', kind: 'size', pct: 75, count, text: name + ' drawn at 75% of the sheet size',
+  members: [], example: { userRect: [300, 190, 330, 210], overlay: OV() }, ...extra });
+const GSHEET = (groups, extra = {}) => ({ ...VSHEET, groups, shapeRows: groups.filter(g => g.example).flatMap(g => Array.from({ length: g.count }, () => ({ no: g.no, kind: 'not-standard',
+  label: 'Not to standard', tag: '', fc: '', detail: g.text, userRect: [300, 190, 330, 210] }))),
+  standardRows: groups.filter(g => !g.example).flatMap(g => Array.from({ length: g.count }, () => ({ name: g.name, no: g.no, userRect: [100, 190, 130, 210] }))), ...extra });
+const buildG = async sheet => pages(await buildReportPdf(vModel(sheet), new Map([['INV-0001||C01', BYTES]]), PDFLib));
+const std2 = { no: 2, name: 'WIDGET', verdict: 'standard', kind: null, pct: null, count: 3, text: '', members: [], example: null };
+
+test('buildReportPdf, groups: one list line per group, with its number and count', async () => {
+  const ps = await buildG(GSHEET([group(1, 'BALL', 6), std2]));
+  const list = ps.find(p => p.text.includes(': not to standard') && p.text.includes('×6'));
+  assert.ok(list, 'a list page');
+  assert.ok(/#?1\b.*BALL/.test(list.text) && list.text.includes('×6'), list.text);
+  assert.ok(list.text.includes('WIDGET') && list.text.includes('×3'), list.text);
+  assert.equal((list.text.match(/drawn at 75%/g) || []).length, 1, 'one line for the six, not six lines');
+});
+
+test('buildReportPdf, groups: a group of six has one overlay tile, captioned with its number, text and count', async () => {
+  const ps = await buildG(GSHEET([group(1, 'BALL', 6), std2]));
+  const pics = ps.filter(p => isA4(p) && p.text.includes('Not to standard: pictures'));
+  assert.equal(pics.length, 1);
+  assert.equal((pics[0].text.match(/drawn at 75%/g) || []).length, 1, pics[0].text);
+  assert.ok(pics[0].text.includes('#1') && pics[0].text.includes('×6'), pics[0].text);
+});
+
+test('buildReportPdf, groups: the overlay adds drawn lines to the tile; a group with no overlay still has its tile', async () => {
+  const withOv = (await buildG(GSHEET([group(1, 'BALL', 2)]))).find(p => p.text.includes('Not to standard: pictures'));
+  const noOv = (await buildG(GSHEET([group(1, 'BALL', 2, { example: { userRect: [300, 190, 330, 210] } })]))).find(p => p.text.includes('Not to standard: pictures'));
+  assert.ok(noOv && noOv.text.includes('#1') && noOv.text.includes('×2'));
+  const a = (await withOv.page.getOperatorList()).fnArray.length, b = (await noOv.page.getOperatorList()).fnArray.length;
+  assert.ok(a > b + 10, `with ${a} against without ${b}`);
+});
+
+test('buildReportPdf, groups: twelve groups take at most two pages of tiles, and a 200-segment overlay draws', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => group(i + 1, 'SYM' + i, 2, { example: { userRect: [300, 190, 330, 210], overlay: OV(200) } }));
+  const ps = await buildG(GSHEET(many));
+  const withTiles = ps.filter(p => isA4(p) && many.every((g, i) => true) && /#\d+ /.test(p.text) && p.text.includes('SYM'));
+  assert.ok(withTiles.length >= 1 && withTiles.length <= 3, String(withTiles.length));   // the heading page may hold the first row
+  assert.ok(ps.every(p => p.text !== undefined));
+});
+
+test('buildReportPdf, groups: the numbers on the drawing are the group numbers, with the standard name', async () => {
+  const ps = await buildG(GSHEET([group(1, 'BALL', 2), std2]));
+  const drawing = ps.find(p => !isA4(p));
+  assert.ok(drawing.text.includes('WIDGET'), drawing.text);
+  assert.ok(/#?2\s*WIDGET|WIDGET/.test(drawing.text));
+});

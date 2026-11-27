@@ -1805,6 +1805,21 @@ const FILL_TWIN = 0.25;         // loops within this share of a filled loop's si
 const FILL_DENSITY = 0.2;        // ink filling this share of a body's closed outline (inside its lines) is its fill (normally closed)
 export const GREEN_SWITCH = 0.5;   // fewer than this share of the shapes standard when read by drawn paths: read by line pieces too
 
+export const OVERLAY_MAX = 200;   // segments kept in each list of a shape's overlay
+
+/** At most `max` entries of a list, evenly spread (first kept); a short list as it is; [] for a non-list. Never throws. */
+export function thinTo(list, max = OVERLAY_MAX) {
+  try {
+    const a = asArr(list);
+    if (a.length <= max) return a.slice();
+    const out = [];
+    for (let i = 0; i < max; i++) out.push(a[Math.floor(i * a.length / max)]);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** The sheet's own symbol size: the median of hit.k over the hits; 1 when fewer than SCALE_SYMBOLS_MIN have one. Never throws. */
 export function sizeScaleOf(hits) {
   try {
@@ -2323,6 +2338,36 @@ export function judgeShapes(ctx) {
       }
       return [];
     };
+    // A flow arrow's line: ink outside a found body's box that touches it and is one straight line (pieces end to end on
+    // one line) with a flow arrowhead and nothing else is the body's pipe with its flow arrow, no part of its shape.
+    // Returns the pieces (arrowhead included); [] when there is none. Never throws.
+    const arrowLine = (pieces, hit) => {
+      try {
+        if (!arrowUnits.length) return [];
+        const bb = placedBox(hit), g = CUT_OFF, set = new Set(pieces);
+        const mid = q => [(q[0] + q[2]) / 2, (q[1] + q[3]) / 2];
+        const inBody = i => { const m = mid(S[i]); return m[0] >= bb[0] - g && m[0] <= bb[2] + g && m[1] >= bb[1] - g && m[1] <= bb[3] + g; };
+        // An arrowhead inside the body's own box is the body's (a flow arrow found as the body), not a line's.
+        const arrowOf = new Set(arrowUnits.filter(u => u.every(i => set.has(i)) && !u.some(inBody)).flat());
+        if (!arrowOf.size) return [];
+        const outside = pieces.filter(i => !inBody(i)), seen = new Set(), got = [];
+        const nearBody = i => [[S[i][0], S[i][1]], [S[i][2], S[i][3]]].some(([x, y]) => x >= bb[0] - g && x <= bb[2] + g && y >= bb[1] - g && y <= bb[3] + g);
+        for (const i0 of outside) {
+          if (seen.has(i0)) continue;
+          const m = [i0]; seen.add(i0);
+          for (let k = 0; k < m.length; k++) for (const j of outside) if (!seen.has(j) && touchesSeg(S[m[k]], S[j])) { seen.add(j); m.push(j); }
+          if (!m.some(nearBody) || !m.some(i => arrowOf.has(i))) continue;
+          const lineOnly = m.filter(i => !arrowOf.has(i));
+          if (!lineOnly.length) continue;
+          const a = S[lineOnly.reduce((b, i) => (S[i][4] > S[b][4] ? i : b), lineOnly[0])], L = a[4];
+          if (!(L > 0) || !lineOnly.every(i => { const q = S[i]; return [[q[0], q[1]], [q[2], q[3]]].every(([x, y]) => Math.abs((x - a[0]) * (a[3] - a[1]) - (y - a[1]) * (a[2] - a[0])) / L <= CUT_JOIN); })) continue;
+          got.push(...m);
+        }
+        return got;
+      } catch {
+        return [];
+      }
+    };
     // A pipe ending in a short bar just short of another found symbol: the bar is that symbol's connection (owner,
     // 2026-11-20: the small T under an air release valve), cut with the pipe. Short: at most half the body's short side.
     const foundIn = judged.map(g => g.spots.filter(sp => !sp.hit.p.operator).map(sp => placedBox(sp.hit)));
@@ -2484,7 +2529,7 @@ export function judgeShapes(ctx) {
       const g = 2 + (body && attachments.length ? Math.max(opReach, attReach) + 2 : 0);
       const fr = { x0: f.box[0] - g, y0: f.box[1] - g, w: Math.ceil((f.box[2] - f.box[0] + 2 * g) * PX), h: Math.ceil((f.box[3] - f.box[1] + 2 * g) * PX), pxPerPt: PX };
       if (!(fr.w > 0 && fr.h > 0) || fr.w > MAX_SIDE || fr.h > MAX_SIDE) { out.push({ ...base, standard: false, verdict: 'not-identified', why: 'no-fit' }); return; }
-      const own = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
+      let own = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
       drawInto(own, piecePaths(split, f.pieces, paths), {}, cfg);
       const full = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
       drawInto(full, boxed.filter(q => q.b[2] >= fr.x0 && q.b[0] <= fr.x0 + fr.w / PX && q.b[3] >= fr.y0 && q.b[1] <= fr.y0 + fr.h / PX).map(q => q.p), {}, cfg);
@@ -2742,6 +2787,34 @@ export function judgeShapes(ctx) {
         if (fit) {
           kept.push({ h: fit, op: false }); addMask(fit, true); skip = skipFor(); explained = coverage(judgedInk(), mask, skip);
           closest = { h: fit, e: coverage(own, templateIn(fr, fit, cfg), skip) };
+          // The pipe a body carries and its lead to a bubble are no part of its shape, as for a body the sweep found (2b):
+          // cut, and the shape's box follows (binder test 3: a valve's box took in the line to its bubble and the pipe to a flow arrow).
+          // Not when the body found is itself a flow arrow (an arrowhead of its own piece lies in its box): its line is its own.
+          const pb = placedBox(fit), arrowBody = arrowUnits.some(u => u.some(i => { const q = S[i], mx = (q[0] + q[2]) / 2, my = (q[1] + q[3]) / 2; return mx >= pb[0] && mx <= pb[2] && my >= pb[1] && my <= pb[3]; }));
+          const cut = new Set(), marked = marks.length ? markInk(f.pieces, [...f.pieces, ...linePieces]) : new Set();
+          const fb = [f.box[0] - 2, f.box[1] - 2, f.box[2] + 2, f.box[3] + 2];
+          const branches = linePieces.filter(i => { const q = S[i]; return overlaps([Math.min(q[0], q[2]), Math.min(q[1], q[3]), Math.max(q[0], q[2]), Math.max(q[1], q[3])], fb, 0); });
+          let pipe = [];
+          if (!arrowBody) {
+            for (const i of arrowLine(f.pieces, fit)) cut.add(i);
+            pipe = cutPipe(S, f.pieces.filter(j => !cut.has(j)), fit, marked, branches);
+            for (const i of pipe) cut.add(i);
+            for (const i of leadOf(f.pieces.filter(j => !cut.has(j)), fit, marked)) cut.add(i);
+            // A flow arrowhead standing at the end of the pipe just cut goes with it (the line with its flow arrow).
+            const live = new Set(f.pieces);
+            for (const u of arrowUnits) {
+              if (!u.every(i => live.has(i) && !cut.has(i)) || u.some(i => { const q = S[i], mx = (q[0] + q[2]) / 2, my = (q[1] + q[3]) / 2; return mx >= pb[0] - CUT_OFF && mx <= pb[2] + CUT_OFF && my >= pb[1] - CUT_OFF && my <= pb[3] + CUT_OFF; })) continue;
+              if (u.some(i => [...cut].some(c => touchesSeg(S[i], S[c])))) for (const i of u) cut.add(i);
+            }
+          }
+          const rest = f.pieces.filter(i => !cut.has(i));
+          if (cut.size && rest.length) {
+            f.whole = f.pieces; f.pieces = rest; f.box = boxOfPieces(S, rest); base.box = f.box.map(round3);
+            if (pipe.length) f.piped = new Set([fit]);
+            own = inkOf(fr, rest);
+            explained = coverage(judgedInk(), mask, skip);
+            closest = { h: fit, e: coverage(own, templateIn(fr, fit, cfg), skip) };
+          }
         }
       }
 
@@ -2918,7 +2991,24 @@ export function judgeShapes(ctx) {
         closest: shown ? { ...shown, oneLine: isOneLine(closest.h.p) || isLineWithHead(closest.h.p), bubble: closest.h.p.bubble === true } : null });
       const ORDER = { body: 0, symbol: 1, attachment: 2 };
       const parts = kept.map(k => ({ name: nameOf(k.h.p), role: k.role || (k.op ? 'attachment' : 'body') })).sort((a, b) => ORDER[a.role] - ORDER[b.role]);
-      out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown, parts });
+      // The overlay the report draws: the symbol the shape was matched to (its body, else the closest), placed where the verdict
+      // laid it, and the shape's pieces that symbol does not account for. Only for a shape not to standard.
+      let overlay = null;
+      if (v.verdict === 'not-standard') {
+        const body = kept.find(k => !k.op), hit = body ? body.h : closest ? closest.h : null;
+        if (hit && isHit(hit)) {
+          try {
+            const T = templateIn(fr, hit, cfg), pl = hit.placement, turned = pl.o % 2 === 1;
+            const segs = asArr(hit.p.segs).filter(g => Array.isArray(g) && g.slice(0, 4).every(isNum)).map(g => [...placePoint(pl, g[0], g[1]), ...placePoint(pl, g[2], g[3])].map(round3));
+            const miss = f.pieces.filter(i => pieceOn(S[i], T) < 0.5).map(i => S[i].slice(0, 4).map(round3));
+            const stretched = isNum(pl.fitK) && pl.fitK > 0;
+            const drawn = f.pieces.map(i => S[i].slice(0, 4).map(round3));
+            overlay = { name: nameOf(hit.p), symbol: thinTo(segs), unmatched: thinTo(miss), drawn: thinTo(drawn), placedBox: placedBox(hit).map(round3),
+              expected: stretched ? null : (turned ? [hit.p.h, hit.p.w] : [hit.p.w, hit.p.h]).map(x => round3(x * sizeScale)) };
+          } catch { overlay = null; }
+        }
+      }
+      out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown, parts, ...(overlay ? { overlay } : {}) });
       bodyBoxes.set(out[out.length - 1], kept.filter(k => !k.op).map(k => placedBox(k.h)));
       if (key !== null) memo.set(key, out[out.length - 1]);
     });

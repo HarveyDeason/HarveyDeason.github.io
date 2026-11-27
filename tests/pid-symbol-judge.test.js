@@ -95,7 +95,7 @@ test('a METER on a pipe drawn straight through it is standard', () => {
 
 test('every shape has the fields of the result shape', () => {
   for (const s of R.shapes) {
-    assert.deepEqual(Object.keys(s).sort(), ['box', 'closest', 'explained', 'id', 'operator', 'parts', 'reason', 'share', 'standard', 'symbols', 'verdict', 'why']);
+    assert.deepEqual(Object.keys(s).filter(k => k !== 'overlay').sort(), ['box', 'closest', 'explained', 'id', 'operator', 'parts', 'reason', 'share', 'standard', 'symbols', 'verdict', 'why']);
     assert.ok([true, false, null].includes(s.standard));
   }
 });
@@ -731,4 +731,85 @@ test('an operator beside a small body with no pipe drawn is still placed', () =>
   const paths = [...place(W, { x: 100, y: 100 }), tick([99.5, 100, 99.5, 92]), tick([94.5, 92, 104.5, 92])];
   const s = judgeOne(paths, OPERATOR_LIBRARY, [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]]);
   assert.equal(s && s.operator && s.operator.name, 'HANDLE', JSON.stringify(s));
+});
+
+// Binder test 3: a valve found by the box fit (drawn in other proportions than the legend) had the line to its tag
+// bubble, and the pipe with its flow arrow, inside its box and its ink. A body found by the sweep has them cut (2b);
+// a body found by the fit now has them cut too, so its box is its own.
+describe_fit_cut();
+function describe_fit_cut() {
+  const ln = segs => ({ segs, width: 0.7, stroked: true, filled: false, grey: 0 });
+  const TAPER = { id: 't1', name: 'TAPER', legendName: 'TAPER', group: 'TAPERS', tagId: 'Q', sheet: '1', w: 21, h: 28, letters: [], aliases: [], notes: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false },
+    paths: [ln([0, 28, 0, 0]), ln([0, 28, 21, 21]), ln([21, 21, 21, 7]), ln([21, 7, 0, 0])] };
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, TAPER] };
+  const sq = v => 100 + v * 20 / 28;   // the taper squashed to 20 across, its left edge at x 100, spanning y 100-120
+  const taper = [ln([100, sq(28), 100, sq(0)]), ln([100, sq(28), 121, sq(21)]), ln([121, sq(21), 121, sq(7)]), ln([121, sq(7), 100, sq(0)])];
+  const ring = (cx, cy, r) => ln(Array.from({ length: 32 }, (_, i) => { const a = 2 * Math.PI * i / 32, b = 2 * Math.PI * (i + 1) / 32; return [cx + r * Math.cos(a), cy + r * Math.sin(a), cx + r * Math.cos(b), cy + r * Math.sin(b)]; }).flat());
+  const page = (paths, extra = {}) => ({ pageSize: [400, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, library: lib, lookups: {}, ...extra });
+  const tall = r => r.shapes.find(x => x.box[2] >= 120 && x.box[2] <= 122 && x.box[1] <= 101);
+  test('a fitted body keeps its own box when a 22 pt lead runs from its left edge to the rim of a bubble holding writing', () => {
+    const paths = [...taper, ln([78, 110, 100, 110]), ring(58, 110, 20)];
+    const r = C.checkSheet(page(paths, { writing: [[50, 102, 66, 118]] }));
+    const s = tall(r);
+    assert.ok(s, JSON.stringify(r.shapes));
+    assert.ok(s.box[0] >= 99 && s.box[0] <= 101, 'box ' + s.box);   // not out to the bubble at x 78
+    assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  });
+  test('the pipe carrying a filled flow arrow, drawn off the fitted body, is cut from its box too', () => {
+    const arrow = { segs: [150, 106, 164, 110, 164, 110, 150, 114, 150, 114, 150, 106], width: 0.3, stroked: true, filled: true, grey: 0 };
+    const paths = [...taper, ln([121, 110, 150, 110]), arrow];
+    const r = C.checkSheet(page(paths));
+    const s = tall(r);
+    assert.ok(s, JSON.stringify(r.shapes));
+    assert.ok(s.box[2] <= 122, 'box ' + s.box);
+  });
+  test('a body that is not found stays as it was: a plain box with a lead to a bubble is not cut', () => {
+    const box = [ln([100, 100, 121, 100]), ln([121, 100, 121, 120]), ln([121, 120, 100, 120]), ln([100, 120, 100, 100]), ln([78, 110, 100, 110]), ring(58, 110, 20)];
+    const r = C.checkSheet(page(box, { writing: [[50, 102, 66, 118]] }));
+    const s = r.shapes.find(x => x.box[2] >= 120 && x.box[2] <= 122);
+    assert.notEqual(s && s.verdict, 'standard');
+  });
+}
+
+// Report overlay (2026-11-27): a not-standard shape records the symbol it was matched to, placed where the verdict laid
+// it, and the drawn pieces that symbol does not account for, so the report can draw the difference.
+function overlayCase(k) {
+  const ln = segs => ({ segs, width: 0.3, stroked: true, filled: false, grey: 0 });
+  const TAPER = { id: 't1', name: 'TAPER', legendName: 'TAPER', group: 'TAPERS', tagId: 'Q', sheet: '1', w: 21, h: 28, letters: [], aliases: [], notes: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false },
+    paths: [ln([0, 28, 0, 0]), ln([0, 28, 21, 21]), ln([21, 21, 21, 7]), ln([21, 7, 0, 0])] };
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, TAPER] };
+  const ky = k * 20 / 28, X = v => 100 + v * k, Y = v => 100 + v * ky;
+  const paths = [ln([X(0), Y(28), X(0), Y(0)]), ln([X(0), Y(28), X(21), Y(21)]), ln([X(21), Y(21), X(21), Y(7)]), ln([X(21), Y(7), X(0), Y(0)]),
+    ln([20, Y(14), X(0), Y(14)]), ln([X(21), Y(14), 250, Y(14)])];
+  const r = C.checkSheet({ pageSize: [300, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, library: lib, lookups: {}, options: { sizeScale: 1.3 } });
+  return r.shapes.find(x => x.box[0] <= 101 && x.box[2] >= 100 + 21 * k - 1);
+}
+test('an off-size shape records its overlay: the matched symbol placed on the shape, and nothing unmatched', () => {
+  const t = overlayCase(2.2);
+  assert.equal(t.verdict, 'not-standard');
+  const o = t.overlay;
+  assert.ok(o, JSON.stringify(t));
+  assert.equal(o.name, 'TAPER');
+  assert.ok(o.symbol.length >= 4 && o.symbol.every(g => g.length === 4 && g.every(Number.isFinite)));
+  assert.ok(o.placedBox.every(Number.isFinite));
+  assert.ok(o.placedBox[0] >= t.box[0] - 1 && o.placedBox[2] <= t.box[2] + 1);
+  assert.ok(Array.isArray(o.unmatched));
+  assert.equal(o.expected, null);   // a stretched fit has no single scale to show
+  assert.ok(o.drawn.length >= 4 && o.drawn.length <= 200 && o.drawn.every(g => g.length === 4 && g.every(Number.isFinite)), 'the shape ink, for the screen to draw');
+});
+test('a standard shape has no overlay', () => {
+  const s = overlayCase(1.3);
+  assert.equal(s.verdict, 'standard');
+  assert.equal('overlay' in s, false);
+});
+test('thinTo keeps at most the limit, evenly spread, and a short list as it is', () => {
+  const list = Array.from({ length: 500 }, (_, i) => [i, 0, i + 1, 0]);
+  const t = C.thinTo(list, 200);
+  assert.equal(t.length, 200);
+  assert.deepEqual(t[0], list[0]);
+  assert.ok(t[199][0] >= 490);
+  assert.deepEqual(C.thinTo(list.slice(0, 50), 200), list.slice(0, 50));
+  assert.deepEqual(C.thinTo(null, 200), []);
 });
