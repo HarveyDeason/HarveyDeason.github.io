@@ -41,7 +41,9 @@ export const CHECK_DEFAULTS = Object.freeze({
   // Legend symbols a body may carry besides the owner's operators (owner, 2026-11-18): placed only beside a found part,
   // never alone, never size-judged. A symbol found alone by the sweep stays a body.
   attachments: Object.freeze(['FLANGED CONNECTION', 'CAPPED END/THREADED PLUG', 'LOCKED', 'FLOW DIRECTION ARROW', 'DIRECTION FLOW ARROW',
-    'PIPE BORE CHANGE/ CONCENTRIC REDUCER', 'PIPE BORE CHANGE/ ECCENTRIC REDUCER', 'GEP MARK', 'QUALITY MARK', 'SAFETY MARK']),
+    'PIPE BORE CHANGE/ CONCENTRIC REDUCER', 'PIPE BORE CHANGE/ ECCENTRIC REDUCER', 'GEP MARK', 'QUALITY MARK', 'SAFETY MARK',
+    // The legend's drives, drawn on their body (4030: a peristaltic pump with its motor) and never size-judged:
+    'ELECTRIC MOTOR', 'VARIABLE SPEED MOTOR', 'MECHANICAL DRIVE', 'DIRECT COUPLED DRIVE', 'HYDRAULIC DRIVE']),
   // Legend entries that hold alternative drawings side by side (binder test 4: CENTRIFUGAL PUMP WET WELL (SHOWN WITH MOTOR) draws the
   // pump with a variable-speed motor beside the pump with a plain one): prepared as one symbol per separate drawing in them. A named
   // entry only; an entry made of several parts (a union, a flume) is one symbol and is never split.

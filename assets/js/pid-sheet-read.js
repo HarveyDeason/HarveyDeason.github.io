@@ -519,6 +519,9 @@ const STROKE_MERGE = 0.3;       // points: collinear pieces this close are one s
 const NOT_PARALLEL = 0.2;       // sin of the angle a stub or hatch stroke must make with its line
 const SHAPE_COORD = 15000;      // points; beyond any sheet
 const SHAPE_BUDGET = 4e6, SHAPE_CELL_SCAN = 256, CONNECT_MAX = 300, CONNECT_WORK = CONNECT_MAX * CONNECT_MAX;
+const CURVE_CONN_PIECES = 4, CURVE_CONN_LEN = 10;   // a curved connector: at least this many pieces and this many points long
+const CURVE_CONN_TRIES = 60;   // curves tried in one group, at most (each splits the group again)
+const CURVE_KINK = 0.2;   // sin of the turn at the end of a curved connector where it meets what it joins (about 11 degrees); less is the same curve carrying on
 const SHAPE_INK_GREY = 175;     // as CHECK_DEFAULTS.inkGrey
 const TWIN_PIECES = 12;         // a closed path of at least this many pieces, all on one circle, is a ring (twin rings)
 
@@ -961,8 +964,8 @@ export function sheetShapes(paths, options) {
       const inG = new Set(g), removed = new Set();
       const mine = [...new Set(g.map(i => chainOf[i]).filter(ci => ci >= 0))];
       const could = ci => { const ch = chains[ci]; return !ch.line && ch.len >= TAIL_MIN && ch.m.every(i => inG.has(i) && free(i)); };
-      if (g.length > CONNECT_MAX && mine.filter(could).length * g.length > CONNECT_WORK) continue;
-      for (const ci of mine) {
+      const tooMuch = g.length > CONNECT_MAX && mine.filter(could).length * g.length > CONNECT_WORK;   // the straight search only: a curve is tried below
+      for (const ci of tooMuch ? [] : mine) {
         const ch = chains[ci];
         if (ch.line || ch.len < TAIL_MIN || !ch.m.every(i => inG.has(i) && free(i))) continue;   // a chord of a curve is no connector
         const { comp, list } = components(g, new Set([...removed, ...ch.m]));
@@ -977,6 +980,44 @@ export function sheetShapes(paths, options) {
         for (const i of ch.m) removed.add(i);
         asLine(ch, 'connector'); cut = true;
         lines.push({ kind: 'connector', pieces: ch.m.slice().sort((p, q) => p - q) });
+      }
+      // Curved connectors (4030: two flexible hoses joined by a pipe drawn as a curve, one shape and neither judged on its own): an open
+      // path of pieces end to end, turning gently, whose two ends stand on two different shapes (each at least minSide, neither one
+      // straight line), is linework as a straight connector is.
+      const pathsHere = new Map();
+      for (const i of g) { const k = S[i][5]; if (!pathsHere.has(k)) pathsHere.set(k, []); pathsHere.get(k).push(i); }
+      let tries = 0;
+      for (const m of pathsHere.values()) {
+        if (tries >= CURVE_CONN_TRIES) break;
+        if (m.length < CURVE_CONN_PIECES || !m.every(i => free(i) && !removed.has(i))) continue;
+        let smooth = true;
+        for (let k = 1; k < m.length && smooth; k++) smooth = Math.hypot(S[m[k]][0] - S[m[k - 1]][2], S[m[k]][1] - S[m[k - 1]][3]) < 0.05 && sinBetween(units[m[k]], units[m[k - 1]]) <= SMOOTH_TURN;
+        if (!smooth) continue;
+        const first = S[m[0]], last = S[m[m.length - 1]], pts = [[first[0], first[1]], [last[2], last[3]]];
+        if (Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]) < 0.05) continue;   // a closed path
+        if (m.reduce((t, i) => t + S[i][4], 0) < CURVE_CONN_LEN) continue;
+        tries++;
+        const mSet = new Set(m), { comp, list } = components(g, new Set([...removed, ...m]));
+        const sideAt = (pt, endPiece) => { const c = new Set(); for (const j of adj[endPiece]) if (!mSet.has(j) && inG.has(j) && comp.has(j) && ptSeg(pt[0], pt[1], S[j]) <= SHAPE_JOIN) c.add(comp.get(j)); return c.size === 1 ? [...c][0] : -1; };
+        const sA = sideAt(pts[0], m[0]), sB = sideAt(pts[1], m[m.length - 1]);
+        if (sA < 0 || sB < 0 || sA === sB) continue;
+        const bA = boxOfSegs(S, list[sA]), bB = boxOfSegs(S, list[sB]);
+        if (longSide(bA) < o.minSide || longSide(bB) < o.minSide) continue;
+        const oneLine = q => q.every(i => chainOf[i] >= 0 && chainOf[i] === chainOf[q[0]]);
+        // An arc that carries on smoothly into another piece at either end is part of a longer curve (a wavy hose drawn arc by arc), not a connector:
+        // a connector meets what it joins at a visible kink (4030: 19 to 26 degrees; the arcs of a wave: under 6).
+        const carriesOn = (pt, endPiece, sign) => { const u = units[endPiece];
+          for (const j of adj[endPiece]) {
+            if (mSet.has(j) || !inG.has(j)) continue;
+            for (const [px, py, dx, dy] of [[S[j][0], S[j][1], units[j][0], units[j][1]], [S[j][2], S[j][3], -units[j][0], -units[j][1]]]) {
+              if (Math.hypot(px - pt[0], py - pt[1]) <= 0.3 && Math.abs(u[0] * dy - u[1] * dx) < CURVE_KINK && sign * (u[0] * dx + u[1] * dy) > 0) return true;
+            }
+          }
+          return false; };
+        if (carriesOn(pts[0], m[0], -1) || carriesOn(pts[1], m[m.length - 1], 1)) continue;
+        if (oneLine(list[sA]) || oneLine(list[sB])) continue;   // (no edge test: in a big joined group each side is a whole subsystem and an end is always inside its box)
+        for (const i of m) { removed.add(i); kind[i] = 'connector'; }
+        lines.push({ kind: 'connector', pieces: m.slice().sort((p, q) => p - q) }); cut = true;
       }
     }
     if (cut) groups = components(all, new Set()).list;
