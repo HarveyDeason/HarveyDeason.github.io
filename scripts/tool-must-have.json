@@ -17,7 +17,10 @@
     "sheetDocPut",
     "prefetchSheet",
     "sb-compact",
-    "sidebarBusy",
+    "sbCompactTimer",
+    "paintTableWindow",
+    "rc-side-row",
+    "prefers-reduced-transparency",
     "rcShowGet",
     "PidRevSymbols"
   ]
