@@ -1,0 +1,9 @@
+{
+  "_why": "Strings every shipped page must contain, one per fix already live. tools-src/ is per-worktree and gitignored, so a copy made before a fix was locked can undo it silently: the lock refuses such a page. When a fix ships in a tool page, add a string from it here.",
+  "pid-tag-register.html": [
+    "PC.findMissingPdfs",
+    "viewportTransform: Array.from(vp.transform)",
+    "got.viewportTransform.length !== 6",
+    "importPackFile"
+  ]
+}
