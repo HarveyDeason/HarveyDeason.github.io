@@ -631,3 +631,44 @@ test('sameRegisterContent: the order of the tags matters (a different order is w
   assert.equal(sameRegisterContent(a, b), false);
   for (const bad of [null, undefined, 7, 'x', [], [1]]) { assert.equal(sameRegisterContent(bad, REG()), false); assert.equal(sameRegisterContent(REG(), bad), false); assert.equal(sameRegisterContent(bad, bad), false); }
 });
+
+// ── registerDiff: which parts of the register differ, split into the source of truth and what is worked out from it ──
+import { registerDiff } from '../assets/js/pid-comments.js';
+
+test('registerDiff: identical registers differ in nothing; savedAt is ignored', () => {
+  const a = REG(), b = REG(); b.savedAt = 'later';
+  assert.deepEqual(registerDiff(a, b), { source: [], derived: [], other: [] });
+});
+
+test('registerDiff: tags and drawings are worked out from revHistory, so a different order of tags is a derived difference only', () => {
+  const a = REG(), b = REG();
+  a.tags.push({ tag: '21-V-2', pac: '21', fc: 'V', id: '2', desc: 'x', drawing: 'A', revision: 'B', type: 'valve', isReview: false });
+  b.tags.push(a.tags[1]); b.tags.reverse();
+  const d = registerDiff(a, b);
+  assert.deepEqual(d.source, []);
+  assert.deepEqual(d.derived, ['tags']);
+  b.drawings.A.count = 9;
+  assert.deepEqual(registerDiff(a, b).derived.sort(), ['drawings', 'tags']);
+});
+
+test('registerDiff: a change to the history, deletions or families is a source difference and is named', () => {
+  const mut = f => { const x = REG(); f(x); return registerDiff(REG(), x).source; };
+  assert.deepEqual(mut(x => { x.revHistory.A.C = { importedAt: 'z', tags: [] }; }), ['revHistory']);
+  assert.deepEqual(mut(x => { x.revHistory.A.B.tags.push({ tag: 'n' }); }), ['revHistory']);
+  assert.deepEqual(mut(x => { x.deletions = { A: '2026-01-01T00:00:00Z' }; }), ['deletions']);
+  assert.deepEqual(mut(x => { x.famDeletions = { f9: '2026-01-01T00:00:00Z' }; }), ['famDeletions']);
+  assert.deepEqual(mut(x => { x.families[0].patterns = ['A', 'B']; }), ['families']);
+  assert.deepEqual(mut(x => { x.families.push({ id: 'f2', name: 'G', patterns: [], updatedAt: '' }); }), ['families']);
+});
+
+test('registerDiff: families are compared by meaning: id as number or text, a missing updatedAt, extra keys, any order', () => {
+  const a = REG(); a.families = [{ id: 7, name: 'F', patterns: ['A'], updatedAt: '' }, { id: 'f9', name: 'G', patterns: [], updatedAt: 't' }];
+  const b = REG(); b.families = [{ id: 'f9', name: 'G', patterns: [], updatedAt: 't', extra: 1 }, { id: '7', name: 'F', patterns: ['A'] }];
+  assert.deepEqual(registerDiff(a, b).source, []);
+});
+
+test('registerDiff: keys the tool does not know about are reported as other, and unusable input differs in everything', () => {
+  const a = REG(), b = REG(); b.somethingNew = 1;
+  assert.deepEqual(registerDiff(a, b), { source: [], derived: [], other: ['somethingNew'] });
+  for (const bad of [null, undefined, 7, 'x', [], [1]]) { assert.ok(registerDiff(bad, REG()).source.length > 0); assert.ok(registerDiff(REG(), bad).source.length > 0); }
+});
