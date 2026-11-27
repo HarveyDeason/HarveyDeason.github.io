@@ -1841,6 +1841,9 @@ export const DRIVE_SHARE = 0.9;   // a neighbouring shape is a body's drive when
 export const HEAVY_PIPE = 2.5;   // a straight piece this many times as wide as its shape's usual ink is pipework
 export const HEAVY_MIN = 2;       // points: and at least this wide
 export const HEAVY_LEN = 4;       // points: and at least this long (a flattened curve is never taken)
+export const HEAVY_TICK = 0.6;      // points: a piece this short on the end of heavy pipework is the pipe's own end cap
+export const PALE_MIN = 100;        // grey (0 black .. 255 white): a piece at least this pale, and PALE_STEP paler than its shape's usual ink, is background
+export const PALE_STEP = 80;
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
 export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
 const LEAD_PIECES = 200;         // pieces followed along one lead, at most
@@ -2527,7 +2530,21 @@ export function judgeShapes(ctx) {
       if (inked.length < 2) return [];
       const usual = w(inked[(inked.length - 1) >> 1]);
       const limit = Math.max(HEAVY_MIN, HEAVY_PIPE * usual);
-      return pieces.filter(i => w(i) >= limit && S[i][4] >= HEAVY_LEN);
+      const heavy = pieces.filter(i => w(i) >= limit && S[i][4] >= HEAVY_LEN);
+      // The tiny tick closing a length of the pipe (4024: 0.36 pt) is the pipe's own: a lone piece standing across the pipe's end, with nothing
+      // else touching it (a ring on the pipe's end is no tick: its pieces touch one another).
+      const heavySet = new Set(heavy), ends = heavy.flatMap(i => [[S[i][0], S[i][1]], [S[i][2], S[i][3]]]);
+      const touchesOther = (i, q) => [[q[0], q[1]], [q[2], q[3]]].some(e => pieces.some(j => j !== i && !heavySet.has(j) && (Math.hypot(S[j][0] - e[0], S[j][1] - e[1]) <= 0.1 || Math.hypot(S[j][2] - e[0], S[j][3] - e[1]) <= 0.1)));
+      const caps = ends.length ? pieces.filter(i => S[i][4] <= HEAVY_TICK && w(i) < limit && !heavySet.has(i) && !touchesOther(i, S[i]) && [[S[i][0], S[i][1]], [S[i][2], S[i][3]]].some(q => ends.some(e => Math.hypot(q[0] - e[0], q[1] - e[1]) <= HEAVY_TICK))) : [];
+      return caps.length ? [...heavy, ...caps] : heavy;
+    };
+    // The straight pieces of a shape drawn clearly paler than the rest of its ink (4024: the vessel's mid-grey diagonal running into a
+    // black sight glass): background linework. The usual grey is the median over the shape's pieces; a ghosted shape (all of it pale) loses nothing.
+    const paleLines = pieces => {
+      const g = i => { const q = paths[S[i][5]]; return q && isNum(q.grey) ? q.grey : 0; };
+      if (pieces.length < 2) return [];
+      const usual = g(pieces.slice().sort((a, b) => g(a) - g(b))[(pieces.length - 1) >> 1]);
+      return pieces.filter(i => g(i) >= PALE_MIN && g(i) >= usual + PALE_STEP && S[i][4] >= HEAVY_LEN);
     };
     for (const [fi, f] of judged.entries()) {
       const cut = new Set();
@@ -2545,12 +2562,15 @@ export function judgeShapes(ctx) {
         for (const i of pipe) cut.add(i);
         for (const i of leadOf(f.pieces.filter(j => !cut.has(j)), sp.hit, marked)) cut.add(i);
       }
-      const lead = bodies.length ? null : markerLead(f);
+      // Heavy pipework and pale background lines first: a marker's lead is judged on the shape without them (4024: a TP's foot ring stands on a heavy pipe, which kept the lead
+      // from being cut and the marker red).
+      const heavy = new Set([...heavyPipe(f.pieces), ...paleLines(f.pieces)]);
+      const lead = bodies.length ? null : markerLead(heavy.size ? { ...f, pieces: f.pieces.filter(i => !heavy.has(i)) } : f);
       if (lead) for (const i of lead.cut) cut.add(i);
       // Pipework drawn heavy (binder test 4: a hose reel's short thick pipe stub, a check valve's pipe running on past a tee, drawn
       // 2.8 wide against 0.72 for the symbols): a straight piece at least HEAVY_PIPE times as wide as the shape's usual ink, and at
       // least HEAVY_MIN wide, is pipe, no part of the shape. Nothing is cut where all the ink is drawn alike.
-      for (const i of heavyPipe(f.pieces)) cut.add(i);
+      for (const i of heavy) cut.add(i);
       if (!cut.size) continue;
       const rest = f.pieces.filter(i => !cut.has(i));
       if (!rest.length) continue;

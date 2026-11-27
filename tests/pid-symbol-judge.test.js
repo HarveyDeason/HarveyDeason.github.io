@@ -905,3 +905,26 @@ function describe_drives() {
     assert.ok(far.every(s => s.verdict === 'standard'), JSON.stringify(far.map(s => [s.box, s.verdict, s.parts])));
   });
 }
+
+// 4024 (2026-11-27): two of four DIGESTER SIGHT GLASSes were amber "extra linework": the vessel's mid-grey diagonal (grey 128) ran into
+// the glass's edge and was short enough (59 pt) to join its shape, where the same line on the other two is longer and so a run. A straight
+// piece drawn clearly paler than the shape's usual ink is background linework, cut off as pipework is.
+test('a pale grey line running into a black-drawn body is background: the body is standard and its box is its own', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const s = judgeOne([...place(W, { x: 100, y: 100 }), { ...tick([100, 100, 70, 130]), grey: 128 }], SHAPE_LIBRARY, at);
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.ok(s.box[0] >= 99, 'box ' + s.box);
+});
+test('the same line drawn black is the body\'s extra ink, as before', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const s = judgeOne([...place(W, { x: 100, y: 100 }), tick([100, 100, 70, 130])], SHAPE_LIBRARY, at);
+  assert.notEqual(s.verdict, 'standard', JSON.stringify(s));
+});
+test('a body drawn as pale as the line (a whole ghosted symbol) is not told from it: nothing is cut', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const s = judgeOne([...place(W, { x: 100, y: 100 }).map(p => ({ ...p, grey: 128 })), { ...tick([100, 100, 70, 130]), grey: 128 }], SHAPE_LIBRARY, at);
+  assert.notEqual(s.verdict, 'standard', JSON.stringify(s));
+});

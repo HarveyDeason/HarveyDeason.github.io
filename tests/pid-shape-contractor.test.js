@@ -257,6 +257,28 @@ test('a TP marker on a stem to its pipe, a dot on the stem and a small ring at i
   assert.equal(s.verdict, 'standard', JSON.stringify(s));
   assert.deepEqual(s.parts.map(q => q.name), ['DIAMOND MARKER']);
 });
+// 4024 (2026-11-27): the same TP marker with its foot ring standing on a heavy pipe, the pipe drawn in short lengths (a piece 25 pt long on
+// each side of the ring). The pipe is pipework, no part of the marker's shape: it must not keep the lead from being cut ("one of the TPs
+// is red").
+test('a TP marker whose small ring stands on a heavy pipe drawn in short pieces: the marker standard', () => {
+  const dot = { ...circle(121.25, 150, 1.4), filled: true };
+  const heavy = p => ({ ...p, width: 2.8 });
+  const r = runLead([heavy(line([95, 158, 119.5, 158])), heavy(line([123, 158, 148, 158])), ...place(DIAMOND, { x: 100, y: 100 }), line([121.25, 142.5, 121.25, 158]), dot, circle(121.25, 158, 1.8)]);
+  const s = at(r, 121, 121);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.deepEqual(s.parts.map(q => q.name), ['DIAMOND MARKER']);
+});
+// And the pipe's cut ends: a 0.36 pt tick closing each length of it is part of the pipe, not ink of the marker's shape.
+test('a TP marker on a heavy pipe whose lengths end in tiny ticks: the marker standard', () => {
+  const dot = { ...circle(121.25, 150, 1.4), filled: true };
+  const heavy = p => ({ ...p, width: 2.8 });
+  const r = runLead([heavy(line([95, 158, 119.5, 158])), line([95, 158.18, 95, 157.82]), heavy(line([123, 158, 148, 158])), line([148, 158.18, 148, 157.82]),
+    ...place(DIAMOND, { x: 100, y: 100 }), line([121.25, 142.5, 121.25, 158]), dot, circle(121.25, 158, 1.8)]);
+  const s = at(r, 121, 121);
+  assert.ok(s, 'a shape there: ' + JSON.stringify(r.shapes));
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+});
 test('a ring no bubble fits at its size, with a marked lead: the lead is not cut off it', () => {
   const r = runLead([line([20, 82, 280, 82]), ...zLead(120, 85, 100), circle(120, 106, 6)]);
   const s = at(r, 120, 106);
