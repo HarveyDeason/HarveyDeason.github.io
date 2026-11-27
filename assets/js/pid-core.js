@@ -83,6 +83,43 @@ export function pickArchiveFile(names, drawingFile, revFile) {
   return list.includes(legacy) ? legacy : null;
 }
 
+/**
+ * Which of the ticked sheets have no PDF to read: none in memory, and none in archive/ or the register folder that
+ * pickArchiveFile would accept (the exact `<drawing>_<revision>.pdf`, else the old `<drawing>.pdf`). Each file is asked for by
+ * name, the archive first: a folder of hundreds of PDFs is never listed, which took minutes on a synced folder. Returns the
+ * drawing names, in the order given. Never throws: a folder that cannot be asked counts as having no file.
+ * sheets: [{ drawing, rev, d, r }] (d and r the file-safe drawing and revision).
+ * io: { connected, inMemory(sheet), hasFile(where, name) } where `where` is 'archive' or 'root' and hasFile says yes only for
+ * a handle carrying exactly that name.
+ */
+export async function findMissingPdfs(sheets, io) {
+  try {
+    const list = Array.isArray(sheets) ? sheets : [];
+    const o = io && typeof io === 'object' ? io : {};
+    const has = async (where, name) => { try { return (await o.hasFile(where, name)) === true; } catch { return false; } };
+    const out = [];
+    for (const s of list) {
+      if (!s || typeof s !== 'object') continue;
+      const drawing = typeof s.drawing === 'string' ? s.drawing : '';
+      let inMemory = false;
+      try { inMemory = typeof o.inMemory === 'function' && o.inMemory(s) === true; } catch { inMemory = false; }
+      if (inMemory) continue;
+      if (o.connected !== true) { out.push(drawing); continue; }
+      const d = typeof s.d === 'string' ? s.d : '', r = typeof s.r === 'string' ? s.r : '';
+      const names = [...(r ? [d + '_' + r + '.pdf'] : []), d + '.pdf'];
+      let found = false;
+      for (const name of names) {
+        for (const where of ['archive', 'root']) { if (await has(where, name)) { found = true; break; } }
+        if (found) break;
+      }
+      if (!found) out.push(drawing);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export function resolveFC(fc, lookups) {
   // A property access on `lookups` (e.g. a throwing getter for `fc`) can
   // fail even though `lookups` itself is a plain-looking object, so the

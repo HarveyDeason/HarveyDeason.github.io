@@ -9,7 +9,6 @@
 // not know is shown as "Not checked", never trusted as a class name.
 
 import { esc } from './pid-symbols-view.js';
-import { groupShapes } from './pid-symbol-groups.js';
 
 const isNum = x => typeof x === 'number' && Number.isFinite(x);
 const asArr = x => (Array.isArray(x) ? x : []);
@@ -133,56 +132,6 @@ function shapeName(result, s) {
   if (s.operator && str(s.operator.name)) names.push(str(s.operator.name));
   return names.length ? names.join(' + ') : (s.closest && str(s.closest.name)) || 'standard symbol';
 }
-/**
- * The groups of a result's shapes (same symbol, verdict and fault share one number; see pid-symbol-groups.js), each with
- * `indexes`: the positions of its members in result.shapes. { groups: [], noOf: () => null } for a result with no shapes.
- */
-export function groupsOf(result) {
-  const none = { groups: [], noOf: () => null };
-  try {
-    const shapes = shapesOf(result);
-    if (!shapes) return none;
-    const at = new Map(shapes.map((s, n) => [s, n]));
-    const g = groupShapes(shapes, { nameOf: s => (verdictOf(s) === 'not-standard'
-      ? str(s.reason && s.reason.name) || partsName(s.parts) || str(s.closest && s.closest.name) : shapeName(result, s)) });
-    return { groups: g.groups.map(x => ({ ...x, indexes: x.members.map(m => at.get(m)).sort((a, b) => a - b) })), noOf: g.noOf };
-  } catch {
-    return none;
-  }
-}
-
-/**
- * A shape's overlay as a small inline SVG: its own ink (black), the symbol it was matched to (blue dashed), the ink that
- * symbol does not have (red) and, for a size fault, the symbol at the sheet's own size (grey dotted). Only numbers go into
- * the markup, so nothing from the result needs escaping. '' when the shape has no (usable) overlay.
- */
-export function overlaySvg(shape) {
-  try {
-    const o = shape && typeof shape === 'object' && shape.overlay && typeof shape.overlay === 'object' ? shape.overlay : null;
-    if (!o || !isBox(o.placedBox)) return '';
-    const segs = list => asArr(list).filter(g => Array.isArray(g) && g.length >= 4 && g.slice(0, 4).every(isNum));
-    const drawn = segs(o.drawn), sym = segs(o.symbol), miss = segs(o.unmatched);
-    if (!drawn.length && !sym.length && !miss.length) return '';
-    const pb = o.placedBox, base = isBox(shape.box) ? shape.box : pb;
-    const x0 = Math.min(pb[0], base[0]), y0 = Math.min(pb[1], base[1]), x1 = Math.max(pb[2], base[2]), y1 = Math.max(pb[3], base[3]);
-    const pad = Math.max(2, 0.15 * Math.max(x1 - x0, y1 - y0)), vx = x0 - pad, vy = y0 - pad, vw = x1 - x0 + 2 * pad, vh = y1 - y0 + 2 * pad;
-    const f = v => (Math.round(v * 100) / 100);
-    const line = (g, tf) => { const q = tf ? tf(g) : g; return '<line x1="' + f(q[0]) + '" y1="' + f(q[1]) + '" x2="' + f(q[2]) + '" y2="' + f(q[3]) + '"/>'; };
-    let expected = '';
-    const ex = asArr(o.expected);
-    if (ex.length === 2 && ex.every(isNum) && sym.length) {
-      const cx = (pb[0] + pb[2]) / 2, cy = (pb[1] + pb[3]) / 2, r = Math.max(ex[0], ex[1]) / Math.max(pb[2] - pb[0], pb[3] - pb[1], 1e-6);
-      if (isNum(r) && r > 0 && Math.abs(r - 1) > 0.02) expected = '<g class="sc-ov-expected" stroke="#8C8C99" stroke-dasharray="1 1.5">' + sym.map(g => line(g, q => [cx + (q[0] - cx) * r, cy + (q[1] - cy) * r, cx + (q[2] - cx) * r, cy + (q[3] - cy) * r])).join('') + '</g>';
-    }
-    return '<svg class="sc-overlay" viewBox="' + [vx, vy, vw, vh].map(f).join(' ') + '" width="120" height="' + Math.round(120 * vh / vw) + '" fill="none" stroke-width="1" aria-hidden="true">'
-      + '<g class="sc-ov-drawn" stroke="#222">' + drawn.map(g => line(g)).join('') + '</g>' + expected
-      + '<g class="sc-ov-symbol" stroke="#1F5FD6" stroke-dasharray="2 1.5">' + sym.map(g => line(g)).join('') + '</g>'
-      + '<g class="sc-ov-unmatched" stroke="#C62828">' + miss.map(g => line(g)).join('') + '</g></svg>';
-  } catch {
-    return '';
-  }
-}
-
 // ' M shapes not to standard. K shapes not judged: time limit. <operators note>', or '' when no shape was judged.
 function shapeLine(result) {
   const list = shapesOf(result);
@@ -298,20 +247,11 @@ export function resultsHtml(result) {
       + '<div class="sc-summary">' + esc(KEY_NOT_STANDARD) + '</div><div class="sc-summary">' + esc(KEY_NOT_IDENTIFIED) + '</div>';
   }
   const flagged = (shapesOf(result) || []).map((s, n) => ({ s, n })).filter(x => verdictOf(x.s) === 'not-standard');
-  const G = groupsOf(result);
-  const saysFor = s => (newStyle ? amberText(s) : shapeWhy(s) + '; ' + closestText(s));
   if (flagged.length) {
     out += '<div class="sc-summary"><strong>Not to standard</strong>: ' + plural(flagged.length, 'shape', 'shapes') + '</div><ul class="sc-list">';
-    for (const g of G.groups.filter(x => x.verdict === 'not-standard')) {
-      const say = saysFor(g.members[0]);
-      out += '<li><button type="button" class="sc-row sc-not-standard" data-act="sym-jump-shape" data-sh="' + g.indexes[0] + '">'
-        + '<strong>#' + g.no + ' Not to standard</strong> <span class="sc-detail">' + esc(g.kind === 'size' && g.count > 1 ? say.replace(' drawn at ', ' drawn at about ') : say)
-        + (g.count > 1 ? ' ×' + g.count : '') + '</span></button>' + overlaySvg(g.example) + '</li>';
-    }
-    for (const { s, n } of flagged) {   // a shape with no symbol to group by keeps a row of its own
-      if (G.noOf(s) !== null) continue;
+    for (const { s, n } of flagged) {
       out += '<li><button type="button" class="sc-row sc-not-standard" data-act="sym-jump-shape" data-sh="' + n + '">'
-        + '<strong>Not to standard</strong> <span class="sc-detail">' + esc(saysFor(s)) + '</span></button></li>';
+        + '<strong>Not to standard</strong> <span class="sc-detail">' + esc(newStyle ? amberText(s) : shapeWhy(s) + '; ' + closestText(s)) + '</span></button></li>';
     }
     out += '</ul>';
   }
@@ -333,11 +273,7 @@ export function resultsHtml(result) {
       const byName = new Map();
       for (const { name } of good) byName.set(name, (byName.get(name) || 0) + 1);
       out += '<div class="sc-summary"><strong>Standard symbols</strong>: ' + esc([...byName].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, c]) => c + ' ' + k).join(', ')) + '</div><ul class="sc-list">';
-      for (const g of G.groups.filter(x => x.verdict === 'standard')) {
-        out += '<li><button type="button" class="sc-row sc-standard" data-act="sym-jump-shape" data-sh="' + g.indexes[0] + '"><strong>#' + g.no + ' ' + esc(g.name) + '</strong>'
-          + (g.count > 1 ? ' <span class="sc-detail">×' + g.count + '</span>' : '') + '</button></li>';
-      }
-      for (const { s, n, name } of good) if (G.noOf(s) === null) out += '<li><button type="button" class="sc-row sc-standard" data-act="sym-jump-shape" data-sh="' + n + '"><strong>' + esc(name) + '</strong></button></li>';
+      for (const { n, name } of good) out += '<li><button type="button" class="sc-row sc-standard" data-act="sym-jump-shape" data-sh="' + n + '"><strong>' + esc(name) + '</strong></button></li>';
       out += '</ul>';
     }
     return out + '</details>';
@@ -408,15 +344,15 @@ export function boxRects(result, scale) {
     if (judged || !untagged(s) || !isBox(s.box)) return;   // once shapes were judged, the shapes are boxed instead
     out.push({ s: n, kind: 'symbol', ...rect(s.box), title: str(s.name) + ': standard symbol, no tag.' + (s.plain === true ? ' Plain shape: check by eye.' : '') });
   });
-  const newStyle = hasVerdicts(judged), G = groupsOf(result);
-  let amber = G.groups.length;   // a shape with no symbol to group by is numbered after the groups
+  const newStyle = hasVerdicts(judged);
+  let amber = 0;
   (judged || []).forEach((s, n) => {
-    const v = verdictOf(s), no = G.noOf(s);
+    const v = verdictOf(s);
     const tags = asArr(folded.get(n));   // tags whose symbols this whole holds: the first one's row jumps here
     const tagged = tags.length ? ' Tag ' + tags.map(x => str(x.v.tag)).filter(Boolean).join(', ') + '.' : '';
     const jump = tags.length ? { i: tags[0].i } : {};
-    if (v === 'standard') out.push({ sh: n, ...jump, ...(no !== null ? { num: no } : {}), kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' + tagged });
-    else if (v === 'not-standard') out.push({ sh: n, ...jump, ...(newStyle ? { num: no !== null ? no : ++amber } : {}), kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + (newStyle ? amberText(s) : shapeWhy(s) + '. ' + closestText(s)) + '.' + tagged });
+    if (v === 'standard') out.push({ sh: n, ...jump, kind: 'standard', ...rect(s.box), title: 'Standard symbol: ' + shapeName(result, s) + '.' + tagged });
+    else if (v === 'not-standard') out.push({ sh: n, ...jump, ...(newStyle ? { num: ++amber } : {}), kind: 'not-standard', ...rect(s.box), title: 'Not to standard: ' + (newStyle ? amberText(s) : shapeWhy(s) + '. ' + closestText(s)) + '.' + tagged });
     else if (v === 'not-identified') out.push({ sh: n, kind: 'not-identified', ...rect(s.box), title: 'Not identified: check by eye.' });
     else if (v === 'not-judged') out.push({ sh: n, kind: 'not-judged', ...rect(s.box), title: 'Not judged: time limit.' });
   });

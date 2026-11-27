@@ -367,3 +367,39 @@ test('two WIDGETs joined by a bent pipe, the whole too big for a symbol: each WI
   assert.ok(r.shapes.some(x => near(x.box, [100, 100, 124, 112])) && r.shapes.some(x => near(x.box, [190, 140, 214, 152])), JSON.stringify(r.shapes.map(x => x.box)));
   for (const i of indexesOf(paths, pipe)) assert.ok(['run', 'connector'].includes(kindOf(r, i)), String(kindOf(r, i)));
 });
+
+// Binder test 4 (2026-11-25). A run of symbols on one thick pipe was boxed as one shape, and a reducer on a stub off a
+// pipe with a check valve 20 pt along it as one: two causes, both in what the splitter takes for linework.
+test('a symbol of more than 300 pieces joined by a short pipe to another is a shape, the pipe a connector', () => {
+  // A hatched valve is hundreds of tiny strips; the connector rule gave up on any group over 300 pieces (a side turning under 0.02 rad would merge with the next, so 310).
+  const sides = 310, ring = line(Array.from({ length: sides }, (_, i) => { const a = 2 * Math.PI * i / sides, b = 2 * Math.PI * (i + 1) / sides; return [100 + 20 * Math.cos(a), 100 + 20 * Math.sin(a), 100 + 20 * Math.cos(b), 100 + 20 * Math.sin(b)]; }).flat());
+  const pipe = line([100, 120, 100, 132]);
+  const paths = [ring, pipe, closedPoly([[88, 132], [112, 132], [112, 144], [88, 144]])];
+  const r = R.sheetShapes(paths, { ...OPT, maxSide: 100 });
+  assert.equal(r.shapes.length, 2, JSON.stringify(r.shapes.map(x => x.box)));
+  assert.equal(kindOf(r, indexesOf(paths, [pipe])[0]), 'connector');
+  assert.ok(r.shapes.every(x => !x.pieces.includes(indexesOf(paths, [pipe])[0])));
+});
+
+// The sheet's own frame is one closed path with writing inside it (the title block): no chain "stands inside an outline
+// holding writing" on its account. Only a bubble's or a label's outline keeps a bar across it from being linework.
+const FRAME = closedPoly([[0, 0], [500, 0], [500, 300], [0, 300]]);
+const FRAME_WRITING = [[300, 20, 330, 30]];
+test('a straight line hanging off a shape with a free end is linework on a sheet whose frame holds writing', () => {
+  const r = R.sheetShapes([FRAME, ...place(W, { x: 100, y: 100 }), line([100, 106, 75, 106])], { ...OPT2, maxSide: 100, writing: FRAME_WRITING });
+  const s = r.shapes.filter(x => x.box[2] - x.box[0] < 400);
+  assert.equal(s.length, 1, JSON.stringify(r.shapes.map(x => x.box)));
+  assert.ok(near(s[0].box, [100, 100, 124, 112]), String(s[0].box));
+});
+test('a reducer on a pipe stub off a pipe, and a check valve 20 pt along the pipe: two shapes, not one', () => {
+  const reducerTop = line([100, 100, 110, 100]), reducer = poly([[110, 100], [115, 120], [95, 120], [100, 100]]);
+  const stub = line([105, 120, 105, 150]), pipe = line([50, 150, 180, 150]), up = line([105, 60, 105, 100]);
+  const check = poly([[180, 143], [194, 150], [180, 157]]), bar = line([194, 143, 194, 157]), base = line([180, 143, 180, 157]);
+  const paths = [FRAME, reducerTop, reducer, stub, pipe, up, check, bar, base];
+  for (const writing of [[], FRAME_WRITING]) {
+    const r = R.sheetShapes(paths, { ...OPT2, maxSide: 200, longRun: 150, writing });
+    const inner = r.shapes.filter(x => x.box[2] - x.box[0] < 400);
+    assert.equal(inner.length, 2, JSON.stringify(inner.map(x => x.box)));
+    assert.ok(inner.some(x => near(x.box, [95, 100, 115, 120])) && inner.some(x => near(x.box, [180, 143, 194, 157])), JSON.stringify(inner.map(x => x.box)));
+  }
+});

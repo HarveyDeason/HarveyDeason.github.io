@@ -347,7 +347,7 @@ test('the invented sheet gives the same verdict list as before the speed work', 
   // A fixed fingerprint of one whole check, taken before the speed work: if a change alters any verdict, symbol or shape, this changes.
   const r = C.checkSheet({ paths: SHEET.paths, textItems: SHEET.textItems, viewportTransform: SHEET.viewportTransform, tags: SHEET.tags, pageSize: SHEET.pageSize, library: LIBRARY, lookups: { fc: {} } });
   assert.equal(r.ok, true);
-  const answer = JSON.stringify({ v: r.verdicts, s: r.symbols, sh: r.shapes, c: r.counts }, (k, v) => (k === 'ms' || k === 'overlay' ? undefined : v));
+  const answer = JSON.stringify({ v: r.verdicts, s: r.symbols, sh: r.shapes, c: r.counts }, (k, v) => (k === 'ms' ? undefined : v));
   assert.equal(answer.length > 100, true);
   assert.equal(fingerprint(answer), EXPECTED_SHEET_FINGERPRINT);
 });

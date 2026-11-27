@@ -42,6 +42,13 @@ export const CHECK_DEFAULTS = Object.freeze({
   // never alone, never size-judged. A symbol found alone by the sweep stays a body.
   attachments: Object.freeze(['FLANGED CONNECTION', 'CAPPED END/THREADED PLUG', 'LOCKED', 'FLOW DIRECTION ARROW', 'DIRECTION FLOW ARROW',
     'PIPE BORE CHANGE/ CONCENTRIC REDUCER', 'PIPE BORE CHANGE/ ECCENTRIC REDUCER', 'GEP MARK', 'QUALITY MARK', 'SAFETY MARK']),
+  // Legend entries that hold alternative drawings side by side (binder test 4: CENTRIFUGAL PUMP WET WELL (SHOWN WITH MOTOR) draws the
+  // pump with a variable-speed motor beside the pump with a plain one): prepared as one symbol per separate drawing in them. A named
+  // entry only; an entry made of several parts (a union, a flume) is one symbol and is never split.
+  variants: Object.freeze(['CENTRIFUGAL PUMP WET WELL (SHOWN WITH MOTOR)']),
+  // The legend's drives "act much like operators" (owner, 2026-11-27): beside a body they belong to it (a valve with a motor on it is one
+  // standard symbol); found alone they stay symbols of their own. They are not marked as operators, which are never found alone.
+  drives: Object.freeze(['ELECTRIC MOTOR', 'VARIABLE SPEED MOTOR', 'MECHANICAL DRIVE', 'DIRECT COUPLED DRIVE', 'HYDRAULIC DRIVE']),
   longRunCap: 1e9,                    // points: the long-run length never exceeds this (tuned at the gate)
 });
 
@@ -65,6 +72,8 @@ function settingsOf(options) {
   const o = asObj(options), out = { ...CHECK_DEFAULTS };
   for (const k of Object.keys(CHECK_DEFAULTS)) if (isNum(o[k]) && o[k] > 0) out[k] = o[k];
   if (Array.isArray(o.attachments)) out.attachments = o.attachments.filter(n => typeof n === 'string');
+  if (Array.isArray(o.variants)) out.variants = o.variants.filter(n => typeof n === 'string');
+  if (Array.isArray(o.drives)) out.drives = o.drives.filter(n => typeof n === 'string');
   out.twin = o.twin !== false;
   return out;
 }
@@ -401,6 +410,37 @@ function prepareOne(symbol, cfg) {
   return out;
 }
 
+const VARIANT_GAP = 1.5;    // points: drawings this close are one drawing
+const VARIANT_LIKE = 0.7;   // and drawings of one entry are alternatives only when each is at least this share of the largest
+const VARIANT_BOX = p => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; const g = p.segs; for (let k = 0; k + 1 < g.length; k += 2) { x0 = Math.min(x0, g[k]); x1 = Math.max(x1, g[k]); y0 = Math.min(y0, g[k + 1]); y1 = Math.max(y1, g[k + 1]); } return [x0, y0, x1, y1]; };
+/**
+ * A legend entry holding alternative drawings side by side as one symbol per drawing (left to right), each with the entry's name and
+ * its own box. The entry itself when it holds one drawing, or drawings of very different sizes (parts of one symbol). Never throws.
+ */
+function variantsOf(sym) {
+  try {
+    const paths = asArr(asObj(sym).paths).filter(p => p && Array.isArray(p.segs) && p.segs.length >= 4 && p.segs.every(isNum));
+    if (paths.length < 2) return [sym];
+    const bx = paths.map(VARIANT_BOX), par = paths.map((_, i) => i);
+    const find = k => { while (par[k] !== k) { par[k] = par[par[k]]; k = par[k]; } return k; };
+    for (let a = 0; a < paths.length; a++) for (let b = a + 1; b < paths.length; b++) {
+      const A = bx[a], B = bx[b];
+      if (A[0] <= B[2] + VARIANT_GAP && B[0] <= A[2] + VARIANT_GAP && A[1] <= B[3] + VARIANT_GAP && B[1] <= A[3] + VARIANT_GAP) par[find(a)] = find(b);
+    }
+    const groups = new Map();
+    paths.forEach((_, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
+    if (groups.size < 2) return [sym];
+    const parts = [...groups.values()].map(ix => ({ ix, box: ix.map(i => bx[i]).reduce((u, q) => [Math.min(u[0], q[0]), Math.min(u[1], q[1]), Math.max(u[2], q[2]), Math.max(u[3], q[3])]) }));
+    const side = k => Math.max(k.box[2] - k.box[0], k.box[3] - k.box[1]), big = Math.max(...parts.map(side));
+    if (!parts.every(k => side(k) >= VARIANT_LIKE * big)) return [sym];
+    parts.sort((a, b) => a.box[0] - b.box[0] || a.box[1] - b.box[1]);
+    return parts.map((k, n) => ({ ...sym, id: str(sym.id) + '#' + (n + 1), w: round3(k.box[2] - k.box[0]), h: round3(k.box[3] - k.box[1]),
+      paths: k.ix.map(i => ({ ...paths[i], segs: paths[i].segs.map((v, q) => (q % 2 === 0 ? v - k.box[0] : v - k.box[1])) })) }));
+  } catch {
+    return [sym];
+  }
+}
+
 /**
  * One entry per library symbol: whether it can be checked on a drawing, why
  * not when it cannot, and the geometry the matcher works from. The library is
@@ -410,7 +450,8 @@ function prepareOne(symbol, cfg) {
 export function prepareSymbols(library, options) {
   try {
     const cfg = settings(options);
-    return asArr(asObj(library).symbols).map(s => {
+    const split = new Set(asArr(cfg.variants).filter(n => typeof n === 'string').map(n => n.replace(/\s+/g, ' ').trim().toUpperCase()));
+    return asArr(asObj(library).symbols).flatMap(s0 => split.has(str(asObj(s0).name).replace(/\s+/g, ' ').trim().toUpperCase()) ? variantsOf(s0) : [s0]).map(s => {
       try { return prepareOne(s, cfg); } catch { return { symbol: s, checkable: false, why: 'no-linework', segs: [], keys: [], loops: [], points: [], w: 0, h: 0, codes: [], bubble: false, plain: false, ring: [0, 0, 0, 0] }; }
     });
   } catch {
@@ -1796,6 +1837,10 @@ export const LETTER_ROOM = 2;          // a lettered symbol's box holds at most 
 export const NEAR_RESCORE = 0.1;  // a sweep near miss scoring within this of recognise is scored again on its shape's own ink
 export const PEEL_NEW = 0.5;     // a part peeled off a shape must lay this share of its template on ink no earlier part explains
 const bodyBoxes = new WeakMap();   // a judged shape -> the boxes of its found symbols (not operators)
+export const DRIVE_SHARE = 0.9;   // a neighbouring shape is a body's drive when a drive laid on it explains this share of its ink
+export const HEAVY_PIPE = 2.5;   // a straight piece this many times as wide as its shape's usual ink is pipework
+export const HEAVY_MIN = 2;       // points: and at least this wide
+export const HEAVY_LEN = 4;       // points: and at least this long (a flattened curve is never taken)
 export const PEEL_MAX = 8;       // parts peeled off one shape, at most
 export const MARK_MIN = 0.4;     // line marks are matched from this share of the legend's size
 const LEAD_PIECES = 200;         // pieces followed along one lead, at most
@@ -1805,21 +1850,6 @@ export const OP_ON_BODY = 0.25;  // an operator laying more of its linework than
 const FILL_TWIN = 0.25;         // loops within this share of a filled loop's size are its twins, filled alike
 const FILL_DENSITY = 0.2;        // ink filling this share of a body's closed outline (inside its lines) is its fill (normally closed)
 export const GREEN_SWITCH = 0.5;   // fewer than this share of the shapes standard when read by drawn paths: read by line pieces too
-
-export const OVERLAY_MAX = 200;   // segments kept in each list of a shape's overlay
-
-/** At most `max` entries of a list, evenly spread (first kept); a short list as it is; [] for a non-list. Never throws. */
-export function thinTo(list, max = OVERLAY_MAX) {
-  try {
-    const a = asArr(list);
-    if (a.length <= max) return a.slice();
-    const out = [];
-    for (let i = 0; i < max; i++) out.push(a[Math.floor(i * a.length / max)]);
-    return out;
-  } catch {
-    return [];
-  }
-}
 
 /** The sheet's own symbol size: the median of hit.k over the hits; 1 when fewer than SCALE_SYMBOLS_MIN have one. Never throws. */
 export function sizeScaleOf(hits) {
@@ -2055,7 +2085,10 @@ export function judgeShapes(ctx) {
       .sort((a, b) => (Math.round(a.box[1]) - Math.round(b.box[1])) || (a.box[0] - b.box[0]));
 
     // Symbols the judge may place: operators, plain ones, bubbles; and the sweep's candidates.
+    const driveNames = new Set(asArr(cfg.drives).filter(n => typeof n === 'string').map(n => n.replace(/\s+/g, ' ').trim().toUpperCase()));
     const operators = prepared.filter(p => p && p.operator === true && asArr(p.keys).length).map(placeable);
+    // A drive beside a body belongs to it, but only when a neighbouring shape is the drive itself (almost all of its ink is the drive's).
+    const driveOps = prepared.filter(p => p && p.operator !== true && p.checkable && !p.bubble && asArr(p.keys).length && driveNames.has(nameOf(p).replace(/\s+/g, ' ').trim().toUpperCase())).map(placeable);
     const opReach = operators.reduce((m, p) => Math.max(m, p.w, p.h), 0) * band.maxScale;
     // Attachments: the owner's operators and the legend symbols the attachments setting names (owner, 2026-11-18).
     const normed = n => str(n).replace(/\s+/g, ' ').trim().toUpperCase();
@@ -2168,13 +2201,13 @@ export function judgeShapes(ctx) {
     // The best legend operator laid on the ink `left` (what the bodies leave unexplained), within reach of a body.
     // Of operator placements that fit alike (scores within OP_TIE), the one standing nearest its body is the body's: two valves in a
     // row, each with an actuator beside it, would else each take the other's when the far one happens to score a hair higher (SP66).
-    const bestOperator = (fr, left, nearFull, pieces, bodyHits) => {
+    const bestOperator = (fr, left, nearFull, pieces, bodyHits, list = operators) => {
       const opWin = { ink: left, near: nearFull };
       const segs = segsOf(S, [...pieces, ...linesIn(fr)], minKey);
       let best = null, bestGap = Infinity;
       for (const h of bodyHits) {
         const bb = placedBox(h), centre = centreOf(bb), reach = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]) / 2 + opReach;
-        for (const p of operators) {
+        for (const p of list) {
           for (const pl of proposePlacements(p, segs, centre, { ...band, radius: reach })) {
             const sc = scorePlacement(p, pl, opWin, cfg);
             if (!sc || sc.score < cfg.recognise) continue;
@@ -2200,6 +2233,18 @@ export function judgeShapes(ctx) {
     const runPieces = [];
     for (const l of asArr(split.lines)) if (l && l.kind === 'run') for (const i of asArr(l.pieces)) if (Array.isArray(S[i])) runPieces.push(i);
     const touching = (pt, fi) => finals[fi].pieces.some(i => { const q = S[i]; return distToSeg(pt, q) <= 0.75; });
+    // The pipe a found body carries (cut in 2b) is no part of the body: a connector standing on the pipe, away from the body, is
+    // no stem on it (binder test 4: a reducer on a stub off a pipe, 35 pt from a check valve, was taken for its operator).
+    const pipeMemo = new Map();
+    const bodyPipe = fi => {
+      if (!pipeMemo.has(fi)) {
+        const f = finals[fi], set = new Set();
+        for (const sp of f.spots) if (!sp.hit.p.operator && sp.hit.p.bubble !== true) for (const i of cutPipe(S, f.pieces, sp.hit, new Set(), [])) set.add(i);
+        pipeMemo.set(fi, set);
+      }
+      return pipeMemo.get(fi);
+    };
+    const touchingBody = (pt, fi) => { const pipe = bodyPipe(fi); return finals[fi].pieces.some(i => !pipe.has(i) && distToSeg(pt, S[i]) <= 0.75); };
     const inLineWithPipe = (a, b) => {
       const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
       if (!(L > 0)) return false;
@@ -2234,7 +2279,7 @@ export function judgeShapes(ctx) {
       }
       return ringMemo.get(gi);
     };
-    if (operators.length || asArr(split.lines).some(l => l && l.kind === 'connector')) {
+    if (operators.length || driveOps.length || asArr(split.lines).some(l => l && l.kind === 'connector')) {
       const connectors = asArr(split.lines).filter(l => l && l.kind === 'connector').map(l => asArr(l.pieces).filter(i => Array.isArray(S[i])));
       finals.forEach((f, fi) => {
         if (merged2.has(fi) || !isBody(f) || clock() > deadline) return;
@@ -2254,10 +2299,10 @@ export function judgeShapes(ctx) {
           const ends = c.flatMap(i => [[S[i][0], S[i][1]], [S[i][2], S[i][3]]]);
           const a = ends[0], b = ends.reduce((m, e) => (Math.hypot(e[0] - a[0], e[1] - a[1]) > Math.hypot(m[0] - a[0], m[1] - a[1]) ? e : m), a);
           const lo = ends.reduce((m, e) => (Math.hypot(e[0] - b[0], e[1] - b[1]) > Math.hypot(m[0] - b[0], m[1] - b[1]) ? e : m), b);
-          const onBody = touching(lo, fi) || touching(b, fi);
+          const onBody = touchingBody(lo, fi) || touchingBody(b, fi);
           if (!onBody || inLineWithPipe(lo, b) || alongBodyPipe(lo, b, f)) continue;
           for (const gi of cand) {
-            const far = touching(lo, fi) ? b : lo;
+            const far = touchingBody(lo, fi) ? b : lo;
             if (!touching(far, gi)) continue;
             const g = finals[gi];
             if (g.closed && (hasWriting(writing, g.box) || bubbleRing(gi))) continue;
@@ -2265,7 +2310,7 @@ export function judgeShapes(ctx) {
           }
         }
         // A legend operator laid on body and neighbours together.
-        if (operators.length) {
+        if (operators.length || driveOps.length) {
           const box = [f.box, ...cand.map(gi => finals[gi].box)].reduce((u, b) => [Math.min(u[0], b[0]), Math.min(u[1], b[1]), Math.max(u[2], b[2]), Math.max(u[3], b[3])]);
           const fr = frameAround(box, 2);
           if (frameOk(fr)) {
@@ -2276,10 +2321,17 @@ export function judgeShapes(ctx) {
             for (const h of bodyHits) { const T = templateIn(fr, h, cfg); for (let i = 0; i < mask.data.length; i++) if (T.data[i]) mask.data[i] = 1; }
             const left = blank(fr.x0, fr.y0, fr.w, fr.h, PX);
             for (let i = 0; i < left.data.length; i++) left.data[i] = own.data[i] && !mask.data[i] ? 1 : 0;
-            const op = bestOperator(fr, left, nearFull, pieces, bodyHits);
+            const op = operators.length ? bestOperator(fr, left, nearFull, pieces, bodyHits) : null;
             if (op) {
               const T = templateIn(fr, op, cfg);
               for (const gi of cand) if (coverage(inkOf(fr, finals[gi].pieces), T, []) >= 0.5) take.add(gi);
+            }
+            // A drive standing apart from its body (a motor above a valve): the neighbouring shape is the drive when one laid on it
+            // explains nearly all of its ink.
+            const dr = driveOps.length ? bestOperator(fr, left, nearFull, pieces, bodyHits, driveOps) : null;
+            if (dr) {
+              const T = templateIn(fr, dr, cfg);
+              for (const gi of cand) if (coverage(inkOf(fr, finals[gi].pieces), T, []) >= DRIVE_SHARE) take.add(gi);
             }
           }
         }
@@ -2467,6 +2519,16 @@ export function judgeShapes(ctx) {
       }
       return { cut, closed: markers.length === 1 && f.pieces.every(i => cut.has(i) || within(markers[0].b, i)) };
     };
+    // The straight pieces of a shape drawn much heavier than the rest of its ink: pipework. The usual width is the median over
+    // the shape's pieces (not by length: a long pipe must not become the usual); a short piece (a flattened curve) is never taken.
+    const heavyPipe = pieces => {
+      const w = i => { const q = paths[S[i][5]]; return q && isNum(q.width) ? q.width : 0; };
+      const inked = pieces.filter(i => w(i) > 0).sort((a, b) => w(a) - w(b));
+      if (inked.length < 2) return [];
+      const usual = w(inked[(inked.length - 1) >> 1]);
+      const limit = Math.max(HEAVY_MIN, HEAVY_PIPE * usual);
+      return pieces.filter(i => w(i) >= limit && S[i][4] >= HEAVY_LEN);
+    };
     for (const [fi, f] of judged.entries()) {
       const cut = new Set();
       const bodies = f.spots.filter(sp => !sp.hit.p.operator && sp.hit.p.bubble !== true);
@@ -2485,6 +2547,10 @@ export function judgeShapes(ctx) {
       }
       const lead = bodies.length ? null : markerLead(f);
       if (lead) for (const i of lead.cut) cut.add(i);
+      // Pipework drawn heavy (binder test 4: a hose reel's short thick pipe stub, a check valve's pipe running on past a tee, drawn
+      // 2.8 wide against 0.72 for the symbols): a straight piece at least HEAVY_PIPE times as wide as the shape's usual ink, and at
+      // least HEAVY_MIN wide, is pipe, no part of the shape. Nothing is cut where all the ink is drawn alike.
+      for (const i of heavyPipe(f.pieces)) cut.add(i);
       if (!cut.size) continue;
       const rest = f.pieces.filter(i => !cut.has(i));
       if (!rest.length) continue;
@@ -2638,9 +2704,13 @@ export function judgeShapes(ctx) {
       if (!kept.length && f.closed) {
         // On a printed sheet the letters are drawn as ink: a path lying wholly inside a writing box (grown 1 pt) is the tag, not the bubble.
         const letters = writing.filter(b => Array.isArray(b) && b.length === 4 && b.every(isNum)).map(b => [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1]);
-        const bare = letters.length ? blank(fr.x0, fr.y0, fr.w, fr.h, PX) : full;
-        if (letters.length) {
-          drawInto(bare, boxed.filter(q => q.b[2] >= fr.x0 && q.b[0] <= fr.x0 + fr.w / PX && q.b[3] >= fr.y0 && q.b[1] <= fr.y0 + fr.h / PX
+        // The ink of another shape standing against this ring is that shape's, not the ring's: a square outline whose edge
+        // lies along the ring's top counted against it as ink the bubble does not draw (binder test 4). Pipes and leads stay.
+        const frameBox = [fr.x0, fr.y0, fr.x0 + fr.w / PX, fr.y0 + fr.h / PX], mineP = new Set(f.pieces.map(i => paths[S[i][5]])), theirs = new Set();
+        for (const g of judged) if (g !== f && overlaps(g.box, frameBox, 0)) for (const i of g.pieces) { const q = paths[S[i][5]]; if (!mineP.has(q)) theirs.add(q); }
+        const bare = letters.length || theirs.size ? blank(fr.x0, fr.y0, fr.w, fr.h, PX) : full;
+        if (letters.length || theirs.size) {
+          drawInto(bare, boxed.filter(q => q.b[2] >= fr.x0 && q.b[0] <= fr.x0 + fr.w / PX && q.b[3] >= fr.y0 && q.b[1] <= fr.y0 + fr.h / PX && !theirs.has(q.p)
             && !letters.some(w => q.b[0] >= w[0] && q.b[1] >= w[1] && q.b[2] <= w[2] && q.b[3] <= w[3])).map(q => q.p), {}, cfg);
         }
         const m = matchBubble(bubbles, f.box, { ink: bare, near: nearFull }, cfg);
@@ -2995,24 +3065,7 @@ export function judgeShapes(ctx) {
         closest: shown ? { ...shown, oneLine: isOneLine(closest.h.p) || isLineWithHead(closest.h.p), bubble: closest.h.p.bubble === true } : null });
       const ORDER = { body: 0, symbol: 1, attachment: 2 };
       const parts = kept.map(k => ({ name: nameOf(k.h.p), role: k.role || (k.op ? 'attachment' : 'body') })).sort((a, b) => ORDER[a.role] - ORDER[b.role]);
-      // The overlay the report draws: the symbol the shape was matched to (its body, else the closest), placed where the verdict
-      // laid it, and the shape's pieces that symbol does not account for. Only for a shape not to standard.
-      let overlay = null;
-      if (v.verdict === 'not-standard') {
-        const body = kept.find(k => !k.op), hit = body ? body.h : closest ? closest.h : null;
-        if (hit && isHit(hit)) {
-          try {
-            const T = templateIn(fr, hit, cfg), pl = hit.placement, turned = pl.o % 2 === 1;
-            const segs = asArr(hit.p.segs).filter(g => Array.isArray(g) && g.slice(0, 4).every(isNum)).map(g => [...placePoint(pl, g[0], g[1]), ...placePoint(pl, g[2], g[3])].map(round3));
-            const miss = f.pieces.filter(i => pieceOn(S[i], T) < 0.5).map(i => S[i].slice(0, 4).map(round3));
-            const stretched = isNum(pl.fitK) && pl.fitK > 0;
-            const drawn = f.pieces.map(i => S[i].slice(0, 4).map(round3));
-            overlay = { name: nameOf(hit.p), symbol: thinTo(segs), unmatched: thinTo(miss), drawn: thinTo(drawn), placedBox: placedBox(hit).map(round3),
-              expected: stretched ? null : (turned ? [hit.p.h, hit.p.w] : [hit.p.w, hit.p.h]).map(x => round3(x * sizeScale)) };
-          } catch { overlay = null; }
-        }
-      }
-      out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown, parts, ...(overlay ? { overlay } : {}) });
+      out.push({ ...base, standard: v.verdict === 'standard', verdict: v.verdict, reason: v.reason, why, explained: round3(explained), share, operator, closest: shown, parts });
       bodyBoxes.set(out[out.length - 1], kept.filter(k => !k.op).map(k => placedBox(k.h)));
       if (key !== null) memo.set(key, out[out.length - 1]);
     });
