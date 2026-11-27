@@ -22,6 +22,8 @@
     "rc-side-row",
     "prefers-reduced-transparency",
     "rcShowGet",
-    "PidRevSymbols"
+    "PidRevSymbols",
+    "renderRevPanes",
+    "rcTagBoxes"
   ]
 }
