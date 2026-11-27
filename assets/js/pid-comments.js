@@ -414,3 +414,25 @@ export function isDestructiveSave(diskCount, memoryCount) {
 function isNonNegativeFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
+
+// ── Is a save needed at all? ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Connecting to a folder whose register this session only just read would otherwise back it up and write it straight back: two full
+// copies (megabytes, on a synced folder) to leave the file exactly as it was. The content of the register is compared, not its bytes:
+// savedAt is the time of saving and is ignored, object keys are compared in sorted order, and arrays (the tags, the families) are compared
+// in order, so a different order is a difference and is written. Anything unusable is never "the same": the answer is false and the
+// caller saves, as it always did. A skipped save can only ever leave the file as it is, never lose anything.
+function canonicalJson(x) {
+  if (x === null || typeof x !== 'object') return JSON.stringify(x === undefined ? null : x);
+  if (Array.isArray(x)) return '[' + x.map(canonicalJson).join(',') + ']';
+  return '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonicalJson(x[k])).join(',') + '}';
+}
+export function sameRegisterContent(disk, memory) {
+  try {
+    const ok = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (!ok(disk) || !ok(memory)) return false;
+    const strip = v => { const { savedAt, ...rest } = v; return rest; };
+    return canonicalJson(strip(disk)) === canonicalJson(strip(memory));
+  } catch {
+    return false;
+  }
+}

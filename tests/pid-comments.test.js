@@ -599,3 +599,35 @@ test('familyDeletedBy: deletes on instant order, and keeps when it cannot tell',
   // A family with no updatedAt is covered, as before.
   assert.equal(familyDeletedBy(del, ''), true);
 });
+
+// ── sameRegisterContent: is what would be saved identical to what is already on disk? (skip the backup and the rewrite if so) ──
+import { sameRegisterContent } from '../assets/js/pid-comments.js';
+const REG = () => ({ version: 1, savedAt: '2026-11-27T10:00:00.000Z', drawings: { A: { revision: 'B', count: 1, warning: null } },
+  tags: [{ tag: '21-V-1', pac: '21', fc: 'V', id: '1', desc: 'Valve', drawing: 'A', revision: 'B', type: 'valve', isReview: false }],
+  revHistory: { A: { B: { importedAt: '2026-01-01T00:00:00.000Z', tags: [{ tag: '21-V-1' }] } } }, deletions: {}, famDeletions: {}, families: [{ id: 'f1', name: 'F', patterns: ['A'], updatedAt: '' }] });
+
+test('sameRegisterContent: the same register saved at a different time is the same; key order does not matter', () => {
+  const a = REG(), b = REG(); b.savedAt = '2026-11-27T11:30:00.000Z';
+  assert.equal(sameRegisterContent(a, b), true);
+  const c = { families: a.families, deletions: {}, version: 1, tags: a.tags, famDeletions: {}, drawings: a.drawings, revHistory: a.revHistory, savedAt: 'x' };
+  assert.equal(sameRegisterContent(a, c), true);
+});
+
+test('sameRegisterContent: any real difference means it is not the same', () => {
+  const base = REG();
+  const mut = f => { const x = REG(); f(x); return sameRegisterContent(base, x); };
+  assert.equal(mut(x => { x.tags[0].desc = 'Other'; }), false);
+  assert.equal(mut(x => { x.tags.push({ tag: 'n' }); }), false);
+  assert.equal(mut(x => { x.drawings.A.revision = 'C'; }), false);
+  assert.equal(mut(x => { x.families[0].patterns = ['A', 'B']; }), false);
+  assert.equal(mut(x => { x.deletions = { A: '2026-01-01T00:00:00Z' }; }), false);
+  assert.equal(mut(x => { x.revHistory.A.C = { importedAt: 'z', tags: [] }; }), false);
+  assert.equal(mut(x => { x.tags.reverse(); x.tags.push({ tag: 'q' }); }), false);
+});
+
+test('sameRegisterContent: the order of the tags matters (a different order is written, never skipped), and anything unusable is never the same', () => {
+  const a = REG(); a.tags.push({ tag: '21-V-2' });
+  const b = REG(); b.tags.push({ tag: '21-V-2' }); b.tags.reverse();
+  assert.equal(sameRegisterContent(a, b), false);
+  for (const bad of [null, undefined, 7, 'x', [], [1]]) { assert.equal(sameRegisterContent(bad, REG()), false); assert.equal(sameRegisterContent(REG(), bad), false); assert.equal(sameRegisterContent(bad, bad), false); }
+});
