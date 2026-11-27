@@ -10,7 +10,6 @@
 
 import { FAMILY_NOTE, VERDICT_LABELS, kindOf, ROW_ORDER, SUMMARY_ORDER, verdictSentence, bubbleSummary, symbolSummary, SKIPPED_NOTE, tagsTimedOut, shapeWhy, NOT_STANDARD_COLOUR, NOT_IDENTIFIED_COLOUR, OPERATORS_NOTE, reasonText, markLine, VERDICTS, verdictOf, partsName } from './pid-symbol-check-view.js';
 import { STATUS_LABELS } from './pid-precheck.js';
-import { groupShapes } from './pid-symbol-groups.js';
 import { REASONS } from './pid-symbol-report-run.js';
 
 export const SHORT_NOTE = 'It checks the family of symbol, not which member of it.';
@@ -54,18 +53,6 @@ export function toUserRect(box, viewportTransform, margin) {
   return out.every(isNum) ? out : null;
 }
 
-/** Segments [x0, y0, x1, y1] from the check (viewport space) as the same in the page's user space. A bad segment is dropped; [] for no transform. */
-export function toUserSegs(segs, viewportTransform) {
-  if (!isTransform(viewportTransform) || !Array.isArray(segs)) return [];
-  const out = [];
-  for (const g of segs) {
-    if (!Array.isArray(g) || g.length < 4 || !g.slice(0, 4).every(isNum)) continue;
-    const a = toUserRect([g[0], g[1], g[0], g[1]], viewportTransform, 0), b = toUserRect([g[2], g[3], g[2], g[3]], viewportTransform, 0);
-    if (a && b) out.push([a[0], a[1], b[0], b[1]]);
-  }
-  return out;
-}
-
 function legendText(library) {
   const parts = asArr(obj(library).legend).filter(l => l && typeof l === 'object')
     .map(l => 'Legend sheet ' + String(str(l.sheet) || (isNum(l.sheet) ? l.sheet : '?')) + ' rev ' + (str(l.rev) || '?'));
@@ -94,24 +81,13 @@ function rowsFor(result, vt) {
 const symbolsOf = result => asArr(result.symbols).filter(s => s && typeof s === 'object' && str(s.name));
 const shapesOf = result => (Array.isArray(result.shapes) ? result.shapes.filter(s => s && typeof s === 'object' && isBox(s.box)) : null);
 const toStandard = s => (verdictOf(s) === 'not-identified' ? 'Not identified' : s.standard === true ? 'Yes' : s.standard === false ? 'No' : 'Not judged');
-const NO_VERDICTS = { groups: [], redRows: [], areaRect: null, notIdentifiedCount: 0, markVerdicts: false };
+const NO_VERDICTS = { redRows: [], areaRect: null, notIdentifiedCount: 0, markVerdicts: false };
 const closestText = s => { const c = obj(s.closest); return str(c.name) && isNum(c.score) ? 'closest: ' + str(c.name) + ' ' + Math.round(c.score * 100) + '%' : 'no close symbol'; };
 function symbolEntry(s) {
   const alts = asArr(s.oneOf).map(str).filter(Boolean);
   return { page: 1, symbol: str(s.name), oneOf: alts.length > 1 ? alts.join(', ') : '', tagId: str(s.tagId),
     sizePct: isNum(s.sizePct) ? s.sizePct : null, score: isNum(s.score) ? s.score : null, tag: str(s.tag), plain: s.plain === true,
     toStandard: '', why: '', closest: '', closestScore: null };
-}
-// A shape's overlay (viewport space) as the page's user space, for the drawing; what is not a list or box is left out.
-function userOverlay(o, vt) {
-  const ov = obj(o);
-  return { name: str(ov.name), symbol: toUserSegs(ov.symbol, vt), unmatched: toUserSegs(ov.unmatched, vt), drawn: toUserSegs(ov.drawn, vt), placedBox: toUserRect(isBox(ov.placedBox) ? ov.placedBox : null, vt, 0),
-    expected: Array.isArray(ov.expected) && ov.expected.length === 2 && ov.expected.every(isNum) ? ov.expected.slice() : null };
-}
-// What is wrong with a group of shapes, in words (the first member speaks; several size faults are "about" its percentage).
-function groupText(g) {
-  const first = g.members[0], text = reasonText(first) || (shapeWhy(first) + '; ' + closestText(first));
-  return g.kind === 'size' && g.count > 1 ? text.replace(' drawn at ', ' drawn at about ') : text;
 }
 function symbolParts(result, vt) {
   const all = symbolsOf(result), raw = asArr(result.symbols), shapes = shapesOf(result);
@@ -142,20 +118,14 @@ function symbolParts(result, vt) {
     if (str(obj(s.operator).name)) names.push(str(s.operator.name));
     return names.length ? names.join(' + ') : str(obj(s.closest).name);
   };
-  // Shapes with the same symbol, verdict and fault share one number (a wrong shape is named by the symbol its reason names).
-  const G = groupShapes([...flagged, ...good], { nameOf: s => (verdictOf(s) === 'not-standard' && str(obj(s.reason).name)) || nameOf(s) });
-  const groups = G.groups.map(g => ({ no: g.no, name: g.name, verdict: g.verdict, kind: g.kind, pct: g.pct, count: g.count,
-    members: g.members.map(m => ({ userRect: toUserRect(m.box, vt, MARGIN) })),
-    text: g.verdict === 'not-standard' ? groupText(g) : '',
-    example: g.example ? { userRect: toUserRect(g.example.box, vt, MARGIN), ...(g.example.overlay ? { overlay: userOverlay(g.example.overlay, vt) } : {}) } : null }));
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
   const tail = (late ? ' · ' + late + ' not judged (time limit)' : '') + (result.operatorsMarked === false ? '. ' + OPERATORS_NOTE : '');
   const shapeLine = marked ? markLine(result) + tail : plural(good.length, 'standard symbol', 'standard symbols') + ' · ' + flagged.length + ' not to standard'
     + tail;
   const area = marked && obj(result.drawingArea).found !== false && obj(result.drawingArea).box ? toUserRect(result.drawingArea.box, vt, 0) : null;
   return { symbolRows, allSymbols: allSymbols.filter(Boolean), shapeRows: flagged.map(s => ({ kind: 'not-standard', label: 'Not to standard', tag: '', fc: '',
-    no: G.noOf(s), detail: (marked && reasonText(s)) || (shapeWhy(s) + '; ' + closestText(s)), userRect: toUserRect(s.box, vt, MARGIN) })), notStandard: flagged.length, groups,
-    layout: 'symbols', shapeLine, standardRows: good.map(s => ({ name: nameOf(s), no: G.noOf(s), userRect: toUserRect(s.box, vt, MARGIN) })),
+    detail: (marked && reasonText(s)) || (shapeWhy(s) + '; ' + closestText(s)), userRect: toUserRect(s.box, vt, MARGIN) })), notStandard: flagged.length,
+    layout: 'symbols', shapeLine, standardRows: good.map(s => ({ name: nameOf(s), userRect: toUserRect(s.box, vt, MARGIN) })),
     standardCount: good.length, notStandardCount: flagged.length, notJudgedCount: late,
     redRows: red.map(s => ({ userRect: toUserRect(s.box, vt, MARGIN) })), areaRect: area, notIdentifiedCount: red.length, markVerdicts: marked,
     reasonLine: flagged.length && !marked ? 'Why: ' + [['left-over', 'ink left over'], ['short-line', 'line drawn short'], ['no-fit', 'no standard symbol fits']]
@@ -192,10 +162,6 @@ function sheetFor(o) {
 // otherwise on after the tag rows, so the drawing's boxes and the table share one count.
 function numbered(sheet) {
   const n = sheet.layout === 'symbols' ? 0 : asArr(sheet.rows).length;
-  if (sheet.layout === 'symbols') {
-    let next = asArr(sheet.groups).reduce((m, g) => Math.max(m, g.no), 0);
-    return { ...sheet, shapeRows: asArr(sheet.shapeRows).map(r => ({ ...r, no: isNum(r.no) ? r.no : ++next })) };   // a shape with no symbol to group by follows the groups
-  }
   return { ...sheet, shapeRows: asArr(sheet.shapeRows).map((r, i) => ({ ...r, no: n + i + 1 })) };
 }
 

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extractTags, resolveFC, normaliseTagText, PIPE_MATERIAL_CODES, isUsablePdf, pickArchiveFile } from '../assets/js/pid-core.js';
+import { extractTags, resolveFC, normaliseTagText, PIPE_MATERIAL_CODES, isUsablePdf, pickArchiveFile, findMissingPdfs } from '../assets/js/pid-core.js';
 import { FIXTURE_LOOKUPS, CORPUS } from './fixtures/pid-tag-corpus.js';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('./fixtures/pid-tag-golden.json', import.meta.url), 'utf8'));
@@ -334,4 +334,55 @@ test('pickArchiveFile degrades rather than throwing on junk input', () => {
   }
   assert.equal(pickArchiveFile(['SP66_C01.pdf'], null, null), null);
   assert.equal(pickArchiveFile(['SP66_C01.pdf'], 'SP66', ''), null);
+});
+
+// ── findMissingPdfs: which ticked sheets have no PDF, asking for each file by name (a folder of hundreds is never listed) ──
+// Invented names only. `io` stands for the folders: hasFile(where, name) for where 'archive' or 'root'; it says yes only for a
+// handle carrying exactly that name.
+function fakeIo(files, { connected = true, memory = [] } = {}) {
+  const asked = [];
+  return { asked, connected, inMemory: s => memory.includes(s.drawing),
+    hasFile: async (where, name) => { asked.push(where + '/' + name); return (files[where] || []).includes(name); } };
+}
+const sheet = (drawing, rev) => ({ drawing, rev, d: drawing, r: rev });
+
+test('findMissingPdfs: sheets whose exact file is in the archive or the folder are found by name', async () => {
+  const io = fakeIo({ archive: ['A1_C01.pdf', 'B2_P02.pdf'], root: ['C3_C01.pdf'] });
+  assert.deepEqual(await findMissingPdfs([sheet('A1', 'C01'), sheet('B2', 'P02'), sheet('C3', 'C01')], io), []);
+  assert.deepEqual(io.asked, ['archive/A1_C01.pdf', 'archive/B2_P02.pdf', 'archive/C3_C01.pdf', 'root/C3_C01.pdf']);   // the archive first, the folder only when it is not there
+});
+
+test('findMissingPdfs: a sheet with no PDF is reported, in the order given', async () => {
+  const io = fakeIo({ archive: ['A1_C01.pdf'] });
+  assert.deepEqual(await findMissingPdfs([sheet('A1', 'C01'), sheet('X1', 'C01'), sheet('A1', 'C01'), sheet('X2', 'P01')], io), ['X1', 'X2']);
+});
+
+test('findMissingPdfs: an old <drawing>.pdf is accepted, a different revision is not', async () => {
+  const io = fakeIo({ archive: ['OLD1.pdf', 'REV2_C01.pdf'] });
+  assert.deepEqual(await findMissingPdfs([sheet('OLD1', 'C01'), sheet('REV2', 'C02')], io), ['REV2']);
+});
+
+test('findMissingPdfs: an exact revision is asked for before the old name; no revision asks for the old name only', async () => {
+  const io = fakeIo({ archive: ['S1_C01.pdf', 'S1.pdf'] });
+  await findMissingPdfs([sheet('S1', 'C01')], io);
+  assert.deepEqual(io.asked, ['archive/S1_C01.pdf']);
+  const none = fakeIo({ archive: ['NOREV.pdf'] });
+  assert.deepEqual(await findMissingPdfs([{ drawing: 'NOREV', rev: '', d: 'NOREV', r: '' }], none), []);
+  assert.deepEqual(none.asked, ['archive/NOREV.pdf']);
+});
+
+test('findMissingPdfs: a sheet already in memory is not looked for; a folder not connected misses every other', async () => {
+  const mem = fakeIo({}, { memory: ['M1'] });
+  assert.deepEqual(await findMissingPdfs([sheet('M1', 'C01'), sheet('M2', 'C01')], mem), ['M2']);
+  assert.ok(!mem.asked.some(a => a.includes('M1')));
+  const off = fakeIo({ archive: ['Z_C01.pdf'] }, { connected: false });
+  assert.deepEqual(await findMissingPdfs([sheet('Z', 'C01')], off), ['Z']);
+  assert.deepEqual(off.asked, []);
+});
+
+test('findMissingPdfs: an unreadable folder or a hostile list never throws; the sheet counts as missing', async () => {
+  const io = { connected: true, inMemory: () => false, hasFile: async () => { throw new Error('denied'); } };
+  assert.deepEqual(await findMissingPdfs([sheet('A1', 'C01')], io), ['A1']);
+  for (const bad of [null, undefined, 'x', [null, 7, {}]]) assert.ok(Array.isArray(await findMissingPdfs(bad, fakeIo({}))));
+  assert.deepEqual(await findMissingPdfs([sheet('A1', 'C01')], null), ['A1']);
 });

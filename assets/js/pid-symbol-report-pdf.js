@@ -227,7 +227,7 @@ function drawStandardBoxes(page, PDFLib, fonts, rows) {
     const rect = obj(r).userRect;
     if (!isRect(rect)) continue;
     page.drawRectangle({ x: rect[0], y: rect[1], width: rect[2] - rect[0], height: rect[3] - rect[1], borderColor: colour, borderWidth: SYMBOL_LINE });
-    const name = pdfSafe((count(r.no) ? '#' + count(r.no) + ' ' : '') + str(r.name)).slice(0, 44);
+    const name = pdfSafe(str(r.name)).slice(0, 40);
     if (!name) continue;
     const C = TOP_LEFT[angle](rect);
     page.drawText(name, { x: C[0] + 1 * U[0], y: C[1] + 1 * U[1], size, font: fonts.regular, color: colour, rotate: PDFLib.degrees(angle) });
@@ -262,58 +262,6 @@ async function drawPictures(w, PDFLib, fonts, doc, bytes, rows, title) {
     w.page.drawRectangle({ x: ox + b[0] * sc, y: oy + b[1] * sc, width: bw * sc, height: bh * sc, borderColor: amber, borderWidth: BOX_LINE, borderDashArray: [3, 2] });
     const lines = wrap('#' + count(r.no) + '  ' + str(r.detail), fonts.regular, 7, cw);
     lines.slice(0, 3).forEach((ln, k) => w.page.drawText(ln, { x, y: y - 9 - k * 8, size: 7, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) }));
-    col++;
-    if (col === cols) { col = 0; w.y = y - caption - gap; }
-  }
-  if (col) w.y = w.y - ch - caption - gap;
-}
-
-const OVERLAY_BLUE = '#1F5FD6';
-// One tile per not-to-standard group (its example), smaller than a lone picture: the drawing's page clipped to the shape,
-// the shape boxed in amber, and the overlay on it: the symbol it was matched to (blue dashed), the drawn ink that symbol does
-// not have (red), and for a size fault the symbol at the sheet's own size (grey dotted, about the same centre). The caption
-// says its number, what is wrong and how many shapes share it. A group with no overlay (a result from before) has the picture only.
-async function drawGroupTiles(w, PDFLib, fonts, doc, bytes, groups, title) {
-  const list = groups.filter(g => isRect(obj(obj(g).example).userRect));
-  if (!list.length) return;
-  let emb = null;
-  try { [emb] = await doc.embedPdf(bytes, [0]); } catch { emb = null; }
-  if (!emb) return;
-  const cols = 4, gap = 6, W = A4[0] - 2 * MARGIN, cw = (W - (cols - 1) * gap) / cols, ch = 96, caption = 26;
-  const amber = colourOf(PDFLib, PRINT_COLOURS['not-standard']), frame = PDFLib.rgb(0.8, 0.8, 0.8), blue = colourOf(PDFLib, OVERLAY_BLUE);
-  const red = colourOf(PDFLib, PRINT_COLOURS['not-identified']), grey = PDFLib.rgb(0.55, 0.55, 0.6);
-  w.gap(6);
-  w.room(ch + caption + 52);
-  w.text(title, { size: 12, bold: true });
-  w.text("Black: what is drawn. Blue dashed: the symbol it was matched to. Red: drawn ink that symbol does not have. Grey dotted: the symbol at the sheet's own size.", { size: 7 });
-  let col = 0;
-  for (const g of list) {
-    if (col === 0) w.room(ch + caption + gap);
-    const ex = g.example, x = MARGIN + col * (cw + gap), top = w.y, y = top - ch;
-    const b = ex.userRect, bw = b[2] - b[0], bh = b[3] - b[1], m = Math.max(12, 0.6 * Math.max(bw, bh));
-    const c = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
-    const sc = Math.min(cw / (c[2] - c[0]), ch / (c[3] - c[1]));
-    const ox = x + (cw - (c[2] - c[0]) * sc) / 2 - c[0] * sc, oy = y + (ch - (c[3] - c[1]) * sc) / 2 - c[1] * sc;
-    w.page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.rectangle(x, y, cw, ch), PDFLib.clip(), PDFLib.endPath());
-    w.page.drawPage(emb, { x: ox, y: oy, xScale: sc, yScale: sc });
-    const ov = obj(ex.overlay);
-    const seg = (a, colour, dash, thickness) => {
-      if (!Array.isArray(a) || a.length < 4 || !a.every(isNum)) return;
-      try { w.page.drawLine({ start: { x: ox + a[0] * sc, y: oy + a[1] * sc }, end: { x: ox + a[2] * sc, y: oy + a[3] * sc }, thickness, color: colour, ...(dash ? { dashArray: dash } : {}) }); } catch { /* one line missing */ }
-    };
-    // The symbol at the sheet's own size, about the placed symbol's centre (size faults: it shows what the shape should be).
-    const pb = ov.placedBox, ex2 = asArr(ov.expected);
-    if (g.kind === 'size' && isRect(pb) && ex2.length === 2 && ex2.every(isNum)) {
-      const cx = (pb[0] + pb[2]) / 2, cy = (pb[1] + pb[3]) / 2, r = Math.max(ex2[0], ex2[1]) / Math.max(pb[2] - pb[0], pb[3] - pb[1], 1e-6);
-      if (isNum(r) && r > 0) for (const a of asArr(ov.symbol)) if (Array.isArray(a) && a.length >= 4) seg([cx + (a[0] - cx) * r, cy + (a[1] - cy) * r, cx + (a[2] - cx) * r, cy + (a[3] - cy) * r], grey, [1, 1.5], 0.4);
-    }
-    for (const a of asArr(ov.symbol)) seg(a, blue, [2, 1.5], 0.5);
-    for (const a of asArr(ov.unmatched)) seg(a, red, null, 0.8);
-    w.page.pushOperators(PDFLib.popGraphicsState());
-    w.page.drawRectangle({ x, y, width: cw, height: ch, borderColor: frame, borderWidth: 0.5 });
-    w.page.drawRectangle({ x: ox + b[0] * sc, y: oy + b[1] * sc, width: bw * sc, height: bh * sc, borderColor: amber, borderWidth: BOX_LINE, borderDashArray: [3, 2] });
-    const lines = wrap('#' + count(g.no) + '  ' + str(g.text) + '  ×' + count(g.count), fonts.regular, 6.5, cw);
-    lines.slice(0, 3).forEach((ln, k) => w.page.drawText(ln, { x, y: y - 8 - k * 7.5, size: 6.5, font: fonts.regular, color: PDFLib.rgb(0, 0, 0) }));
     col++;
     if (col === cols) { col = 0; w.y = y - caption - gap; }
   }
@@ -472,26 +420,15 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.gap(6);
     w.text(drawingPage ? (s.markVerdicts === true ? 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard; thin red boxes are not identified.' : 'Below, a picture of each shape not to standard. After them comes the drawing: green boxes are standard symbols, named; amber numbered boxes are not to standard.') : FALLBACK, { size: 10 });
     const shapeRows = asArr(s.shapeRows).filter(r => r && typeof r === 'object');
-    const groups = asArr(s.groups).filter(g => g && typeof g === 'object'), amberGroups = groups.filter(g => g.verdict === 'not-standard' && g.example);
     if (drawingPage) {
-      try {
-        if (amberGroups.length) await drawGroupTiles(w, PDFLib, fonts, doc, bytes, amberGroups, 'Not to standard: pictures');
-        else await drawPictures(w, PDFLib, fonts, doc, bytes, shapeRows, 'Not to standard: pictures');
-      } catch { /* the list below still says what each is */ }
+      try { await drawPictures(w, PDFLib, fonts, doc, bytes, shapeRows, 'Not to standard: pictures'); } catch { /* the list below still says what each is */ }
       const page = doc.addPage(drawingPage);
       try { drawArea(page, PDFLib, s.areaRect); } catch { /* the drawing stays, with what was drawn */ }
       try { drawStandardBoxes(page, PDFLib, fonts, asArr(s.standardRows)); } catch { /* the drawing stays, with what was drawn */ }
       try { drawRedBoxes(page, PDFLib, asArr(s.redRows)); } catch { /* the drawing stays, with what was drawn */ }
       try { drawBoxes(page, PDFLib, fonts, shapeRows); } catch { /* the drawing stays, with what was drawn */ }
     }
-    if (amberGroups.length) {
-      // One line per group: its number, how many shapes share it, the symbol and what is wrong (or that it is standard).
-      w.newPage();
-      w.text(str(s.drawing) + ' rev ' + str(s.rev) + ': not to standard', { size: 12, bold: true });
-      const said = g => (g.verdict === 'standard' ? str(g.name) + ': standard' : (str(g.text).includes(str(g.name)) ? str(g.text) : str(g.name) + ': ' + str(g.text)));
-      w.table([{ title: 'No.', width: 26 }, { title: 'Shapes', width: 44 }, { title: 'Symbol, and what is wrong', width: 445 }],
-        groups.map(g => [String(count(g.no)), '×' + count(g.count), said(g)]));
-    } else if (shapeRows.length) {
+    if (shapeRows.length) {
       w.newPage();
       w.text(str(s.drawing) + ' rev ' + str(s.rev) + ': not to standard', { size: 12, bold: true });
       w.table([{ title: 'No.', width: 26 }, { title: 'Why, and the closest standard symbol', width: 489 }],
