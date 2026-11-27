@@ -489,3 +489,49 @@ test('boxRects, groups: standard and amber boxes carry their group number; red a
   assert.deepEqual(rects.filter(b => b.kind === 'standard').map(b => b.num), [2, 2]);
   assert.ok(rects.filter(b => b.kind === 'not-identified').every(b => b.num === undefined));
 });
+
+// A valve and its actuator are one symbol: one box for the whole, coloured by the verdict of the whole (owner, 2026-11-25).
+// Invented data: a valve body 20 wide with an actuator above it, the tag verdict's box round the body alone.
+describe_whole_box();
+function describe_whole_box() {
+  const tagV = (tag, verdict, box, extra = {}) => ({ tag, fc: 'V', verdict, why: '', symbol: 'WIDGET', oneOf: [], tagId: 'V', exceptions: [], sizePct: 100, score: 0.99, filled: false, letters: '', tagBox: [box[0], box[3] + 2, box[2], box[3] + 10], box, closest: null, bubble: false, ...extra });
+  const shape = (box, verdict, parts, extra = {}) => ({ id: 0, box, standard: verdict === 'standard', verdict, reason: null, why: null, explained: 1, share: null, symbols: [], operator: null, closest: null, parts, ...extra });
+  const BODY = [100, 100, 120, 120], WHOLE = [100, 70, 120, 120];
+  const WITH_OP = [{ name: 'WIDGET', role: 'body' }, { name: 'HANDLE', role: 'attachment' }];
+  const res = (verdicts, shapes) => ({ ok: true, verdicts, symbols: [], shapes, operatorsMarked: true, skipped: null });
+  test('boxRects: a valve with its actuator gets one box, the whole symbol, not another round the body', () => {
+    const rects = V.boxRects(res([tagV('T1', 'ok', BODY)], [shape(WHOLE, 'standard', WITH_OP)]), 1);
+    assert.equal(rects.length, 1, JSON.stringify(rects));
+    assert.equal(rects[0].kind, 'standard');
+    assert.deepEqual([rects[0].left, rects[0].top, rects[0].width, rects[0].height], [97, 67, 26, 56]);
+    assert.equal(rects[0].i, 0, 'the tag row still jumps to this box');
+    assert.ok(rects[0].title.includes('WIDGET + HANDLE') && rects[0].title.includes('T1'), rects[0].title);
+  });
+  test('boxRects: an off-size body inside a whole that is standard is not shown amber', () => {
+    const rects = V.boxRects(res([tagV('T1', 'off-size', BODY, { sizePct: 70 })], [shape(WHOLE, 'standard', WITH_OP)]), 1);
+    assert.deepEqual(rects.map(r => r.kind), ['standard']);
+  });
+  test('boxRects: the whole takes its own colour: an amber whole stays amber, one box', () => {
+    const s = shape(WHOLE, 'not-standard', WITH_OP, { standard: false, reason: { kind: 'size', name: 'WIDGET', pct: 70 } });
+    const rects = V.boxRects(res([tagV('T1', 'ok', BODY)], [s]), 1);
+    assert.deepEqual(rects.map(r => r.kind), ['not-standard']);
+  });
+  test('boxRects: a body with no actuator keeps its tag box beside its shape box', () => {
+    const rects = V.boxRects(res([tagV('T1', 'ok', BODY)], [shape(BODY, 'standard', [{ name: 'WIDGET', role: 'body' }])]), 1);
+    assert.deepEqual(rects.map(r => r.kind).sort(), ['ok', 'standard']);
+  });
+  test('boxRects: a wrong-family tag verdict is never hidden inside a whole', () => {
+    const rects = V.boxRects(res([tagV('T1', 'wrong-family', BODY)], [shape(WHOLE, 'standard', WITH_OP)]), 1);
+    assert.deepEqual(rects.map(r => r.kind).sort(), ['standard', 'wrong-family']);
+  });
+  test('boxRects: a tag verdict outside the whole keeps its box', () => {
+    const far = [300, 100, 320, 120];
+    const rects = V.boxRects(res([tagV('T1', 'ok', BODY), tagV('T2', 'ok', far)], [shape(WHOLE, 'standard', WITH_OP)]), 1);
+    assert.deepEqual(rects.map(r => r.kind).sort(), ['ok', 'standard']);
+    assert.equal(rects.find(r => r.kind === 'ok').i, 1);
+  });
+  test('boxRects: a whole that is not identified (no parts) leaves the tag box alone', () => {
+    const rects = V.boxRects(res([tagV('T1', 'ok', BODY)], [shape(WHOLE, 'not-identified', [])]), 1);
+    assert.deepEqual(rects.map(r => r.kind).sort(), ['not-identified', 'ok']);
+  });
+}
