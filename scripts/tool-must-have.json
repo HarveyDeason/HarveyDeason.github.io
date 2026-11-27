@@ -4,6 +4,11 @@
     "PC.findMissingPdfs",
     "viewportTransform: Array.from(vp.transform)",
     "got.viewportTransform.length !== 6",
-    "importPackFile"
+    "importPackFile",
+    "window.PidFamilies",
+    "openFamilyOf(",
+    "connectStep(",
+    "tableRenderToken",
+    "restoreSidebar"
   ]
 }
