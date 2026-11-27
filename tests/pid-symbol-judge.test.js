@@ -95,7 +95,7 @@ test('a METER on a pipe drawn straight through it is standard', () => {
 
 test('every shape has the fields of the result shape', () => {
   for (const s of R.shapes) {
-    assert.deepEqual(Object.keys(s).filter(k => k !== 'overlay').sort(), ['box', 'closest', 'explained', 'id', 'operator', 'parts', 'reason', 'share', 'standard', 'symbols', 'verdict', 'why']);
+    assert.deepEqual(Object.keys(s).sort(), ['box', 'closest', 'explained', 'id', 'operator', 'parts', 'reason', 'share', 'standard', 'symbols', 'verdict', 'why']);
     assert.ok([true, false, null].includes(s.standard));
   }
 });
@@ -703,6 +703,22 @@ test('two bubbles drawn touching, each with writing, are standard ring by ring',
   assert.equal(r[0].verdict, 'standard', JSON.stringify(r[0]));
   assert.equal(r[0].parts.filter(p => p.role === 'body').length, 2, JSON.stringify(r[0].parts));
 });
+// Binder test 4 (2026-11-25): the lower of two bubbles stacked, the upper in a square outline whose bottom edge runs
+// along the lower ring's top, was red (no fit). The upper one's ink lay in the lower ring's frame and counted against it.
+test('a plain ring with writing touching a square outline above it is standard, the square no part of it', () => {
+  const r = judgeSplit([{ paths: [square(80, 80, 40)], closed: true }, { paths: [ringAt(100, 100, 20)], closed: true }, { paths: [ringAt(100, 140, 20)], closed: true }],
+    RIM_LIB, [], { writing: [[92, 92, 108, 108], [92, 132, 108, 148]] });
+  const lower = r.find(x => x.box[1] >= 119 && x.box[3] >= 159);
+  assert.ok(lower, JSON.stringify(r.map(x => x.box)));
+  assert.equal(lower.verdict, 'standard', JSON.stringify(lower));
+  assert.equal(lower.parts.filter(p => p.role === 'body').length, 1, JSON.stringify(lower.parts));
+});
+test('a ring beside an unknown stroke of its own shape is still not standard when another shape stands against it', () => {
+  const r = judgeSplit([{ paths: [square(80, 80, 40)], closed: true }, { paths: [ringAt(100, 140, 20), tick([120, 140, 126, 132, 126, 132, 132, 148])], closed: true }],
+    RIM_LIB, [], { writing: [[92, 132, 108, 148]] });
+  const lower = r.find(x => x.box[1] >= 119);
+  assert.ok(lower && lower.verdict !== 'standard', JSON.stringify(lower));
+});
 test('a ring with an unknown stroke beside it is not standard', () => {
   const r = judgeSplit([{ paths: [ringAt(100, 100, 20), tick([120, 100, 126, 92, 126, 92, 132, 108])] }], RIM_LIB, [], { writing: [[92, 92, 108, 108]] });
   assert.notEqual(r[0].verdict, 'standard', JSON.stringify(r[0]));
@@ -772,48 +788,6 @@ function describe_fit_cut() {
   });
 }
 
-// Report overlay (2026-11-27): a not-standard shape records the symbol it was matched to, placed where the verdict laid
-// it, and the drawn pieces that symbol does not account for, so the report can draw the difference.
-function overlayCase(k) {
-  const ln = segs => ({ segs, width: 0.3, stroked: true, filled: false, grey: 0 });
-  const TAPER = { id: 't1', name: 'TAPER', legendName: 'TAPER', group: 'TAPERS', tagId: 'Q', sheet: '1', w: 21, h: 28, letters: [], aliases: [], notes: [],
-    flags: { simple: false, stretch: false, manual: false, unmatched: false },
-    paths: [ln([0, 28, 0, 0]), ln([0, 28, 21, 21]), ln([21, 21, 21, 7]), ln([21, 7, 0, 0])] };
-  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, TAPER] };
-  const ky = k * 20 / 28, X = v => 100 + v * k, Y = v => 100 + v * ky;
-  const paths = [ln([X(0), Y(28), X(0), Y(0)]), ln([X(0), Y(28), X(21), Y(21)]), ln([X(21), Y(21), X(21), Y(7)]), ln([X(21), Y(7), X(0), Y(0)]),
-    ln([20, Y(14), X(0), Y(14)]), ln([X(21), Y(14), 250, Y(14)])];
-  const r = C.checkSheet({ pageSize: [300, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths, library: lib, lookups: {}, options: { sizeScale: 1.3 } });
-  return r.shapes.find(x => x.box[0] <= 101 && x.box[2] >= 100 + 21 * k - 1);
-}
-test('an off-size shape records its overlay: the matched symbol placed on the shape, and nothing unmatched', () => {
-  const t = overlayCase(2.2);
-  assert.equal(t.verdict, 'not-standard');
-  const o = t.overlay;
-  assert.ok(o, JSON.stringify(t));
-  assert.equal(o.name, 'TAPER');
-  assert.ok(o.symbol.length >= 4 && o.symbol.every(g => g.length === 4 && g.every(Number.isFinite)));
-  assert.ok(o.placedBox.every(Number.isFinite));
-  assert.ok(o.placedBox[0] >= t.box[0] - 1 && o.placedBox[2] <= t.box[2] + 1);
-  assert.ok(Array.isArray(o.unmatched));
-  assert.equal(o.expected, null);   // a stretched fit has no single scale to show
-  assert.ok(o.drawn.length >= 4 && o.drawn.length <= 200 && o.drawn.every(g => g.length === 4 && g.every(Number.isFinite)), 'the shape ink, for the screen to draw');
-});
-test('a standard shape has no overlay', () => {
-  const s = overlayCase(1.3);
-  assert.equal(s.verdict, 'standard');
-  assert.equal('overlay' in s, false);
-});
-test('thinTo keeps at most the limit, evenly spread, and a short list as it is', () => {
-  const list = Array.from({ length: 500 }, (_, i) => [i, 0, i + 1, 0]);
-  const t = C.thinTo(list, 200);
-  assert.equal(t.length, 200);
-  assert.deepEqual(t[0], list[0]);
-  assert.ok(t[199][0] >= 490);
-  assert.deepEqual(C.thinTo(list.slice(0, 50), 200), list.slice(0, 50));
-  assert.deepEqual(C.thinTo(null, 200), []);
-});
-
 // SP66 (owner, 2026-11-25): two valves in a row, each with its actuator standing beside it as a shape of its own. A body
 // took the actuator that suited the legend best among its neighbours, not its own: each valve's box then ran across the
 // other's actuator, and the two boxes overlapped. An actuator belongs to the nearer body, whatever order the shapes come in.
@@ -838,3 +812,96 @@ test('two bodies in a row, each with an actuator of its own cut off: each box ho
     }
   }
 });
+
+// Binder test 4 (2026-11-27): a hose reel's short thick pipe stub, and a check valve's pipe running on past a tee, were counted as
+// "extra linework" ("the extra line it's flagging is just a pipeline drawn"). A straight piece drawn much heavier than the rest of
+// its shape's ink is pipework, cut off like the pipe a valve carries (here a stub off the body's side, which no pipe cut covers).
+test('a heavy stub standing off a thin-drawn body is pipework: the body is standard and its box is its own', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const heavy = { ...tick([112, 100, 112, 88]), width: 2.8 };
+  const s = judgeOne([...place(W, { x: 100, y: 100 }), heavy], SHAPE_LIBRARY, at);
+  assert.equal(s.verdict, 'standard', JSON.stringify(s));
+  assert.ok(s.box[1] >= 99, 'box ' + s.box);
+});
+test('the same stub drawn as thin as the body is its extra ink, as before', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const s = judgeOne([...place(W, { x: 100, y: 100 }), tick([112, 100, 112, 88])], SHAPE_LIBRARY, at);
+  assert.notEqual(s.verdict, 'standard', JSON.stringify(s));
+});
+test('a body drawn as heavy as its stub is not told from it: nothing is cut', () => {
+  const W = SHAPE_LIBRARY.symbols.find(x => x.name === 'WIDGET');
+  const at = [['WIDGET', { o: 0, k: 1, tx: 100, ty: 100 }]];
+  const body = place(W, { x: 100, y: 100 }).map(p => ({ ...p, width: 2.8 }));
+  const s = judgeOne([...body, { ...tick([112, 100, 112, 88]), width: 2.8 }], SHAPE_LIBRARY, at);
+  assert.notEqual(s.verdict, 'standard', JSON.stringify(s));
+});
+
+// Binder test 4 (2026-11-27): the legend's CENTRIFUGAL PUMP WET WELL (SHOWN WITH MOTOR) is one entry holding two pumps side by side (one
+// with a variable-speed motor, one with a plain motor), so no single drawn pump could match it. An entry named in the `variants`
+// setting is prepared as one symbol per separate drawing in it, each with the entry's name. Other entries are never split.
+describe_variants();
+function describe_variants() {
+  const ln = segs => ({ segs, width: 0.3, stroked: true, filled: false, grey: 0 });
+  const BOXV = [ln([0, 0, 20, 0, 20, 0, 20, 20, 20, 20, 0, 20, 0, 20, 0, 0]), ln([0, 0, 20, 20])];
+  const TAPERV = [ln([40, 28, 40, 0]), ln([40, 28, 61, 21]), ln([61, 21, 61, 7]), ln([61, 7, 40, 0])];
+  const TWIN = { id: 'tw1', name: 'TWINNED', legendName: 'TWINNED', group: 'TWINS', tagId: 'Q', sheet: '1', w: 61, h: 28, letters: [], aliases: [], notes: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false }, paths: [...BOXV, ...TAPERV] };
+  const WHOLE = { ...TWIN, id: 'wh1', name: 'WHOLE', legendName: 'WHOLE' };
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, TWIN] };
+  test('variants: a named entry is prepared as one symbol per separate drawing, each with its name; without the setting it is one', () => {
+    const split = C.prepareSymbols({ symbols: [TWIN] }, { variants: ['TWINNED'] });
+    assert.equal(split.length, 2);
+    assert.deepEqual(split.map(p => p.symbol.name), ['TWINNED', 'TWINNED']);
+    assert.ok(split.every(p => p.w > 15 && p.w < 25 && p.h > 15 && p.h < 30), JSON.stringify(split.map(p => [p.w, p.h])));
+    assert.equal(C.prepareSymbols({ symbols: [TWIN] }, {}).length, 1);
+  });
+  test('variants: an entry not named is never split, and the name is matched without regard to case and spacing', () => {
+    assert.equal(C.prepareSymbols({ symbols: [WHOLE] }, { variants: ['TWINNED'] }).length, 1);
+    assert.equal(C.prepareSymbols({ symbols: [TWIN] }, { variants: ['  twinned '] }).length, 2);
+  });
+  test('variants: one drawing only (nothing to split) and drawings of very different sizes stay whole', () => {
+    assert.equal(C.prepareSymbols({ symbols: [{ ...TWIN, paths: BOXV }] }, { variants: ['TWINNED'] }).length, 1);
+    const small = [ln([40, 10, 42, 10, 42, 10, 42, 12, 42, 12, 40, 12, 40, 12, 40, 10])];
+    assert.equal(C.prepareSymbols({ symbols: [{ ...TWIN, paths: [...BOXV, ...small] }] }, { variants: ['TWINNED'] }).length, 1);
+  });
+  test('variants: the second drawing alone is found on a sheet as the entry; without the setting it is not', () => {
+    const k = 20 / 28;
+    const X = v => 100 + (v - 40), Y = v => 100 + v * k;
+    const drawn = [ln([X(40), Y(28), X(40), Y(0)]), ln([X(40), Y(28), X(61), Y(21)]), ln([X(61), Y(21), X(61), Y(7)]), ln([X(61), Y(7), X(40), Y(0)]),
+      ln([20, Y(14), X(40), Y(14)]), ln([X(61), Y(14), 250, Y(14)])];
+    const page = options => ({ pageSize: [300, 250], viewportTransform: [1, 0, 0, 1, 0, 0], textItems: [], tags: [], paths: drawn, library: lib, lookups: {}, options });
+    const find = r => r.shapes.find(x => x.box[0] <= 101 && x.box[2] >= 119);
+    const withV = find(C.checkSheet(page({ variants: ['TWINNED'] })));
+    assert.ok(withV && withV.verdict === 'standard', JSON.stringify(withV));
+    assert.deepEqual((withV.parts || []).map(p => p.name), ['TWINNED']);
+    const without = find(C.checkSheet(page({})));
+    assert.notEqual(without && without.verdict, 'standard');
+  });
+}
+
+// Binder test 4 (2026-11-27): a valve with a motor on it. The motor is drawn as a box with two bars through it and stands apart from
+// the valve as a shape of its own. The legend's drives (ELECTRIC MOTOR, ...) "act much like operators": beside a body they belong to it,
+// alone they stay symbols of their own (an operator found alone is no symbol at all, so the drives are not marked as operators).
+describe_drives();
+function describe_drives() {
+  const ln = segs => ({ segs, width: 0.7, stroked: true, filled: false, grey: 0 });
+  const MOTOR = { id: 'em1', name: 'ELECTRIC MOTOR', legendName: 'ELECTRIC MOTOR', group: 'DRIVES', tagId: 'M', sheet: '1', w: 18, h: 14, letters: [], aliases: [], notes: [],
+    flags: { simple: false, stretch: false, manual: false, unmatched: false },
+    paths: [ln([2, 0, 16, 0, 16, 0, 16, 10, 16, 10, 2, 10, 2, 10, 2, 0]), ln([0, 3, 18, 3]), ln([0, 7, 18, 7]), ln([9, 10, 9, 14])] };
+  const lib = { ...SHAPE_LIBRARY, symbols: [...SHAPE_LIBRARY.symbols, MOTOR] };
+  const motorAt = (x, y) => ({ paths: [ln([x + 2, y, x + 16, y, x + 16, y, x + 16, y + 10, x + 16, y + 10, x + 2, y + 10, x + 2, y + 10, x + 2, y]), ln([x, y + 3, x + 18, y + 3]), ln([x, y + 7, x + 18, y + 7]), ln([x + 9, y + 10, x + 9, y + 14])] });
+  test('a motor standing apart above a valve joins it: one standard shape, both named', () => {
+    const shapes = judgeSplit([{ paths: place(SHAPE_LIBRARY.symbols.find(s => s.name === 'WIDGET'), { x: 100, y: 100 }) }, motorAt(103, 86)], lib, [['WIDGET', WIDGET_AT]]);
+    assert.equal(shapes.length, 1, JSON.stringify(shapes.map(s => [s.box, s.verdict])));
+    assert.equal(shapes[0].verdict, 'standard', JSON.stringify(shapes[0]));
+    assert.deepEqual(shapes[0].parts.map(p => p.name + ':' + p.role).sort(), ['ELECTRIC MOTOR:symbol', 'WIDGET:body']);
+  });
+  test('a motor found on its own is still a symbol of its own, standard, and is not taken by a body far from it', () => {
+    const W = SHAPE_LIBRARY.symbols.find(s => s.name === 'WIDGET');
+    const far = judgeSplit([{ paths: place(W, { x: 100, y: 100 }) }, motorAt(103, 20)], lib, [['WIDGET', WIDGET_AT], ['ELECTRIC MOTOR', { o: 0, k: 1, tx: 103, ty: 20 }]]);
+    assert.equal(far.length, 2, JSON.stringify(far.map(s => [s.box, s.verdict])));
+    assert.ok(far.every(s => s.verdict === 'standard'), JSON.stringify(far.map(s => [s.box, s.verdict, s.parts])));
+  });
+}

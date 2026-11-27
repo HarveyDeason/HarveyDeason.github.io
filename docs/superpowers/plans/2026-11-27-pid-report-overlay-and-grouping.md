@@ -1,3 +1,5 @@
+> **Status: built, then rejected by the owner on 2026-11-27 and reverted** ("I don't like this change"): the report is back to one numbered picture per flagged shape, with no overlay and no grouping. Kept for the record only.
+
 # P&ID report: overlay and grouping Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

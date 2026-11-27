@@ -518,7 +518,7 @@ const COL_OFF = 0.3;            // collinear: each end within this of the other'
 const STROKE_MERGE = 0.3;       // points: collinear pieces this close are one stroke
 const NOT_PARALLEL = 0.2;       // sin of the angle a stub or hatch stroke must make with its line
 const SHAPE_COORD = 15000;      // points; beyond any sheet
-const SHAPE_BUDGET = 4e6, SHAPE_CELL_SCAN = 256, CONNECT_MAX = 300;
+const SHAPE_BUDGET = 4e6, SHAPE_CELL_SCAN = 256, CONNECT_MAX = 300, CONNECT_WORK = CONNECT_MAX * CONNECT_MAX;
 const SHAPE_INK_GREY = 175;     // as CHECK_DEFAULTS.inkGrey
 const TWIN_PIECES = 12;         // a closed path of at least this many pieces, all on one circle, is a ring (twin rings)
 
@@ -920,7 +920,9 @@ export function sheetShapes(paths, options) {
     // their ends (corners), so they are not taken; an inner bar that is (a
     // bar across a ring) is given back to a found symbol by the check.
     const midOf = (pt, j) => Math.hypot(pt[0] - S[j][0], pt[1] - S[j][1]) > 1 && Math.hypot(pt[0] - S[j][2], pt[1] - S[j][3]) > 1;
-    const inOutline = ch => outlines.some(b => inBoxPt(b, (ch.ends[0][0] + ch.ends[1][0]) / 2, (ch.ends[0][1] + ch.ends[1][1]) / 2));
+    // Only an outline a bubble or a label could be (one side within the biggest symbol): the sheet's frame, a closed path with the
+    // title block's writing inside it, holds every chain on the sheet and would keep every tail and T from being linework.
+    const inOutline = ch => outlines.some(b => Math.min(b[2] - b[0], b[3] - b[1]) <= o.maxSide && inBoxPt(b, (ch.ends[0][0] + ch.ends[1][0]) / 2, (ch.ends[0][1] + ch.ends[1][1]) / 2));
     chains.forEach((ch, ci) => {
       if (ch.line || ch.len < 2 || inOutline(ch)) return;
       const ok = ch.ends.every(e => { const at = piecesAt(e, ci); return at.length > 0 && at.every(j => !free(j) || midOf(e, j)); });
@@ -952,10 +954,14 @@ export function sheetShapes(paths, options) {
     // valve stem standing on the body's centre) is not on its edge.
     const inner = (b, pt) => pt[0] > b[0] + J && pt[0] < b[2] - J && pt[1] > b[1] + J && pt[1] < b[3] - J;
     let cut = false;
+    // The work is the chains that could be connectors times the group's pieces (each is tried with the group split
+    // again): a hatched valve is hundreds of tiny strips, hardly any a chain a connector could be (binder test 4).
     for (const g of groups) {
-      if (g.length < 3 || g.length > CONNECT_MAX) continue;
+      if (g.length < 3) continue;
       const inG = new Set(g), removed = new Set();
       const mine = [...new Set(g.map(i => chainOf[i]).filter(ci => ci >= 0))];
+      const could = ci => { const ch = chains[ci]; return !ch.line && ch.len >= TAIL_MIN && ch.m.every(i => inG.has(i) && free(i)); };
+      if (g.length > CONNECT_MAX && mine.filter(could).length * g.length > CONNECT_WORK) continue;
       for (const ci of mine) {
         const ch = chains[ci];
         if (ch.line || ch.len < TAIL_MIN || !ch.m.every(i => inG.has(i) && free(i))) continue;   // a chord of a curve is no connector

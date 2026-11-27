@@ -1,3 +1,5 @@
+> **Status: built, then rejected by the owner on 2026-11-27 and reverted** ("I don't like this change"): the report is back to one numbered picture per flagged shape, with no overlay and no grouping. Kept for the record only.
+
 # P&ID symbol report: overlay and grouping (design)
 
 Status: DRAFT for the owner's approval, 2026-11-27. Not built. Invented data only in tests; real sheets stay outside the repo.
