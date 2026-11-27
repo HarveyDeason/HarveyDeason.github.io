@@ -17,6 +17,7 @@ const SRC_DIR = path.join(REPO_ROOT, 'tools-src');
 const TOOLS_DIR = path.join(REPO_ROOT, 'tools');
 const MANIFEST_PATH = path.join(TOOLS_DIR, 'vault-manifest.json');
 const BUILD_PATH = path.join(TOOLS_DIR, 'build.json');
+const MUST_HAVE_PATH = path.join(REPO_ROOT, 'scripts', 'tool-must-have.json');
 
 /**
  * Lists the plaintext tool HTML files to lock, sorted for stable output.
@@ -46,6 +47,20 @@ export async function listSourceFiles(srcDir) {
   }
 
   return htmlFiles;
+}
+
+/**
+ * Which of a tool's required strings (scripts/tool-must-have.json) the page text lacks. A page that lacks any has lost a fix that
+ * already shipped, so the lock refuses it. Never throws: unusable rules or text count as nothing found.
+ */
+export function missingMarkers(filename, text, rules) {
+  try {
+    const list = rules && typeof rules === 'object' && Array.isArray(rules[filename]) ? rules[filename].filter((m) => typeof m === 'string' && m) : [];
+    const body = typeof text === 'string' ? text : '';
+    return list.filter((m) => !body.includes(m));
+  } catch {
+    return [];
+  }
 }
 
 /** Slug = source filename without its extension, e.g. "hydrosizer.html" -> "hydrosizer". */
@@ -224,6 +239,16 @@ export async function promptPassphraseTwice() {
 
 async function main() {
   const filenames = await listSourceFiles(SRC_DIR);
+  // Before the code is asked for: a stale page must not cost a typed passphrase, or be locked.
+  const rules = JSON.parse(await fs.readFile(MUST_HAVE_PATH, 'utf8'));
+  const lost = [];
+  for (const filename of filenames) {
+    const gone = missingMarkers(filename, await fs.readFile(path.join(SRC_DIR, filename), 'utf8'), rules);
+    if (gone.length) lost.push(`${filename} has lost: ${gone.join('; ')}`);
+  }
+  if (lost.length) {
+    throw new Error(['refusing to lock a page that is missing fixes already shipped (it is probably a stale copy of tools-src/).', ...lost.map((l) => '  ' + l), 'Nothing was written.'].join('\n'));
+  }
   const passphrase = await promptPassphraseTwice();
 
   const manifest = await makeManifest(passphrase);
