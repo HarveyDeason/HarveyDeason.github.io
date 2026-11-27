@@ -162,6 +162,8 @@ export function extractTags(text, options) {
   const drawingName = opts.drawingName;
   const revision = opts.revision;
   const lookups = asObj(opts.lookups);
+  // A standard pack may name its own pipe material codes; a missing or empty list leaves the built-in one.
+  const materials = Array.isArray(opts.materials) && opts.materials.length && opts.materials.every(m => typeof m === 'string' && m) ? opts.materials : PIPE_MATERIAL_CODES;
 
   const confirmed = [];
   const review = [];
@@ -174,7 +176,7 @@ export function extractTags(text, options) {
     seen.add(tag);
     const pac = m[1], fc = m[2], id = m[3];
     const { cat, desc } = resolveFC(fc, lookups);
-    const likelyLineNum = /^[1-9]$/.test(pac) && PIPE_MATERIAL_CODES.includes(fc);
+    const likelyLineNum = /^[1-9]$/.test(pac) && materials.includes(fc);
     const row = { tag, pac, fc, id, desc, drawing: drawingName, revision,
       type: cat, isClash: false, isReview: likelyLineNum };
     (likelyLineNum ? review : confirmed).push(row);

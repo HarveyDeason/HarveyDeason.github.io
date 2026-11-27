@@ -386,3 +386,14 @@ test('findMissingPdfs: an unreadable folder or a hostile list never throws; the 
   for (const bad of [null, undefined, 'x', [null, 7, {}]]) assert.ok(Array.isArray(await findMissingPdfs(bad, fakeIo({}))));
   assert.deepEqual(await findMissingPdfs([sheet('A1', 'C01')], null), ['A1']);
 });
+
+test('extractTags: a list of pipe material codes given in the options replaces the built-in one; with none given the built-in list stands', () => {
+  const text = 'Line 1-ZQ-100 and 1-FW-200';
+  const dflt = extractTags(text, { drawingName: 'D', revision: 'A' });
+  assert.deepEqual(dflt.review.map(r => r.tag), ['1-FW-200']);
+  assert.deepEqual(dflt.confirmed.map(r => r.tag), ['1-ZQ-100']);
+  const mine = extractTags(text, { drawingName: 'D', revision: 'A', materials: ['ZQ'] });
+  assert.deepEqual(mine.review.map(r => r.tag), ['1-ZQ-100']);
+  assert.deepEqual(mine.confirmed.map(r => r.tag), ['1-FW-200']);
+  for (const bad of [null, 'ZQ', [], [3], {}]) assert.deepEqual(extractTags(text, { drawingName: 'D', revision: 'A', materials: bad }), dflt, 'not a usable list: the built-in one stands');
+});
