@@ -128,7 +128,7 @@ export async function precheckLikeTool(bytes, extractOptions) {
 }
 
 // ---- snapshots: the answer, with no timings -----------------------------------------------------------------
-const stripTimes = (k, v) => (k === 'ms' ? undefined : v);
+const stripTimes = (k, v) => (k === 'ms' || k === 'overlay' ? undefined : v);   // the overlay is for the report to draw: the verdicts are what is compared
 export function canonical(result) { return JSON.stringify(result, stripTimes); }
 export const digest = result => crypto.createHash('sha256').update(canonical(result)).digest('hex').slice(0, 16);
 

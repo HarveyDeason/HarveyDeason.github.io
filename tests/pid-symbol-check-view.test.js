@@ -435,6 +435,61 @@ test('markLine: line marks read as part of their lines, when there are any; an o
   assert.ok(!V.markLine(r).includes('line mark'));
 });
 
+// ── Groups on screen (2026-11-27): one row per symbol and fault, the overlay in the row, the group number on the boxes ──
+const OVL = { name: 'BALL', symbol: [[0, 0, 10, 0], [10, 0, 10, 8]], unmatched: [[0, 8, 10, 8]], drawn: [[0, 0, 10, 0], [0, 8, 10, 8]], placedBox: [0, 0, 10, 8], expected: [14, 11] };
+const bsv = (verdict, reason, box, extra = {}) => sv(verdict, reason, box, { parts: [{ name: 'BALL', role: 'body' }], ...extra });
+const GROUPED = { ...NEW, shapes: [
+  bsv('not-standard', { kind: 'size', name: 'BALL', pct: 75 }, [100, 10, 110, 18], { overlay: OVL }),
+  bsv('not-standard', { kind: 'size', name: 'BALL', pct: 76 }, [200, 10, 210, 18]),
+  bsv('standard', null, [300, 10, 310, 18]),
+  bsv('standard', null, [400, 10, 410, 18]),
+  sv('not-identified', null, [500, 10, 520, 30]),
+] };
+
+test('groupsOf: the groups of a result with the index of each member', () => {
+  const g = V.groupsOf(GROUPED);
+  assert.deepEqual(g.groups.map(x => [x.no, x.name, x.verdict, x.count]), [[1, 'BALL', 'not-standard', 2], [2, 'BALL', 'standard', 2]]);
+  assert.deepEqual(g.groups[0].indexes, [0, 1]);
+  assert.deepEqual(V.groupsOf(null).groups, []);
+  assert.deepEqual(V.groupsOf({ ok: true, verdicts: [] }).groups, []);
+});
+
+test('resultsHtml, groups: one row per group with its number, count and what is wrong; it jumps to its first shape', () => {
+  const html = V.resultsHtml(GROUPED);
+  const amber = html.split('<li>').filter(r => r.includes('sc-not-standard') && r.includes('sym-jump-shape'));
+  assert.equal(amber.length, 1);
+  assert.ok(amber[0].includes('#1') && amber[0].includes('×2') && amber[0].includes('BALL drawn at about 75% of standard size'), amber[0]);
+  assert.ok(amber[0].includes('data-sh="0"'));
+  const std = html.split('<li>').filter(r => r.includes('sc-standard') && r.includes('sym-jump-shape'));
+  assert.equal(std.length, 1);
+  assert.ok(std[0].includes('#2') && std[0].includes('BALL') && std[0].includes('×2'));
+});
+
+test('resultsHtml, groups: the overlay is inline SVG with a layer each for the symbol, the unmatched ink and the expected size; none without an overlay', () => {
+  const html = V.resultsHtml(GROUPED);
+  assert.match(html, /<svg class="sc-overlay"/);
+  for (const layer of ['sc-ov-symbol', 'sc-ov-unmatched', 'sc-ov-expected', 'sc-ov-drawn']) assert.ok(html.includes(layer), layer);
+  const bare = V.resultsHtml({ ...GROUPED, shapes: GROUPED.shapes.map(({ overlay, ...x }) => x) });
+  assert.ok(!bare.includes('<svg'));
+  assert.ok(bare.includes('×2') && bare.includes('#1'));
+  assert.equal(V.overlaySvg(null), '');
+  assert.equal(V.overlaySvg({}), '');
+  assert.equal(V.overlaySvg({ overlay: { symbol: 'x', drawn: [[NaN, 0, 1, 1]], placedBox: [0, 0, 1, 1] } }).includes('NaN'), false);
+});
+
+test('resultsHtml, groups: names and reasons from the result are escaped', () => {
+  const r = { ...GROUPED, shapes: [bsv('not-standard', { kind: 'size', name: HOSTILE, pct: 75 }, [1, 1, 5, 5], { parts: [{ name: HOSTILE, role: 'body' }], overlay: { ...OVL, name: HOSTILE } })] };
+  const html = V.resultsHtml(r);
+  assert.ok(!html.includes('<img'), html);
+});
+
+test('boxRects, groups: standard and amber boxes carry their group number; red and not-judged carry none', () => {
+  const rects = V.boxRects(GROUPED, 1);
+  assert.deepEqual(rects.filter(b => b.kind === 'not-standard').map(b => b.num), [1, 1]);
+  assert.deepEqual(rects.filter(b => b.kind === 'standard').map(b => b.num), [2, 2]);
+  assert.ok(rects.filter(b => b.kind === 'not-identified').every(b => b.num === undefined));
+});
+
 // A valve and its actuator are one symbol: one box for the whole, coloured by the verdict of the whole (owner, 2026-11-25).
 // Invented data: a valve body 20 wide with an actuator above it, the tag verdict's box round the body alone.
 describe_whole_box();
