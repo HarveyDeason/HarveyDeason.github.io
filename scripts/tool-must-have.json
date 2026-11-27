@@ -16,6 +16,9 @@
     "saveInfoText",
     "sheetDocPut",
     "prefetchSheet",
-    "sb-compact"
+    "sb-compact",
+    "sidebarBusy",
+    "rcShowGet",
+    "PidRevSymbols"
   ]
 }
