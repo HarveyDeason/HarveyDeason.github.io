@@ -294,3 +294,19 @@ test('buildReportPdf: a symbols sheet from a result with no verdicts keeps the o
   assert.ok(!ps[0].text.includes('Not identified'));
   assert.ok(ps[0].text.includes('Not to standard (dashed)'));
 });
+
+test('buildReportPdf: the standard each sheet was checked against is printed on the front page and under the sheet heading; none is printed when none was recorded', async () => {
+  const LINE_A = 'Checked against: Invented Pack 2 (INV-STD rev 4, 01/01/2026)', LINE_B = 'Checked against: Invented Pack 1 (INV-STD rev 3, 01/01/2025)';
+  const a = { ...(await checkedOutcome(BYTES)), standard: LINE_A };
+  const b = { ...(await checkedOutcome(BYTES, 'INV-0004')), standard: LINE_B };
+  const ps = await pages(await buildReportPdf(modelOf([a, b]), new Map([['INV-0001||C01', BYTES], ['INV-0004||C01', BYTES]]), PDFLib));
+  const front = ps[0].text;
+  assert.ok(front.includes(LINE_A) && front.includes(LINE_B), 'both standards on the front page');
+  assert.ok(front.indexOf('Symbol library') < front.indexOf(LINE_A) || front.indexOf('Checked against') >= 0);
+  const sheetOne = ps.find(p => p.text.includes('INV-0001') && p.text.includes('Pre-check:'));
+  const sheetFour = ps.find(p => p.text.includes('INV-0004') && p.text.includes('Pre-check:'));
+  assert.ok(sheetOne.text.includes(LINE_A) && !sheetOne.text.includes(LINE_B), 'each sheet heading carries its own standard');
+  assert.ok(sheetFour.text.includes(LINE_B) && !sheetFour.text.includes(LINE_A));
+  const plain = await pages(await buildReportPdf(MODEL, new Map([['INV-0001||C01', BYTES]]), PDFLib));
+  assert.equal(plain.some(p => p.text.includes('Checked against')), false, 'nothing is printed when no standard was recorded');
+});

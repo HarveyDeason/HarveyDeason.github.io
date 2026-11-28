@@ -71,7 +71,7 @@ export async function runReport(opts) {
   const runOne = async i => {
     const sheet = sheets[i];
     const t0 = now();
-    const out = { ...sheet, status: 'not-checked', reason: '', precheck: '', pages: 0, pageSize: null, viewportTransform: null, result: null, ms: 0 };
+    const out = { ...sheet, status: 'not-checked', reason: '', precheck: '', pages: 0, pageSize: null, viewportTransform: null, result: null, ms: 0, standard: '' };
     const finish = reason => {
       if (reason === REASONS.stopped) stopped = true;
       out.reason = reason;
@@ -108,6 +108,7 @@ export async function runReport(opts) {
     const res = r && typeof r === 'object' ? r.result : null;
     if (res && typeof res === 'object' && res.ok === true && Array.isArray(res.verdicts)) {
       out.status = 'checked';
+      out.standard = typeof r.standard === 'string' ? r.standard : '';   // which standard (pack and legend) this sheet was checked against
       out.result = res;
       out.viewportTransform = isTransform(r.viewportTransform) ? r.viewportTransform.slice() : null;
       out.pages = count(r.pages);
