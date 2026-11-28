@@ -31,6 +31,11 @@
     "rcStampWords",
     "standardsDelete",
     "openPackEditor",
-    "PidPackEdit"
+    "PidPackEdit",
+    "exportPackPdf",
+    "pid-pack-pdf.js",
+    "removeDrawings",
+    "confirmDeleteSheets",
+    "data-act=\"sr-delete\""
   ]
 }
