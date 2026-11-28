@@ -141,7 +141,7 @@ function sheetFor(o) {
   const counts = Object.fromEntries(SUMMARY_ORDER.map(k => [k, rows.filter(r => r.kind === k).length]));
   const pages = count(o.pages);
   return {
-    drawing, rev, family: str(o.family),
+    drawing, rev, family: str(o.family), standard: str(o.standard),
     precheckLabel: has(STATUS_LABELS, o.precheck) ? STATUS_LABELS[o.precheck] : 'Not run',
     status: isChecked ? 'checked' : 'not-checked', reason,
     resultText: isChecked ? 'Checked' : 'Not checked: ' + reason,
@@ -182,6 +182,7 @@ export function buildReportModel(opts) {
     title: 'P&ID symbol check', startedAt, when, checkedBy: str(o.checkedBy).trim(),
     familyNote: FAMILY_NOTE, shortNote: SHORT_NOTE,
     library: { legend: legendText(library), importedAt: str(library.importedAt) || 'Not recorded in the library.' },
+    standards: [...new Set(sheets.map(s => s.standard).filter(Boolean))],   // the distinct standards the checked sheets were checked against
     run: { ticked: sheets.length, checked, notChecked: sheets.length - checked, seconds: tenths(run.ms),
       stoppedLine: stopped ? 'Stopped by user after ' + reached + ' of ' + outcomes.length + ' sheets.' : '' },
     sheets,
@@ -215,7 +216,7 @@ export function workbookRows(model) {
   const symbols = { columns: ['Drawing', 'Revision', 'Page', 'Symbol', 'One of', 'Tag identifier', 'Size %', 'Score %', 'Tag', 'Note',
     'To standard?', 'Why', 'Closest', 'Closest score %'], rows: [] };
   const sh = { columns: ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard', 'Not identified'], rows: [] };
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard', 'Not identified', 'Standard'], rows: [] };
   for (const s of sheets) {
     const checked = s.status === 'checked';
     for (const r of asArr(s.rows).filter(x => x && typeof x === 'object')) {
@@ -229,7 +230,7 @@ export function workbookRows(model) {
     const c = obj(s.counts);
     sh.rows.push([s.drawing, s.rev, s.family, s.precheckLabel, checked ? 'Checked' : 'Not checked', s.reason,
       ...SUMMARY_ORDER.map(k => (checked ? count(c[k]) : '')), checked ? s.seconds : '', s.timedOutLine ? 'Yes' : '',
-      checked ? (count(s.pages) || '') : '', str(s.bubbleLine).replace(/^Tag bubbles: /, ''), checked && isNum(s.notStandard) ? s.notStandard : '', checked && s.markVerdicts === true ? count(s.notIdentifiedCount) : ''].map(cell));
+      checked ? (count(s.pages) || '') : '', str(s.bubbleLine).replace(/^Tag bubbles: /, ''), checked && isNum(s.notStandard) ? s.notStandard : '', checked && s.markVerdicts === true ? count(s.notIdentifiedCount) : '', str(s.standard)].map(cell));
   }
   const about = [['Report', str(m.title)], ['Run', str(m.when)], ['Checked by', str(m.checkedBy)], ['What it checks', FAMILY_NOTE],
     ['Library', str(lib.legend)], ['Library imported', str(lib.importedAt)], ['Sheets ticked', count(run.ticked)],

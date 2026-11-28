@@ -306,6 +306,12 @@ async function render(model, sources, PDFLib, withDrawings) {
   w.text(str(lib.legend), { size: 9, gap: 0.1 });
   w.text('Imported: ' + str(lib.importedAt), { size: 9 });
   w.gap(4);
+  const standards = Array.isArray(m.standards) ? m.standards.filter(x => typeof x === 'string' && x) : [];
+  if (standards.length) {
+    w.text('Checked against', { size: 10, bold: true, gap: 0.1 });
+    for (const line of standards) w.text(line, { size: 9, gap: 0.1 });
+    w.gap(4);
+  }
   w.text('This run', { size: 10, bold: true, gap: 0.1 });
   if (str(run.stoppedLine)) w.text(str(run.stoppedLine), { size: 10, bold: true, gap: 0.1 });
   w.text(count(run.ticked) + ' sheets ticked: ' + count(run.checked) + ' checked, ' + count(run.notChecked) + ' not checked, '
@@ -376,6 +382,7 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.text(str(s.drawing), { size: 16, bold: true, gap: 0.2 });
     w.text('Revision ' + str(s.rev) + (str(s.family) ? '. Family: ' + str(s.family) + '.' : ''), { size: 10, gap: 0.1 });
     w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
+    if (str(s.standard)) w.text(str(s.standard), { size: 9, gap: 0.1 });
     w.text(countsLine(s.counts) || str(s.tagsLine) || 'No tags read.', { size: 10, gap: 0.1 });
     if (str(s.bubbleLine)) w.text(str(s.bubbleLine), { size: 10, gap: 0.1 });
     if (str(s.symbolLine)) w.text(str(s.symbolLine), { size: 10, gap: 0.1 });
@@ -408,6 +415,7 @@ async function render(model, sources, PDFLib, withDrawings) {
     w.text(str(s.drawing), { size: 16, bold: true, gap: 0.2 });
     w.text('Revision ' + str(s.rev) + (str(s.family) ? '. Family: ' + str(s.family) + '.' : ''), { size: 10, gap: 0.1 });
     w.text('Pre-check: ' + str(s.precheckLabel), { size: 10, gap: 0.1 });
+    if (str(s.standard)) w.text(str(s.standard), { size: 9, gap: 0.1 });
     w.text(str(s.shapeLine), { size: 11, bold: true, gap: 0.2 });
     w.text(TRIAL_NOTE, { size: 9, gap: 0.2 });
     if (str(s.reasonLine)) w.text(str(s.reasonLine), { size: 10, gap: 0.2 });

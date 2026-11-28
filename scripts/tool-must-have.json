@@ -24,6 +24,10 @@
     "rcShowGet",
     "PidRevSymbols",
     "renderRevPanes",
-    "rcTagBoxes"
+    "rcTagBoxes",
+    "resolveCheckStandard",
+    "standardsAdd",
+    "renderSheetStandard",
+    "rcStampWords"
   ]
 }

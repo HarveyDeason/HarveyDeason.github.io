@@ -306,3 +306,13 @@ test('runReport: progress with lanes says how many are done and how many run at 
   assert.match(words, /2 of 9/);
   assert.equal(R.progressText({ sheet: 3, of: 9, drawing: 'INV-0003', done: 2, total: 5 }), 'Checking sheet 3 of 9: INV-0003, tag 2 of 5…');
 });
+
+test('runReport: the standard each sheet was checked against is carried to its outcome; a check that names none leaves it empty', async () => {
+  const { deps } = fakeDeps({ check: async (bytes, tags, onTags) => ({ result: RESULT, viewportTransform: VT, pages: 1, pageSize: [500, 400], standard: 'Checked against: Invented Pack 2 (INV-1 rev 4)' }) });
+  const out = await R.runReport({ sheets: SHEETS.slice(0, 1), deps, signal: { stopped: false } });
+  assert.equal(out.outcomes[0].standard, 'Checked against: Invented Pack 2 (INV-1 rev 4)');
+  const plain = await R.runReport({ sheets: SHEETS.slice(0, 1), deps: fakeDeps().deps, signal: { stopped: false } });
+  assert.equal(plain.outcomes[0].standard, '');
+  const odd = await R.runReport({ sheets: SHEETS.slice(0, 1), deps: fakeDeps({ check: async () => ({ result: RESULT, viewportTransform: VT, pages: 1, pageSize: [500, 400], standard: 7 }) }).deps, signal: { stopped: false } });
+  assert.equal(odd.outcomes[0].standard, '');
+});

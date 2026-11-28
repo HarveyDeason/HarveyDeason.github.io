@@ -109,7 +109,7 @@ test('workbookRows and writeWorkbook: Tags, Sheets and About', async () => {
   assert.deepEqual(w.tags.columns, ['Drawing', 'Revision', 'No.', 'Tag', 'Function code', 'Verdict', 'Symbol', 'Tag identifier', 'Size %',
     'Score %', 'Filled', 'Letters', 'Closest in family', 'Closest score %', 'Detail']);
   assert.deepEqual(w.sheets.columns, ['Drawing', 'Revision', 'Family', 'Pre-check', 'Result', 'Reason', 'OK', 'OK, off size', 'Wrong family',
-    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard', 'Not identified']);
+    'Approved exception', 'Needs a look', 'Not checked', 'Time (s)', 'Timed out', 'Pages', 'Tag bubbles', 'Not to standard', 'Not identified', 'Standard']);
   assert.equal(w.tags.rows.length, 11);
   assert.ok(w.tags.rows.every(r => r[0] === 'INV-0001' && r.length === 15));
   assert.equal(w.sheets.rows.length, 3);
@@ -166,7 +166,7 @@ test('buildReportModel and workbookRows: each sheet lists its tag bubbles by kin
   const m = model({ outcomes: [{ ...checked, result }, noPdf], stopped: false, ms: 1 });
   assert.deepEqual(m.sheets.map(s => s.bubbleLine), ['Tag bubbles: 2 RING, 1 HEXAGON', '']);
   const w = M.workbookRows(m);
-  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 3]), ['2 RING, 1 HEXAGON', '']);   // the last two columns are Not to standard, Not identified
+  assert.deepEqual(w.sheets.rows.map(r => r[r.length - 4]), ['2 RING, 1 HEXAGON', '']);   // the last three columns are Not to standard, Not identified, Standard
   assert.equal(model().sheets[0].bubbleLine, '');
 });
 
@@ -263,8 +263,8 @@ test('workbookRows: the Symbols sheet is one row per shape, not to standard firs
     ['WIDGET + HANDLE', 'Yes', '', '', ''],
     ['', 'Not judged', 'not judged: time limit', '', ''],
     ['WIDGET', '', '', '', '']]);   // a listed symbol in no shape keeps its row
-  assert.equal(w.sheets.columns[w.sheets.columns.length - 2], 'Not to standard');
-  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 2], 2);
+  assert.equal(w.sheets.columns[w.sheets.columns.length - 3], 'Not to standard');
+  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 3], 2);
 });
 
 test('workbookRows: an old result with no shapes gives the rows of before with the new columns blank', () => {
@@ -273,7 +273,7 @@ test('workbookRows: an old result with no shapes gives the rows of before with t
     ['INV-0001', 'C01', 1, 'GADGET', 'GADGET, WIDGET', 'G', 100, 99, '', '', '', '', '', ''],
     ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 100, 99, '21-W-1001', '', '', '', '', ''],
     ['INV-0001', 'C01', 1, 'WIDGET', '', 'W', 120, 99, '', '', '', '', '', '']]);
-  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 1], '');
+  assert.equal(w.sheets.rows[0][w.sheets.columns.length - 2], '');
 });
 
 test('buildReportModel: flagged shapes become numbered amber rows, with their boxes', () => {
@@ -353,12 +353,12 @@ test('buildReportModel: a result with no verdicts keeps the shape model of befor
 test('workbookRows, verdicts: Sheets gains Not identified after Not to standard; red shapes with no symbol have no Symbols row', () => {
   const w = M.workbookRows(model({ outcomes: [verdictSheet], stopped: false, ms: 1 }));
   const n = w.sheets.columns.length;
-  assert.deepEqual(w.sheets.columns.slice(-2), ['Not to standard', 'Not identified']);
-  assert.deepEqual(w.sheets.rows[0].slice(-2), [2, 2]);
+  assert.deepEqual(w.sheets.columns.slice(-3, -1), ['Not to standard', 'Not identified']);
+  assert.deepEqual(w.sheets.rows[0].slice(-3, -1), [2, 2]);
   assert.equal(w.symbols.rows.length, 3);   // two amber and one standard, no red
   assert.ok(w.symbols.rows.every(r => r[10] !== 'Not identified'));
   const old = M.workbookRows(model({ outcomes: [shapedSheet], stopped: false, ms: 1 }));
-  assert.equal(old.sheets.rows[0][n - 1], '');
+  assert.equal(old.sheets.rows[0][n - 2], '');
 });
 
 test('buildReportModel, verdicts: the heading keeps the not judged count and the operators note', async () => {
@@ -379,4 +379,16 @@ test('buildReportModel: a standard shape with parts is named by its parts', () =
   assert.deepEqual(s.standardRows.map(r => r.name), ['WIDGET + HANDLE + FLANGE ×2']);
   const w = M.workbookRows(model({ outcomes: [{ ...checked, result: { ...SHAPED_RESULT, shapes } }], stopped: false, ms: 1 }));
   assert.ok(w.symbols.rows.some(x => x[3] === 'WIDGET + HANDLE + FLANGE ×2'), JSON.stringify(w.symbols.rows.map(x => x[3])));
+});
+
+test('the standard each sheet was checked against: on its row, and the distinct ones listed for the front page', () => {
+  const o1 = { ...RUN.outcomes[0], standard: 'Checked against: P 2' }, o2 = { ...RUN.outcomes[0], drawing: 'INV-0009', standard: 'Checked against: P 1' }, o3 = { ...RUN.outcomes[0], drawing: 'INV-0010', standard: 'Checked against: P 2' };
+  const m = model({ ...RUN, outcomes: [o1, o2, o3] });
+  assert.deepEqual(m.sheets.map(s => s.standard), ['Checked against: P 2', 'Checked against: P 1', 'Checked against: P 2']);
+  assert.deepEqual(m.standards, ['Checked against: P 2', 'Checked against: P 1']);
+  assert.deepEqual(model().standards, []);
+  assert.equal(model().sheets[0].standard, '');
+  const rows = M.workbookRows(m).sheets;
+  assert.ok(rows.columns.includes('Standard'));
+  assert.equal(rows.rows[1][rows.columns.indexOf('Standard')], 'Checked against: P 1');
 });
