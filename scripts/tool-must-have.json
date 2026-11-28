@@ -28,6 +28,9 @@
     "resolveCheckStandard",
     "standardsAdd",
     "renderSheetStandard",
-    "rcStampWords"
+    "rcStampWords",
+    "standardsDelete",
+    "openPackEditor",
+    "PidPackEdit"
   ]
 }
