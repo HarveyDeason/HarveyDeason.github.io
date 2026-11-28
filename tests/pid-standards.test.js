@@ -90,3 +90,24 @@ test('hostile input never throws', () => {
     assert.doesNotThrow(() => S.resolveStandard(bad)); assert.doesNotThrow(() => S.stampStatus(bad, bad)); assert.doesNotThrow(() => S.addStandard(bad, bad)); assert.doesNotThrow(() => S.stampOf(bad));
   }
 });
+
+test('removeStandard: the pack leaves the list and nothing else changes; the current one is never removed here', () => {
+  let ix = S.addStandard(S.addStandard(S.emptyIndex(), { id: 'p-1', name: 'P', packRevision: '1', fingerprint: 'a', libraryFp: 'L1', savedAt: '1' }), { id: 'p-2', name: 'P', packRevision: '2', fingerprint: 'b', libraryFp: 'L1', savedAt: '2' }, { makeCurrent: true });
+  const r = S.removeStandard(ix, 'p-1');
+  assert.equal(r.ok, true); assert.deepEqual(r.index.standards.map(s => s.id), ['p-2']); assert.equal(r.index.current, 'p-2');
+  assert.equal(ix.standards.length, 2, 'the list it was given is not changed');
+  const cur = S.removeStandard(ix, 'p-2');
+  assert.equal(cur.ok, false); assert.match(cur.problem, /current/i); assert.equal(cur.index.standards.length, 2);
+  const none = S.removeStandard(ix, 'nope');
+  assert.equal(none.ok, false); assert.match(none.problem, /not in the list/i);
+  for (const bad of [null, undefined, 7, 'x']) { assert.doesNotThrow(() => S.removeStandard(bad, 'p-1')); assert.equal(S.removeStandard(bad, 'p-1').ok, false); }
+});
+
+test('countStamped: how many drawing revisions were read under a pack, and how many drawings that is', () => {
+  const rev = (id) => ({ importedAt: 'x', tags: [], standard: id === undefined ? undefined : { builtin: false, standardId: id } });
+  const h = { A: { C01: rev('p-1'), C02: rev('p-2') }, B: { C01: rev('p-1') }, C: { C01: rev(undefined) }, D: { C01: rev('p-2') } };
+  assert.deepEqual(S.countStamped(h, 'p-1'), { revisions: 2, drawings: 2 });
+  assert.deepEqual(S.countStamped(h, 'p-2'), { revisions: 2, drawings: 2 });
+  assert.deepEqual(S.countStamped(h, 'p-9'), { revisions: 0, drawings: 0 });
+  for (const bad of [null, undefined, 7, 'x', [], { A: 7 }, { A: { C01: null } }]) assert.deepEqual(S.countStamped(bad, 'p-1'), { revisions: 0, drawings: 0 });
+});

@@ -57,6 +57,29 @@ export function setCurrent(index, id) {
   if (id === null) return { ...ix, current: null };
   return ix.standards.some(s => s && s.id === id) ? { ...ix, current: id } : ix;
 }
+/** { ok, index } with the pack taken out of the list. The current pack is not removed (make another current first); an unlisted id is a problem, not a silent no-op. */
+export function removeStandard(index, id) {
+  try {
+    if (!valid(index)) return { ok: false, problem: 'There is no list of packs.', index: emptyIndex() };
+    if (!index.standards.some(s => s && s.id === id)) return { ok: false, problem: 'That pack is not in the list.', index };
+    if (index.current === id) return { ok: false, problem: 'That is the current pack. Make another pack current (or use the built-in standard) first, then delete it.', index };
+    return { ok: true, index: { ...index, standards: index.standards.filter(s => s && s.id !== id) } };
+  } catch { return { ok: false, problem: 'The pack could not be removed.', index: emptyIndex() }; }
+}
+/** How many drawing revisions (and drawings) in the register's history were read under a pack: what deleting it would leave without its own standard. */
+export function countStamped(revHistory, id) {
+  const out = { revisions: 0, drawings: 0 };
+  try {
+    if (!isObj(revHistory)) return out;
+    for (const revs of Object.values(revHistory)) {
+      if (!isObj(revs)) continue;
+      let hit = 0;
+      for (const snap of Object.values(revs)) if (isObj(snap) && isObj(snap.standard) && snap.standard.standardId === id) hit++;
+      if (hit) { out.revisions += hit; out.drawings++; }
+    }
+  } catch { /* what was counted stands */ }
+  return out;
+}
 export const serializeIndex = ix => JSON.stringify(valid(ix) ? ix : emptyIndex(), null, 1);
 /** { ok, index } from the saved text. Unusable text is an empty list, never a throw; bad and repeated entries are dropped. */
 export function parseIndex(text) {
